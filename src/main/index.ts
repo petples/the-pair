@@ -17,6 +17,15 @@ import type { AssignTaskInput, CreatePairInput, UpdatePairModelsInput } from './
 
 app.setName('The Pair')
 
+// CRITICAL: Disable hardware acceleration BEFORE any other initialization
+// This must be called immediately to prevent Rust FFI fontations crash
+// The crash happens during Electron Framework initialization when
+// hardened runtime + M4 GPU driver conflicts with font rendering
+app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('disable-gpu-compositing')
+app.commandLine.appendSwitch('disable-gpu')
+app.commandLine.appendSwitch('disable-software-rasterizer')
+
 function createWindow(): void {
   // Create the browser window.
   const mainWindow = new BrowserWindow({

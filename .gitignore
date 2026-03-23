@@ -6,5 +6,6 @@ out
 *.log*
 .pair
 .vscode
+.worktrees
 docs/superpowers
 test-*.txt
