@@ -82,8 +82,13 @@ jobs:
         run: |
           security find-identity -v -p codesigning | tee identities.txt
           RESOLVED_IDENTITY=$(awk -F '"' '/Developer ID Application/ {print $2; exit}' identities.txt)
+          RESOLVED_HASH=$(awk '/Developer ID Application/ {print $2; exit}' identities.txt)
           if [ -z "$RESOLVED_IDENTITY" ]; then
             echo "No Developer ID Application identity was imported."
+            exit 1
+          fi
+          if [ -z "$RESOLVED_HASH" ]; then
+            echo "No Developer ID Application identity hash was detected."
             exit 1
           fi
           if ! grep -F -- "$EXPECTED_IDENTITY" identities.txt >/dev/null; then
@@ -91,10 +96,11 @@ jobs:
             exit 1
           fi
           echo "resolved_identity=$RESOLVED_IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "resolved_hash=$RESOLVED_HASH" >> "$GITHUB_OUTPUT"
 
       - name: Build signed and notarized app
         env:
-          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
+          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_hash }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
