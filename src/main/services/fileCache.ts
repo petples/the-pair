@@ -1,6 +1,7 @@
 import { readdirSync, statSync, existsSync, readFileSync } from 'fs'
 import { join, relative } from 'path'
 import chokidar from 'chokidar'
+import type { FSWatcher } from 'chokidar'
 
 const EXCLUDED_DIRS = new Set([
   '.git',
@@ -36,7 +37,7 @@ export interface FileEntry {
 
 class FileCacheService {
   private caches: Map<string, FileEntry[]> = new Map()
-  private watchers: Map<string, chokidar.FSWatcher> = new Map()
+  private watchers: Map<string, FSWatcher> = new Map()
 
   async buildCache(directory: string): Promise<FileEntry[]> {
     if (this.caches.has(directory)) {
