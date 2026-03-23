@@ -122,21 +122,29 @@ jobs:
 
           xattr -cr "$APP_PATH"
 
-          # Sign all frameworks first
-          find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" | while read -r framework; do
-            echo "Signing framework: $framework"
-            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$framework"
+          # Sign from innermost to outermost to avoid breaking seals
+          # 1. Sign dylibs and executables inside frameworks
+          find "$APP_PATH/Contents/Frameworks" -type f \( -name "*.dylib" -o -name "*.node" \) | while read -r file; do
+            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file" 2>/dev/null || true
           done
 
-          # Sign all dylibs and executables
-          find "$APP_PATH/Contents" -type f \( -name "*.dylib" -o -name "*.node" -o -perm -111 \) | while read -r file; do
-            if file "$file" | grep -q "Mach-O"; then
-              echo "Signing binary: $file"
-              codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file"
+          find "$APP_PATH/Contents/Frameworks" -type f -perm +111 | grep -v "\.framework" | while read -r file; do
+            if file "$file" 2>/dev/null | grep -q "Mach-O"; then
+              codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file" 2>/dev/null || true
             fi
           done
 
-          # Finally sign the app bundle itself
+          # 2. Sign helper apps
+          find "$APP_PATH/Contents/Frameworks" -name "*.app" -type d | while read -r helper; do
+            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$helper"
+          done
+
+          # 3. Sign frameworks (seals everything inside)
+          find "$APP_PATH/Contents/Frameworks" -name "*.framework" -type d -depth 1 | while read -r framework; do
+            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$framework"
+          done
+
+          # 4. Sign main app
           codesign --force --options runtime --timestamp --entitlements build/entitlements.mac.plist --sign "$CODESIGN_IDENTITY" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
