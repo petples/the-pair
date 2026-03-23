@@ -101,6 +101,7 @@ jobs:
       - name: Build signed and notarized app
         env:
           CSC_NAME: ${{ steps.signing_identity.outputs.resolved_hash }}
+          CSC_KEYCHAIN: signing_temp.keychain-db
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
