@@ -144,8 +144,12 @@ jobs:
             codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$helper"
           done
 
-          # Sign frameworks (seals everything inside)
+          # Sign frameworks (seals everything inside) - skip Electron Framework
           find "$APP_PATH/Contents/Frameworks" -name "*.framework" -type d -depth 1 | while read -r framework; do
+            if [[ "$framework" == *"Electron Framework.framework" ]]; then
+              echo "Skipping Electron Framework (already signed by Electron team)"
+              continue
+            fi
             echo "Signing framework: $framework"
             codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$framework"
           done
