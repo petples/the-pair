@@ -106,8 +106,11 @@ jobs:
 
       - name: Build and sign app
         env:
-          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
-        run: npm run build:mac -- --dir
+          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_hash }}
+        run: |
+          security list-keychains
+          security unlock-keychain
+          npm run build:mac -- --dir
 
       - name: Verify app signature
         run: |
