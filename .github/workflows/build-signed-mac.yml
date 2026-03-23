@@ -104,11 +104,10 @@ jobs:
           echo "resolved_identity=$RESOLVED_IDENTITY" >> "$GITHUB_OUTPUT"
           echo "resolved_hash=$RESOLVED_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Build signed and notarized app
+      - name: Build app (unsigned)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          CSC_NAME: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-        run: npm run build:unpack
+        run: npm run build:mac -- --dir
 
       - name: Manually sign app bundle
         env:
@@ -157,15 +156,16 @@ jobs:
             codesign -dv --verbose=4 "$file" 2>&1 | sed -n '1,20p'
           done
 
-      - name: Package notarization archive
+      - name: Create DMG
         run: |
           APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "The Pair.app not found in dist"
-            exit 1
-          fi
+          hdiutil create -volname "The Pair" -srcfolder "$APP_PATH" -ov -format UDZO "dist/the-pair-${VERSION}.dmg"
 
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
+      - name: Sign DMG
+        env:
+          CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
+        run: |
+          codesign --force --sign "$CODESIGN_IDENTITY" "dist/the-pair-${VERSION}.dmg"
 
       - name: Notarize DMG
         id: notarize
@@ -175,7 +175,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          SUBMISSION_OUTPUT=$(xcrun notarytool submit "dist/the-pair-${VERSION}.zip" \
+          SUBMISSION_OUTPUT=$(xcrun notarytool submit "dist/the-pair-${VERSION}.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$TEAM_ID" \
@@ -194,22 +194,15 @@ jobs:
             exit 1
           fi
 
-      - name: Staple notarization ticket
+      - name: Staple notarization ticket to DMG
+        run: |
+          xcrun stapler staple "dist/the-pair-${VERSION}.dmg"
+          xcrun stapler validate "dist/the-pair-${VERSION}.dmg"
+
+      - name: Create ZIP for distribution
         run: |
           APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "The Pair.app not found in dist"
-            exit 1
-          fi
-
-          for attempt in 1 2 3 4 5 6; do
-            if xcrun stapler staple "$APP_PATH"; then
-              xcrun stapler validate "$APP_PATH"
-              exit 0
-            fi
-            echo "Stapler attempt $attempt failed; waiting for notarization ticket propagation..."
-            sleep 30
-          done
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
 
           echo "Stapling failed after multiple retries."
           exit 1
