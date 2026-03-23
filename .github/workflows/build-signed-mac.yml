@@ -76,18 +76,25 @@ jobs:
           p12-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
 
       - name: Verify signing identity
+        id: signing_identity
         env:
           EXPECTED_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
-          security find-identity -v -p codesigning
-          if ! security find-identity -v -p codesigning | grep -F -- "$EXPECTED_IDENTITY" >/dev/null; then
+          security find-identity -v -p codesigning | tee identities.txt
+          RESOLVED_IDENTITY=$(awk -F '"' '/Developer ID Application/ {print $2; exit}' identities.txt)
+          if [ -z "$RESOLVED_IDENTITY" ]; then
+            echo "No Developer ID Application identity was imported."
+            exit 1
+          fi
+          if ! grep -F -- "$EXPECTED_IDENTITY" identities.txt >/dev/null; then
             echo "Expected signing identity was not imported into the runner keychain."
             exit 1
           fi
+          echo "resolved_identity=$RESOLVED_IDENTITY" >> "$GITHUB_OUTPUT"
 
       - name: Build signed and notarized app
         env:
-          CSC_NAME: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
