@@ -165,7 +165,7 @@ jobs:
 
       - name: Create and sign DMG
         env:
-          CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
+          CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_hash }}
         run: |
           APP_PATH="dist/mac-arm64/The Pair.app"
           STAGING_DIR=$(mktemp -d)
