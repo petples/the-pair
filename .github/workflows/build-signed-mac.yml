@@ -204,8 +204,19 @@ jobs:
 
       - name: Staple notarization ticket to DMG
         run: |
-          xcrun stapler staple "dist/the-pair-${VERSION}.dmg"
-          xcrun stapler validate "dist/the-pair-${VERSION}.dmg"
+          echo "Waiting for notarization ticket to be available..."
+          for i in {1..5}; do
+            if xcrun stapler staple "dist/the-pair-${VERSION}.dmg" 2>&1; then
+              echo "✅ Stapling succeeded"
+              xcrun stapler validate "dist/the-pair-${VERSION}.dmg"
+              exit 0
+            fi
+            echo "Stapling attempt $i failed, waiting 30s..."
+            sleep 30
+          done
+          
+          echo "❌ Stapling failed after 5 attempts"
+          exit 1
 
       - name: Create ZIP for distribution
         run: |
