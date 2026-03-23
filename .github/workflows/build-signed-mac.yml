@@ -156,8 +156,18 @@ jobs:
             echo "The Pair.app not found in dist"
             exit 1
           fi
-          xcrun stapler staple "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
+
+          for attempt in 1 2 3 4 5 6; do
+            if xcrun stapler staple "$APP_PATH"; then
+              xcrun stapler validate "$APP_PATH"
+              exit 0
+            fi
+            echo "Stapler attempt $attempt failed; waiting for notarization ticket propagation..."
+            sleep 30
+          done
+
+          echo "Stapling failed after multiple retries."
+          exit 1
 
       - name: Package distributable artifacts
         run: |
