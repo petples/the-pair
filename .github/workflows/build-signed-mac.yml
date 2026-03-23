@@ -107,8 +107,11 @@ jobs:
       - name: Build and sign app with electron-builder
         env:
           CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
-          CSC_KEYCHAIN: ${{ steps.import_certificate.outputs.keychain_path }}
-        run: npm run build:mac -- --dir
+          CSC_KEYCHAIN: signing_temp.keychain
+          CSC_FOR_PULL_REQUEST: true
+        run: |
+          security unlock-keychain -p "${{ secrets.MACOS_CERTIFICATE_PWD }}" signing_temp.keychain
+          npm run build:mac -- --dir
 
       - name: Inspect signed binaries
         run: |
