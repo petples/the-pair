@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { ChevronLeft, Moon, Plus, Settings2, Sparkles, Sun, WandSparkles } from 'lucide-react'
 import { Pair } from '../store/usePairStore'
 import { cn } from '../lib/utils'
@@ -38,6 +38,23 @@ export function AppChrome({
 
   const pairBusy = selectedPair ? isBusy(selectedPair.status) : false
 
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  useEffect(() => {
+    console.log('[AppChrome] api:', window.api)
+    console.log('[AppChrome] config:', window.api?.config)
+    console.log('[AppChrome] getVersion:', window.api?.config?.getVersion)
+    window.api?.config
+      ?.getVersion?.()
+      .then((v: string) => {
+        console.log('[AppChrome] version:', v)
+        setAppVersion(v)
+      })
+      .catch((e: Error) => {
+        console.error('[AppChrome] getVersion error:', e)
+      })
+  }, [])
+
   return (
     <div className="app-chrome glass-toolbar relative shrink-0 border-b border-border/60">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
@@ -66,6 +83,9 @@ export function AppChrome({
               <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
                 {selectedPair ? selectedPair.name : 'The Pair'}
               </h1>
+              <span className="rounded bg-blue-500 px-2 py-0.5 text-xs font-bold text-white">
+                v{appVersion && appVersion !== '0.0.0' ? appVersion : '1.0.1'}
+              </span>
               {selectedPair ? <StatusBadge status={selectedPair.status} /> : null}
               {selectedPair?.pendingMentorModel || selectedPair?.pendingExecutorModel ? (
                 <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">

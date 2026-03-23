@@ -107,6 +107,7 @@ interface ConfigAPI {
   getProviders: () => Promise<unknown>
   read: () => Promise<unknown>
   openFile: () => Promise<string>
+  getVersion: () => Promise<string>
 }
 
 interface API {

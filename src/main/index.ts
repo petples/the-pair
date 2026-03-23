@@ -1,10 +1,20 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Menu,
+  MenuItemConstructorOptions
+} from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { messageBroker } from './messageBroker'
 import { pairManager } from './pairManager'
 import type { AssignTaskInput, CreatePairInput, UpdatePairModelsInput } from './types'
+
+app.setName('The Pair')
 
 function createWindow(): void {
   // Create the browser window.
@@ -133,7 +143,44 @@ app.whenReady().then(() => {
     })
   })
 
+  ipcMain.handle('app:getVersion', async () => {
+    return app.getVersion()
+  })
+
   createWindow()
+
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: 'The Pair',
+      submenu: [
+        {
+          label: 'About',
+          role: 'about'
+        },
+        { type: 'separator' },
+        {
+          label: 'Preferences',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => {
+            const configPath = join(app.getPath('home'), '.config/opencode/opencode.json')
+            shell.openPath(configPath)
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Quit',
+          accelerator: 'CmdOrCtrl+Q',
+          role: 'quit'
+        }
+      ]
+    },
+    { label: 'Edit', role: 'editMenu' },
+    { label: 'View', role: 'viewMenu' },
+    { label: 'Window', role: 'windowMenu' }
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

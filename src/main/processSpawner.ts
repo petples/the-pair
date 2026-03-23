@@ -40,7 +40,9 @@ Workflow:
 2. If it's the first turn, break the task down and provide the FIRST clear, actionable instruction for the Executor.
 3. If it's a progress update, review what the Executor did. If it succeeded, provide the NEXT instruction. If it failed, provide a solution or alternative approach.
 4. Keep your instructions concise and step-by-step.
-5. If the ENTIRE task is fully completed and verified, respond with EXACTLY the word "TASK_COMPLETED" and nothing else.`
+5. If the ENTIRE task is fully completed and verified, respond with EXACTLY the word "TASK_COMPLETED" and nothing else.
+
+IMPORTANT: If the task is ONLY research/analysis with no implementation required, instruct the Executor to write findings to a file (e.g., .pair/analysis.md). For implementation tasks, proceed with code changes as normal.`
   }
 
   private buildExecutorPrompt(): string {
@@ -162,17 +164,16 @@ Workflow:
     }
 
     const fullMessage = `[SYSTEM INSTRUCTIONS - STRICTLY FOLLOW THESE]\n${systemPrompt}\n\n[NEW INPUT]\n${message}`
-    let cmd: string
     let messagePath: string | null = null
 
     // All providers use stdin for message input to avoid command-line length limits
     const runtimeArgs = runtime.argBuilder(model, sessionId)
     const cmdParts = [runtime.executable, ...runtimeArgs]
-    
+
     messagePath = path.join(runtimeDir, `msg_${role}_${Date.now()}.txt`)
     fs.writeFileSync(messagePath, fullMessage, 'utf-8')
-    cmd = `${cmdParts.join(' ')} < "${messagePath}"`
-    
+    const cmd = `${cmdParts.join(' ')} < "${messagePath}"`
+
     console.log('[ProcessSpawner] Executing command:', cmdParts.join(' '))
     console.log('[ProcessSpawner] Model:', model, 'SessionId:', sessionId)
 

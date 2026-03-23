@@ -35,6 +35,13 @@ const STEPS = [
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.ReactNode {
   const [currentStep, setCurrentStep] = useState(0)
+  const [appVersion, setAppVersion] = useState<string>('1.0.1')
+
+  useEffect(() => {
+    window.api?.config?.getVersion?.().then((v: string) => {
+      setAppVersion(v && v !== '0.0.0' ? v : '1.0.1')
+    })
+  }, [])
   const [configLoading, setConfigLoading] = useState(true)
   const [configStatus, setConfigStatus] = useState<
     'checking' | 'ok' | 'missing-keys' | 'missing-file'
@@ -64,9 +71,10 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
       const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
-      const defaultModel = defaultEntry.provider === 'opencode' 
-        ? defaultEntry.modelId 
-        : `${defaultEntry.provider}/${defaultEntry.modelId}`
+      const defaultModel =
+        defaultEntry.provider === 'opencode'
+          ? defaultEntry.modelId
+          : `${defaultEntry.provider}/${defaultEntry.modelId}`
       setMentorModel(defaultModel)
       setExecutorModel(defaultModel)
     }
@@ -110,6 +118,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     const result = await window.electron.ipcRenderer.invoke('dialog:openDirectory')
     if (result && !result.canceled && result.filePaths.length > 0) {
       setDirectory(result.filePaths[0])
+      setCurrentStep(currentStep + 1)
     }
   }
 
@@ -192,7 +201,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background grain-overlay">
-      <div className="glass-toolbar shrink-0 px-6 py-4">
+      <div className="glass-toolbar app-drag shrink-0 px-6 py-4">
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-3">
@@ -200,6 +209,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
                 <Sparkles size={15} className="text-foreground/70" />
               </div>
               <span className="font-semibold text-sm text-foreground tracking-tight">The Pair</span>
+              <span className="rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                v{appVersion}
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
@@ -207,7 +219,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
               </span>
               <button
                 onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
+                className="app-no-drag p-2 rounded-lg hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
                 title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
               >
                 {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}

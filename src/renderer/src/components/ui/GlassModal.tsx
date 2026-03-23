@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -20,11 +20,7 @@ export function GlassModal({
   title,
   className
 }: GlassModalProps): React.ReactNode {
-  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
-
-  useEffect(() => {
-    setPortalRoot(document.body)
-  }, [])
+  const [portalRoot] = useState<HTMLElement | null>(() => document.body)
 
   if (!portalRoot) return null
 

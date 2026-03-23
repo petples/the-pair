@@ -54,6 +54,56 @@ function safeReadJson(filePath: string): object | null {
   }
 }
 
+function formatModelName(modelId: string): string {
+  return modelId
+    .split(/[-_/]+/)
+    .map((part) => {
+      if (part.length <= 2) return part.toUpperCase()
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
+    })
+    .join(' ')
+}
+
+function queryOpencodeModels(): DetectedModelOption[] {
+  try {
+    const output = execSync('opencode models', { encoding: 'utf-8', timeout: 10000 })
+    const lines = output
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim())
+    const models: DetectedModelOption[] = []
+    const seen = new Set<string>()
+
+    for (const line of lines) {
+      const trimmedLine = line.trim()
+      if (!trimmedLine) continue
+
+      const match = trimmedLine.match(/^([a-zA-Z0-9-_]+)\/(.+)$/)
+      if (match) {
+        const [, providerId, modelId] = match
+        const qualifiedId = `${providerId}/${modelId}`
+
+        if (!seen.has(qualifiedId)) {
+          seen.add(qualifiedId)
+          models.push({
+            modelId: qualifiedId,
+            displayName: formatModelName(modelId),
+            sourceProvider: providerId,
+            subscriptionLabel: 'provider-backed',
+            supportsPairExecution: true,
+            runnable: true
+          })
+        }
+      }
+    }
+
+    return models
+  } catch (error) {
+    console.error('[OpenCodeAdapter] Failed to query opencode models:', error)
+    return []
+  }
+}
+
 class OpenCodeAdapter implements ProviderAdapter {
   kind: ProviderKind = 'opencode'
 
@@ -124,6 +174,17 @@ class OpenCodeAdapter implements ProviderAdapter {
         supportsPairExecution: true,
         runnable: installed
       }))
+    }
+
+    if (installed && authenticated) {
+      const discoveredModels = queryOpencodeModels()
+      const existingIds = new Set(models.map((m) => m.modelId))
+
+      for (const model of discoveredModels) {
+        if (!existingIds.has(model.modelId)) {
+          models.push(model)
+        }
+      }
     }
 
     return {

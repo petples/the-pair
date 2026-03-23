@@ -107,7 +107,8 @@ const api = {
     getProviders: (): Promise<DetectedProviderProfile[]> =>
       ipcRenderer.invoke('config:getProviders'),
     read: (): Promise<unknown> => ipcRenderer.invoke('config:read'),
-    openFile: (): Promise<string> => ipcRenderer.invoke('config:openFile')
+    openFile: (): Promise<string> => ipcRenderer.invoke('config:openFile'),
+    getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion')
   }
 }
 
