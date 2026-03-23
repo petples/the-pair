@@ -112,6 +112,28 @@ jobs:
           security unlock-keychain
           npm run build:mac -- --dir
 
+      - name: Sign all frameworks and libraries
+        env:
+          IDENTITY: ${{ steps.signing_identity.outputs.resolved_hash }}
+        run: |
+          APP="dist/mac-arm64/The Pair.app"
+          FRAMEWORKS="$APP/Contents/Frameworks"
+
+          # Sign all nested frameworks (inside-out)
+          find "$FRAMEWORKS" -type d -name "*.framework" -depth 2 | while read -r fw; do
+            echo "Signing framework: $fw"
+            codesign --force --deep --sign "$IDENTITY" --timestamp --options runtime "$fw"
+          done
+
+          # Sign all dylibs and node files
+          find "$FRAMEWORKS" -type f \( -name "*.dylib" -o -name "*.node" \) | while read -r lib; do
+            echo "Signing library: $lib"
+            codesign --force --sign "$IDENTITY" --timestamp "$lib"
+          done
+
+          # Re-sign the main app bundle
+          codesign --force --deep --sign "$IDENTITY" --timestamp --options runtime "$APP"
+
       - name: Verify app signature
         run: |
           codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/The Pair.app"
