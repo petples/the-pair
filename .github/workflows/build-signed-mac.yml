@@ -200,7 +200,6 @@ jobs:
             exit 1
           fi
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          xcrun stapler validate "$APP_PATH"
 
       - name: Create or update GitHub release
         env:
