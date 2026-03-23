@@ -1,6 +1,6 @@
 appId: com.electron.the-pair
 productName: The Pair
-copyright: Copyright © 2024 timwuhaotian
+copyright: Copyright © 2026 timwuhaotian
 directories:
   buildResources: build
   output: dist
@@ -42,7 +42,7 @@ mac:
     NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
     NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
     ITSAppUsesNonExemptEncryption: false
-  notarize: true
+  notarize: false
   darkModeSupport: true
 dmg:
   artifactName: ${name}-${version}.${ext}
