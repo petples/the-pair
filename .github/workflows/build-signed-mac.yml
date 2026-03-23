@@ -100,13 +100,52 @@ jobs:
 
       - name: Build signed and notarized app
         env:
-          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_hash }}
-          CSC_KEYCHAIN: signing_temp.keychain-db
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run build:mac
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run build:unpack
+
+      - name: Manually sign app bundle
+        env:
+          CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
+        run: |
+          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "The Pair.app not found in dist"
+            exit 1
+          fi
+
+          xattr -cr "$APP_PATH"
+          codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+      - name: Inspect signed binaries
+        run: |
+          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
+          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n '1,40p'
+          find "$APP_PATH/Contents/Frameworks" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.node" \) | head -n 8 | while read -r file; do
+            echo "=== $file ==="
+            codesign -dv --verbose=4 "$file" 2>&1 | sed -n '1,20p'
+          done
+
+      - name: Package signed artifacts
+        run: |
+          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "The Pair.app not found in dist"
+            exit 1
+          fi
+
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
+
+          STAGING_DIR=$(mktemp -d)
+          cp -R "$APP_PATH" "$STAGING_DIR/The Pair.app"
+          ln -s /Applications "$STAGING_DIR/Applications"
+
+          hdiutil create \
+            -volname "The Pair" \
+            -srcfolder "$STAGING_DIR" \
+            -ov \
+            -format UDZO \
+            "dist/the-pair-${VERSION}.dmg"
 
       - name: Notarize DMG
         env:
@@ -115,6 +154,12 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          xcrun notarytool submit "dist/the-pair-${VERSION}.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+
           xcrun notarytool submit "dist/the-pair-${VERSION}.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
