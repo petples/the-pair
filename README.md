@@ -52,6 +52,9 @@ While they work, **go grab a coffee**. Come back to reviewed, cross-validated co
 
 Unlike single-agent tools where one model's mistakes go unchecked, The Pair's dual-agent architecture means the Executor writes code while the Mentor catches issues before they land.
 
+<img width="1536" height="2752" alt="onepager" src="https://github.com/user-attachments/assets/11b725ea-ee22-44c9-b27d-968aa916ffa4" />
+
+
 ### Key Benefits
 
 - **Dual-Model Cross-Validation** — Two models check each other's work, dramatically reducing code hallucinations
