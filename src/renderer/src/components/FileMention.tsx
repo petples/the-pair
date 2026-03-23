@@ -28,42 +28,70 @@ export function FileMention({
   const [files, setFiles] = useState<FileEntry[]>([])
   const popoverRef = useRef<HTMLDivElement>(null)
 
-  const fuseRef = useRef<Fuse<FileEntry> | null>(null)
+  const [fuse, setFuse] = useState<Fuse<FileEntry> | null>(null)
+  const filesRef = useRef<FileEntry[]>([])
 
   useEffect(() => {
     if (!directory) return
 
     window.api.file.listFiles({ pairId, directory }).then((fileList) => {
       setFiles(fileList)
+      filesRef.current = fileList
     })
   }, [directory, pairId])
 
   useEffect(() => {
     if (files.length === 0) return
 
-    fuseRef.current = new Fuse(files, {
-      keys: ['path'],
-      threshold: 0.4,
-      includeScore: true
-    })
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFuse(
+      new Fuse(files, {
+        keys: ['path'],
+        threshold: 0.4,
+        includeScore: true
+      })
+    )
   }, [files])
 
   const getCursorPosition = useCallback((): { top: number; left: number } | null => {
     const textarea = textareaRef.current
     if (!textarea) return null
 
+    const rect = textarea.getBoundingClientRect()
     const text = textarea.value
     const pos = textarea.selectionStart
     const textBeforeCursor = text.slice(0, pos)
+    const lastAtPos = textBeforeCursor.lastIndexOf('@')
 
-    const lines = textBeforeCursor.split('\n')
-    const lineHeight = 24
-    const charWidth = 8
+    const mirror = document.createElement('div')
+    const computed = window.getComputedStyle(textarea)
 
-    const top = (lines.length - 1) * lineHeight + 120
-    const left = lines[lines.length - 1].length * charWidth + 16
+    mirror.style.cssText = `
+      position: absolute;
+      visibility: hidden;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font: ${computed.font};
+      padding: ${computed.padding};
+      border: ${computed.border};
+      width: ${computed.width};
+      line-height: ${computed.lineHeight};
+    `
 
-    return { top, left }
+    mirror.textContent = text.slice(0, lastAtPos + 1)
+    document.body.appendChild(mirror)
+
+    const span = document.createElement('span')
+    span.textContent = '@'
+    mirror.appendChild(span)
+
+    const spanRect = span.getBoundingClientRect()
+    document.body.removeChild(mirror)
+
+    return {
+      top: spanRect.bottom - rect.top + textarea.scrollTop,
+      left: spanRect.left - rect.left + textarea.scrollLeft
+    }
   }, [textareaRef])
 
   const insertMention = useCallback(
@@ -145,17 +173,17 @@ export function FileMention({
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
     }
-  }, [textareaRef, isOpen, results, selectedIndex, getCursorPosition, insertMention, files])
+  }, [textareaRef, isOpen, results, selectedIndex, getCursorPosition, insertMention])
 
   useEffect(() => {
-    if (!query || !fuseRef.current) {
-      setTimeout(() => setResults(files.slice(0, 50)), 0)
+    if (!query || !fuse) {
+      setTimeout(() => setResults(filesRef.current.slice(0, 50)), 0)
       return
     }
 
-    const searchResults = fuseRef.current.search(query).slice(0, 50)
+    const searchResults = fuse.search(query).slice(0, 50)
     setTimeout(() => setResults(searchResults.map((r) => r.item)), 0)
-  }, [query, files, insertMention])
+  }, [query, fuse])
 
   if (!isOpen || results.length === 0) return null
 

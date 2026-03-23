@@ -159,15 +159,11 @@
 }
 
 .app-chrome {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent),
-    var(--toolbar-bg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent), var(--toolbar-bg);
 }
 
 .dark .app-chrome {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent),
-    var(--toolbar-bg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent), var(--toolbar-bg);
 }
 
 .glass-panel {

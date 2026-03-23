@@ -1,10 +1,18 @@
+import os from 'os'
 import pidusage from 'pidusage'
 import type { PairResources } from './types'
 import { messageBroker } from './messageBroker'
 
+interface CachedStats {
+  cpu: number
+  memMb: number
+}
+
 interface PairMonitorState {
   mentorPid: number | null
   executorPid: number | null
+  mentorCached: CachedStats
+  executorCached: CachedStats
 }
 
 class PairResourceMonitor {
@@ -19,24 +27,33 @@ class PairResourceMonitor {
 
   registerPair(pairId: string, getPairState: () => { resources: PairResources } | undefined): void {
     this.monitors.set(pairId, {
-      state: { mentorPid: null, executorPid: null },
+      state: {
+        mentorPid: null,
+        executorPid: null,
+        mentorCached: { cpu: 0, memMb: 0 },
+        executorCached: { cpu: 0, memMb: 0 }
+      },
       getPairState,
       intervalId: null
     })
   }
 
-  setPids(pairId: string, mentorPid: number | null, executorPid: number | null): void {
+  setPids(
+    pairId: string,
+    mentorPid: number | null | undefined,
+    executorPid: number | null | undefined
+  ): void {
     const monitor = this.monitors.get(pairId)
     if (!monitor) return
 
-    monitor.state.mentorPid = mentorPid
-    monitor.state.executorPid = executorPid
-
-    if (mentorPid || executorPid) {
-      this.startMonitoring(pairId)
-    } else {
-      this.stopMonitoring(pairId)
+    if (mentorPid !== undefined) {
+      monitor.state.mentorPid = mentorPid
     }
+    if (executorPid !== undefined) {
+      monitor.state.executorPid = executorPid
+    }
+
+    this.startMonitoring(pairId)
   }
 
   private startMonitoring(pairId: string): void {
@@ -55,12 +72,24 @@ class PairResourceMonitor {
         monitor.state.executorPid ? this.getPidStats(monitor.state.executorPid) : null
       ])
 
-      const mentorCpu = mentorStats?.cpu ?? 0
-      const mentorMem = mentorStats?.memory ? Math.round(mentorStats.memory / (1024 * 1024)) : 0
-      const executorCpu = executorStats?.cpu ?? 0
-      const executorMem = executorStats?.memory
-        ? Math.round(executorStats.memory / (1024 * 1024))
-        : 0
+      if (mentorStats) {
+        monitor.state.mentorCached = {
+          cpu: mentorStats.cpu,
+          memMb: Math.round(mentorStats.memory / (1024 * 1024))
+        }
+      }
+
+      if (executorStats) {
+        monitor.state.executorCached = {
+          cpu: executorStats.cpu,
+          memMb: Math.round(executorStats.memory / (1024 * 1024))
+        }
+      }
+
+      const mentorCpu = monitor.state.mentorCached.cpu
+      const mentorMem = monitor.state.mentorCached.memMb
+      const executorCpu = monitor.state.executorCached.cpu
+      const executorMem = monitor.state.executorCached.memMb
 
       const resources: PairResources = {
         mentor: { cpu: mentorCpu, memMb: mentorMem },
@@ -90,8 +119,10 @@ class PairResourceMonitor {
   private async getPidStats(pid: number): Promise<{ cpu: number; memory: number } | null> {
     try {
       const stats = await pidusage(pid)
+      const cpuCount = os.cpus().length
+      const cpuPercent = Math.min(stats.cpu / cpuCount, 100 * cpuCount)
       return {
-        cpu: Math.round(stats.cpu * 100) / 100,
+        cpu: Math.round(cpuPercent * 100) / 100,
         memory: stats.memory
       }
     } catch {
@@ -105,4 +136,5 @@ class PairResourceMonitor {
   }
 }
 
+export { PairResourceMonitor }
 export const pairResourceMonitor = new PairResourceMonitor()

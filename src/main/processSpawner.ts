@@ -259,6 +259,49 @@ Workflow:
             } else if (event.type === 'step_start') {
               this.updateActivity(pairId, role, 'thinking', 'Processing', undefined)
             }
+          } else if (runtime.outputTransport === 'session-json') {
+            // Codex session-json format
+            if (event.type === 'thread.started' && event.thread_id) {
+              if (role === 'mentor') {
+                ctx.mentorSessionId = event.thread_id
+              } else {
+                ctx.executorSessionId = event.thread_id
+              }
+            } else if (event.type === 'item.completed' && event.item) {
+              const item = event.item
+              if (item.type === 'agent_message' && item.text) {
+                responseText += item.text + '\n'
+                this.updateActivity(
+                  pairId,
+                  role,
+                  'responding',
+                  'Writing response',
+                  lastActivityDetail
+                )
+              } else if (item.type === 'command_execution') {
+                const cmd = item.command || 'command'
+                lastActivityDetail = `Running: ${cmd.slice(0, 50)}`
+                this.updateActivity(
+                  pairId,
+                  role,
+                  'using_tools',
+                  'Running tools',
+                  lastActivityDetail
+                )
+              }
+            } else if (event.type === 'turn.started') {
+              this.updateActivity(pairId, role, 'thinking', 'Processing', undefined)
+            } else if (event.type === 'error') {
+              const errorMessage = event.message || 'Unknown error'
+              errorOutput += `Error: ${errorMessage}\n`
+              this.updateActivity(
+                pairId,
+                role,
+                'error',
+                'Error occurred',
+                errorMessage.slice(0, 50)
+              )
+            }
           } else {
             responseText += line
           }
@@ -291,7 +334,11 @@ Workflow:
         this.updateActivity(pairId, role, 'waiting', 'Turn completed', undefined)
       }
 
-      pairResourceMonitor.setPids(pairId, null, null)
+      if (role === 'mentor') {
+        pairResourceMonitor.setPids(pairId, null, undefined)
+      } else {
+        pairResourceMonitor.setPids(pairId, undefined, null)
+      }
 
       if (this.responseHandler) {
         this.responseHandler(pairId, role, result)
@@ -300,7 +347,11 @@ Workflow:
 
     proc.on('error', () => {
       this.updateActivity(pairId, role, 'error', 'Failed to start', undefined)
-      pairResourceMonitor.setPids(pairId, null, null)
+      if (role === 'mentor') {
+        pairResourceMonitor.setPids(pairId, null, undefined)
+      } else {
+        pairResourceMonitor.setPids(pairId, undefined, null)
+      }
     })
   }
 

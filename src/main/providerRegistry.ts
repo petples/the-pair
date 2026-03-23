@@ -30,8 +30,8 @@ const CODING_MODEL_CATALOG: Record<ProviderKind, string[]> = {
     'o1-preview',
     'o1-mini'
   ],
-  codex: ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet'],
-  claude: ['claude-3-5-sonnet', 'claude-3-5-haiku', 'claude-3-opus'],
+  codex: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-4o', 'gpt-4o-mini'],
+  claude: ['claude-sonnet-4-6', 'claude-haiku-4-6', 'claude-opus-4-6'],
   gemini: ['gemini-2-5-flash', 'gemini-2-5-pro', 'gemini-1-5-pro']
 }
 
@@ -52,6 +52,47 @@ function safeReadJson(filePath: string): object | null {
   } catch {
     return null
   }
+}
+
+function parseJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payload = Buffer.from(parts[1], 'base64').toString('utf-8')
+    return JSON.parse(payload)
+  } catch {
+    return null
+  }
+}
+
+interface CodexModelCache {
+  fetched_at?: string
+  models?: Array<{ slug: string; display_name?: string }>
+}
+
+function queryCodexModels(): DetectedModelOption[] {
+  const cachePath = join(homedir(), '.codex/models_cache.json')
+  const cache = safeReadJson(cachePath) as CodexModelCache | null
+
+  if (cache && Array.isArray(cache.models) && cache.models.length > 0) {
+    return cache.models.map((m) => ({
+      modelId: m.slug,
+      displayName: m.display_name || m.slug,
+      sourceProvider: 'openai',
+      subscriptionLabel: 'subscription-backed',
+      supportsPairExecution: true,
+      runnable: true
+    }))
+  }
+
+  return CODING_MODEL_CATALOG.codex.map((id) => ({
+    modelId: id,
+    displayName: id,
+    sourceProvider: 'openai',
+    subscriptionLabel: 'subscription-backed',
+    supportsPairExecution: true,
+    runnable: true
+  }))
 }
 
 function formatModelName(modelId: string): string {
@@ -245,10 +286,25 @@ class CodexAdapter implements ProviderAdapter {
       authenticated = true
       const authObj = auth as Record<string, unknown>
 
-      if (authObj.chatgpt_plan_type) {
-        subscriptionLabel = String(authObj.chatgpt_plan_type)
-      } else if (authObj.token) {
-        subscriptionLabel = 'subscription-backed'
+      if (authObj.chatgpt_plan_type && typeof authObj.chatgpt_plan_type === 'string') {
+        subscriptionLabel = authObj.chatgpt_plan_type
+      } else if (authObj.tokens && typeof authObj.tokens === 'object') {
+        const tokens = authObj.tokens as Record<string, unknown>
+        if (tokens.id_token && typeof tokens.id_token === 'string') {
+          const payload = parseJwtPayload(tokens.id_token)
+          if (payload) {
+            const authClaim = payload['https://api.openai.com/auth']
+            if (authClaim && typeof authClaim === 'object') {
+              const authObj = authClaim as Record<string, unknown>
+              if (authObj.chatgpt_plan_type && typeof authObj.chatgpt_plan_type === 'string') {
+                subscriptionLabel = authObj.chatgpt_plan_type
+              }
+            }
+          }
+        }
+        if (subscriptionLabel === 'provider-backed') {
+          subscriptionLabel = 'subscription-backed'
+        }
       }
     }
 
@@ -260,14 +316,10 @@ class CodexAdapter implements ProviderAdapter {
       }
     }
 
-    if (authenticated && models.length === 0) {
-      models = CODING_MODEL_CATALOG.codex.map((id) => ({
-        modelId: id,
-        displayName: id,
-        sourceProvider: 'openai',
-        subscriptionLabel,
-        supportsPairExecution: true,
-        runnable: installed
+    if (authenticated) {
+      models = queryCodexModels().map((m) => ({
+        ...m,
+        subscriptionLabel
       }))
     }
 

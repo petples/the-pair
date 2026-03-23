@@ -74,7 +74,10 @@ export class MessageBroker {
 
     if (gitTracking.available && gitTracking.rootPath) {
       gitTracking.baseline = await pairGitTracker.captureBaseline(gitTracking.rootPath)
-      modifiedFiles = await pairGitTracker.getModifiedFiles(gitTracking.rootPath, gitTracking.baseline)
+      modifiedFiles = await pairGitTracker.getModifiedFiles(
+        gitTracking.rootPath,
+        gitTracking.baseline
+      )
     }
 
     const state: PairState = {
@@ -182,6 +185,15 @@ export class MessageBroker {
     this.notifyStateUpdate(pairId)
   }
 
+  private async refreshModifiedFiles(state: PairState): Promise<void> {
+    if (state.gitTracking.available && state.gitTracking.rootPath && state.gitTracking.baseline) {
+      state.modifiedFiles = await pairGitTracker.getModifiedFiles(
+        state.gitTracking.rootPath,
+        state.gitTracking.baseline
+      )
+    }
+  }
+
   async handleAgentResponse(
     pairId: string,
     role: 'mentor' | 'executor',
@@ -249,6 +261,7 @@ export class MessageBroker {
 
     if (role === 'mentor') {
       if (directive.type === 'finish') {
+        await this.refreshModifiedFiles(state)
         state.status = 'Finished'
         state.mentor.status = 'Finished'
         state.executor.status = 'Finished'
@@ -270,6 +283,8 @@ export class MessageBroker {
         this.notifyStateUpdate(pairId)
         return
       }
+
+      await this.refreshModifiedFiles(state)
 
       state.status = 'Executing'
       state.turn = 'executor'
@@ -295,16 +310,7 @@ export class MessageBroker {
 
       processSpawner.triggerTurn(pairId, 'executor', directive.content)
     } else {
-      if (
-        state.gitTracking.available &&
-        state.gitTracking.rootPath &&
-        state.gitTracking.baseline
-      ) {
-        state.modifiedFiles = await pairGitTracker.getModifiedFiles(
-          state.gitTracking.rootPath,
-          state.gitTracking.baseline
-        )
-      }
+      await this.refreshModifiedFiles(state)
 
       state.status = 'Reviewing'
       state.turn = 'mentor'
@@ -380,18 +386,16 @@ export class MessageBroker {
 
   async stopPair(pairId: string): Promise<void> {
     const state = this.pairStates.get(pairId)
-    
+
     if (state?.gitTracking.available && state.gitTracking.rootPath) {
       const modifiedFiles = await pairGitTracker.getModifiedFiles(
         state.gitTracking.rootPath,
         state.gitTracking.baseline || ''
       )
-      
+
       if (modifiedFiles.length > 0) {
-        const fileList = modifiedFiles
-          .map(f => `  ${f.status} ${f.displayPath}`)
-          .join('\n')
-        
+        const fileList = modifiedFiles.map((f) => `  ${f.status} ${f.displayPath}`).join('\n')
+
         const message: Message = {
           id: generateId(),
           timestamp: Date.now(),
@@ -401,13 +405,13 @@ export class MessageBroker {
           content: `\n📝 Session ended. Please review the following changes:\n\n${fileList}\n\nThese changes are uncommitted. Use git to commit them when ready.`,
           iteration: state.iteration
         }
-        
+
         state.messages.push(message)
         this.writeStateFile(pairId, state)
         this.notifyRenderer(pairId, message)
       }
     }
-    
+
     pairResourceMonitor.unregisterPair(pairId)
     this.pairStates.delete(pairId)
   }

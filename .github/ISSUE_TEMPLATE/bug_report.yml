@@ -93,7 +93,7 @@ body:
       label: Console/Log Output
       description: |
         If applicable, add console output or log files.
-        
+
         To view logs in The Pair: View → Toggle Developer Tools → Console
       render: shell
 

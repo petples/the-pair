@@ -71,8 +71,8 @@ class PairManager {
 
     const pairProcess = await processSpawner.spawnPair(
       pairId,
-      input.mentor.model,
-      input.executor.model,
+      mentorParsed.model,
+      executorParsed.model,
       input.directory,
       input.spec,
       mentorRuntime,
@@ -169,8 +169,8 @@ class PairManager {
     const runtimeSelection = this.resolveRuntimeSelection(mentorModel, executorModel)
 
     processSpawner.updatePairRuntime(pairId, {
-      mentorModel: runtimeSelection.mentorQualifiedModel,
-      executorModel: runtimeSelection.executorQualifiedModel,
+      mentorModel: runtimeSelection.mentorModelId,
+      executorModel: runtimeSelection.executorModelId,
       mentorRuntime: runtimeSelection.mentorRuntime,
       executorRuntime: runtimeSelection.executorRuntime,
       resetSessions: true
@@ -263,6 +263,8 @@ class PairManager {
   ): {
     mentorQualifiedModel: string
     executorQualifiedModel: string
+    mentorModelId: string
+    executorModelId: string
     mentorRuntime: PairRuntimeSpec
     executorRuntime: PairRuntimeSpec
   } {
@@ -282,6 +284,8 @@ class PairManager {
     return {
       mentorQualifiedModel,
       executorQualifiedModel,
+      mentorModelId: mentor.model,
+      executorModelId: executor.model,
       mentorRuntime,
       executorRuntime
     }

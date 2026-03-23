@@ -37,18 +37,21 @@ Before you begin, ensure you have the following installed:
 1. **Fork** the repository on GitHub
 
 2. **Clone** your fork locally:
+
    ```bash
    git clone https://github.com/YOUR_USERNAME/the-pair.git
    cd the-pair
    ```
 
 3. **Set up upstream** to stay in sync:
+
    ```bash
    git remote add upstream https://github.com/timwuhaotian/the-pair.git
    git fetch upstream
    ```
 
 4. **Install dependencies**:
+
    ```bash
    npm install
    ```
@@ -83,6 +86,7 @@ Before creating bug reports, please check the [existing issues](https://github.c
 **Title:** Executor activity not updating in real-time
 
 **Steps to Reproduce:**
+
 1. Create a new pair
 2. Wait for executor to start working
 3. Observe the activity status bar
@@ -91,6 +95,7 @@ Before creating bug reports, please check the [existing issues](https://github.c
 **Actual:** Activity remains at "Executor idle"
 
 **Environment:**
+
 - macOS 14.1
 - App version: 1.0.0
 ```
@@ -123,12 +128,14 @@ Use descriptive branch names following this pattern:
 ```
 
 **Examples:**
+
 - `feat/add-dark-mode-toggle`
 - `fix/executor-pid-tracking`
 - `docs/update-readme-installation`
 - `refactor/simplify-state-machine`
 
 **Types:**
+
 - `feat` — New feature
 - `fix` — Bug fix
 - `docs` — Documentation changes
@@ -139,12 +146,14 @@ Use descriptive branch names following this pattern:
 ### Making Changes
 
 1. **Sync with upstream**:
+
    ```bash
    git checkout main
    git pull upstream main
    ```
 
 2. **Create a branch**:
+
    ```bash
    git checkout -b feat/your-feature-name
    ```
@@ -152,13 +161,14 @@ Use descriptive branch names following this pattern:
 3. **Make your changes** following the [Coding Guidelines](#coding-guidelines)
 
 4. **Test your changes**:
+
    ```bash
    # Type checking
    npm run typecheck
-   
+
    # Linting
    npm run lint
-   
+
    # Run the app
    npm run dev
    ```
@@ -166,6 +176,7 @@ Use descriptive branch names following this pattern:
 5. **Commit your changes** following the [Commit Message Guidelines](#commit-message-guidelines)
 
 6. **Push to your fork**:
+
    ```bash
    git push origin feat/your-feature-name
    ```
@@ -184,6 +195,7 @@ Use descriptive branch names following this pattern:
 - **Export types** from dedicated `types.ts` files when shared
 
 **Example:**
+
 ```typescript
 // Good
 interface AgentActivity {
@@ -206,6 +218,7 @@ const activity: any = { ... }
 - **Keep components small** — extract sub-components when needed
 
 **Example:**
+
 ```typescript
 interface StatusBadgeProps {
   status: PairStatus
@@ -225,6 +238,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 - **Use semantic color tokens** from our theme
 
 **Example:**
+
 ```typescript
 <div className={cn(
   'flex items-center gap-2 p-4 rounded-lg',
@@ -242,6 +256,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 - **Use selectors** for performance
 
 **Example:**
+
 ```typescript
 interface PairStore {
   pairs: Pair[]
@@ -252,7 +267,7 @@ interface PairStore {
 export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
   addPair: (pair) => set((state) => ({ pairs: [...state.pairs, pair] })),
-  removePair: (id) => set((state) => ({ pairs: state.pairs.filter(p => p.id !== id) })),
+  removePair: (id) => set((state) => ({ pairs: state.pairs.filter((p) => p.id !== id) }))
 }))
 ```
 
@@ -270,6 +285,7 @@ export const usePairStore = create<PairStore>((set) => ({
 - **No commented-out code** — delete it
 
 **Example:**
+
 ```typescript
 /**
  * Captures the current Git status as a baseline for tracking changes.
@@ -302,24 +318,30 @@ captureBaseline(gitRoot: string): string {
 
 ```markdown
 ## Description
+
 Brief description of the changes
 
 ## Type of Change
+
 - [ ] Bug fix (non-breaking change that fixes an issue)
 - [ ] New feature (non-breaking change that adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to change)
 - [ ] Documentation update
 
 ## Related Issues
+
 Closes #123
 
 ## Testing
+
 Describe how you tested the changes
 
 ## Screenshots (if applicable)
+
 Add screenshots of UI changes
 
 ## Checklist
+
 - [ ] My code follows the code style of this project
 - [ ] I have commented my code, particularly in hard-to-understand areas
 - [ ] I have made corresponding changes to the documentation

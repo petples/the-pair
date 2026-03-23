@@ -40,10 +40,9 @@ class PairGitTracker {
       const baselineFiles = this.parseStatusOutput(baseline, gitRoot)
       const currentFiles = this.parseStatusOutput(stdout, gitRoot)
 
-      return currentFiles.filter((file) => {
-        const baselineFile = baselineFiles.find((bf) => bf.displayPath === file.displayPath)
-        return !baselineFile || baselineFile.status !== file.status
-      })
+      const baselinePaths = new Set(baselineFiles.map((bf) => bf.displayPath))
+
+      return currentFiles.filter((file) => !baselinePaths.has(file.displayPath))
     } catch {
       return []
     }
