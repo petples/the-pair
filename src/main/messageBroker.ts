@@ -8,22 +8,12 @@ import type {
   AgentActivity,
   ActivityPhase,
   PairResources,
-  ModifiedFile,
-  TurnArtifact
+  ModifiedFile
 } from './types'
 import { processSpawner } from './processSpawner'
 import { getAgentTurnDirective, type AgentTurnResult } from './agentTurn'
 import { pairGitTracker } from './pairGitTracker'
 import { pairResourceMonitor } from './pairResourceMonitor'
-import {
-  createPairWorktree,
-  commitPairChanges,
-  getDiffStat,
-  getPatchExcerpt,
-  getCurrentHead,
-  removePairWorktree,
-  type WorktreeInfo
-} from './pairWorktree'
 import { resetPairStateForNewTask } from './pairTaskState'
 
 const MAX_ITERATIONS = 9999
@@ -71,10 +61,8 @@ const EMPTY_RESOURCES: PairResources = {
 
 export class MessageBroker {
   private pairStates: Map<string, PairState> = new Map()
-  private worktrees: Map<string, WorktreeInfo> = new Map()
-  private preTurnHeads: Map<string, string> = new Map()
 
-  async initializePair(pairId: string, input: CreatePairInput): Promise<{ worktreePath?: string }> {
+  async initializePair(pairId: string, input: CreatePairInput): Promise<void> {
     const pairDir = path.join(input.directory, '.pair')
     ensureDir(pairDir)
 
@@ -83,20 +71,10 @@ export class MessageBroker {
 
     const gitTracking = await pairGitTracker.detectGitRepo(input.directory)
     let modifiedFiles: ModifiedFile[] = []
-    let worktreeInfo: WorktreeInfo | null = null
 
     if (gitTracking.available && gitTracking.rootPath) {
       gitTracking.baseline = await pairGitTracker.captureBaseline(gitTracking.rootPath)
       modifiedFiles = await pairGitTracker.getModifiedFiles(gitTracking.rootPath, gitTracking.baseline)
-
-      if (gitTracking.gitReviewAvailable) {
-        worktreeInfo = await createPairWorktree(pairId, gitTracking.rootPath)
-        if (worktreeInfo) {
-          gitTracking.worktreePath = worktreeInfo.worktreePath
-          gitTracking.worktreeBranch = worktreeInfo.branchName
-          this.worktrees.set(pairId, worktreeInfo)
-        }
-      }
     }
 
     const state: PairState = {
@@ -123,8 +101,6 @@ export class MessageBroker {
     this.pairStates.set(pairId, state)
 
     pairResourceMonitor.registerPair(pairId, () => this.pairStates.get(pairId))
-
-    return { worktreePath: worktreeInfo?.worktreePath }
   }
 
   private getPairDir(pairId: string): string | null {
@@ -195,17 +171,12 @@ export class MessageBroker {
 
     const nextState = resetPairStateForNewTask(state)
 
-    if (
-      nextState.gitTracking.available &&
-      nextState.gitTracking.rootPath &&
-      !nextState.gitTracking.worktreePath
-    ) {
+    if (nextState.gitTracking.available && nextState.gitTracking.rootPath) {
       nextState.gitTracking.baseline = await pairGitTracker.captureBaseline(
         nextState.gitTracking.rootPath
       )
     }
 
-    this.preTurnHeads.delete(pairId)
     this.pairStates.set(pairId, nextState)
     this.writeStateFile(pairId, nextState)
     this.notifyStateUpdate(pairId)
@@ -300,11 +271,6 @@ export class MessageBroker {
         return
       }
 
-      if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
-        const preTurnHead = await getCurrentHead(state.gitTracking.worktreePath)
-        this.preTurnHeads.set(pairId, preTurnHead)
-      }
-
       state.status = 'Executing'
       state.turn = 'executor'
       state.iteration++
@@ -329,74 +295,7 @@ export class MessageBroker {
 
       processSpawner.triggerTurn(pairId, 'executor', directive.content)
     } else {
-      const preTurnHead = this.preTurnHeads.get(pairId) || ''
-      let postTurnHead = ''
-      let turnArtifact: TurnArtifact | null = null
-
-      if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
-        postTurnHead = await getCurrentHead(state.gitTracking.worktreePath)
-
-        const commitResult = await commitPairChanges(
-          pairId,
-          state.gitTracking.worktreePath,
-          state.iteration
-        )
-
-        if (!commitResult.noChanges && commitResult.commitSha) {
-          const diffStat = await getDiffStat(state.gitTracking.worktreePath, commitResult.commitSha)
-          const patchExcerpt = await getPatchExcerpt(
-            state.gitTracking.worktreePath,
-            commitResult.commitSha
-          )
-
-          turnArtifact = {
-            iteration: state.iteration,
-            instructionSummary:
-              state.messages.length > 0
-                ? state.messages[state.messages.length - 2]?.content.slice(0, 200) || ''
-                : '',
-            preTurnHead,
-            postTurnHead,
-            commitSha: commitResult.commitSha,
-            commitSubject: commitResult.commitSubject,
-            changedFiles: state.modifiedFiles,
-            statusShort: 'success',
-            diffStat,
-            patchExcerpt,
-            executorSummary: directive.content.slice(0, 500),
-            verificationSummary: 'Changes committed successfully',
-            noChanges: false
-          }
-        } else {
-          turnArtifact = {
-            iteration: state.iteration,
-            instructionSummary:
-              state.messages.length > 0
-                ? state.messages[state.messages.length - 2]?.content.slice(0, 200) || ''
-                : '',
-            preTurnHead,
-            postTurnHead,
-            changedFiles: [],
-            statusShort: 'no_changes',
-            diffStat: '',
-            patchExcerpt: '',
-            executorSummary: directive.content.slice(0, 500),
-            verificationSummary: 'No file changes detected',
-            noChanges: true
-          }
-        }
-
-        if (turnArtifact) {
-          state.turnArtifacts.push(turnArtifact)
-        }
-      }
-
-      if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
-        state.modifiedFiles = await pairGitTracker.getModifiedFilesRelative(
-          state.gitTracking.worktreePath,
-          state.gitTracking.worktreePath
-        )
-      } else if (
+      if (
         state.gitTracking.available &&
         state.gitTracking.rootPath &&
         state.gitTracking.baseline
@@ -428,44 +327,8 @@ export class MessageBroker {
       this.notifyRenderer(pairId, newMessage)
       this.notifyStateUpdate(pairId)
 
-      const reviewPacket = this.buildMentorReviewPacket(state, turnArtifact, directive.content)
-      processSpawner.triggerTurn(pairId, 'mentor', reviewPacket)
+      processSpawner.triggerTurn(pairId, 'mentor', `Executor summary:\n${directive.content}`)
     }
-  }
-
-  private buildMentorReviewPacket(
-    state: PairState,
-    artifact: TurnArtifact | null,
-    executorSummary: string
-  ): string {
-    if (!state.gitReviewAvailable || !artifact) {
-      return `Executor summary:\n${executorSummary}\n\nNo git changes detected in this turn.`
-    }
-
-    const header = `[MENTOR REVIEW PACKET - Iteration ${artifact.iteration}]`
-
-    const commitInfo = artifact.commitSha
-      ? `Commit: ${artifact.commitSha}\nSubject: ${artifact.commitSubject}\n`
-      : 'No commit (no changes)\n'
-
-    const diffInfo = artifact.commitSha ? `\nDiff Stat:\n${artifact.diffStat}\n` : ''
-
-    const patchSection = artifact.patchExcerpt
-      ? `\nPatch Excerpt (first 800 lines):\n${artifact.patchExcerpt}\n`
-      : ''
-
-    const instructionSummary = artifact.instructionSummary
-      ? `\nOriginal Instruction:\n${artifact.instructionSummary}\n`
-      : ''
-
-    const footer = `\n[END REVIEW PACKET]
-Executor's text summary:
-${executorSummary}
-
-IMPORTANT: First review the actual code changes above, then provide your feedback and next instruction.`
-
-    return `${header}
-${commitInfo}${diffInfo}${patchSection}${instructionSummary}${footer}`
   }
 
   humanFeedback(pairId: string, approved: boolean): void {
@@ -516,18 +379,35 @@ ${commitInfo}${diffInfo}${patchSection}${instructionSummary}${footer}`
   }
 
   async stopPair(pairId: string): Promise<void> {
-    const worktreeInfo = this.worktrees.get(pairId)
     const state = this.pairStates.get(pairId)
-
-    if (worktreeInfo && state?.gitTracking.rootPath) {
-      await removePairWorktree(
-        worktreeInfo.worktreePath,
-        worktreeInfo.branchName,
-        state.gitTracking.rootPath
+    
+    if (state?.gitTracking.available && state.gitTracking.rootPath) {
+      const modifiedFiles = await pairGitTracker.getModifiedFiles(
+        state.gitTracking.rootPath,
+        state.gitTracking.baseline || ''
       )
-      this.worktrees.delete(pairId)
+      
+      if (modifiedFiles.length > 0) {
+        const fileList = modifiedFiles
+          .map(f => `  ${f.status} ${f.displayPath}`)
+          .join('\n')
+        
+        const message: Message = {
+          id: generateId(),
+          timestamp: Date.now(),
+          from: 'human',
+          to: 'human',
+          type: 'result',
+          content: `\n📝 Session ended. Please review the following changes:\n\n${fileList}\n\nThese changes are uncommitted. Use git to commit them when ready.`,
+          iteration: state.iteration
+        }
+        
+        state.messages.push(message)
+        this.writeStateFile(pairId, state)
+        this.notifyRenderer(pairId, message)
+      }
     }
-
+    
     pairResourceMonitor.unregisterPair(pairId)
     this.pairStates.delete(pairId)
   }

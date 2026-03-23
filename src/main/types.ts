@@ -53,8 +53,6 @@ export interface GitTracking {
   available: boolean
   rootPath?: string
   baseline?: string
-  worktreePath?: string
-  worktreeBranch?: string
   gitReviewAvailable?: boolean
 }
 

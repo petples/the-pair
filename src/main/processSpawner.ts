@@ -9,7 +9,6 @@ import { messageBroker } from './messageBroker'
 
 interface PairContext {
   directory: string
-  worktreePath?: string
   mentorModel: string
   executorModel: string
   mentorRuntime: PairRuntimeSpec
@@ -64,8 +63,7 @@ Workflow:
     directory: string,
     _spec: string,
     mentorRuntime: PairRuntimeSpec,
-    executorRuntime: PairRuntimeSpec,
-    worktreePath?: string
+    executorRuntime: PairRuntimeSpec
   ): Promise<PairProcess> {
     const mentorPrompt = this.buildMentorPrompt()
     const executorPrompt = this.buildExecutorPrompt()
@@ -82,7 +80,6 @@ Workflow:
 
     this.pairs.set(pairId, {
       directory,
-      worktreePath,
       mentorModel,
       executorModel,
       mentorRuntime,
@@ -156,8 +153,7 @@ Workflow:
     const processKey = `${pairId}-${role}`
     const sessionId = role === 'mentor' ? ctx.mentorSessionId : ctx.executorSessionId
 
-    const cwd =
-      runtime.cwdStrategy === 'worktree' && ctx.worktreePath ? ctx.worktreePath : ctx.directory
+    const cwd = ctx.directory
 
     const pairDir = path.join(ctx.directory, '.pair')
     const runtimeDir = path.join(pairDir, 'runtime', pairId)

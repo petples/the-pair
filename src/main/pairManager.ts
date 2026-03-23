@@ -66,7 +66,7 @@ class PairManager {
       )
     }
 
-    const initResult = await messageBroker.initializePair(pairId, input)
+    await messageBroker.initializePair(pairId, input)
     messageBroker.startWatching(pairId)
 
     const pairProcess = await processSpawner.spawnPair(
@@ -76,8 +76,7 @@ class PairManager {
       input.directory,
       input.spec,
       mentorRuntime,
-      executorRuntime,
-      initResult.worktreePath
+      executorRuntime
     )
 
     this.pairs.set(pairId, {
