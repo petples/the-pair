@@ -76,9 +76,11 @@ jobs:
           p12-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
 
       - name: Verify signing identity
+        env:
+          EXPECTED_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
           security find-identity -v -p codesigning
-          if ! security find-identity -v -p codesigning | grep -F "${{ secrets.MACOS_SIGNING_IDENTITY }}" >/dev/null; then
+          if ! security find-identity -v -p codesigning | grep -F -- "$EXPECTED_IDENTITY" >/dev/null; then
             echo "Expected signing identity was not imported into the runner keychain."
             exit 1
           fi
