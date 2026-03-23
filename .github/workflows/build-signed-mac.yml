@@ -195,8 +195,12 @@ jobs:
       - name: Verify signature
         run: |
           APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
-          codesign --verify --verbose "$APP_PATH"
-          spctl --assess --type exec --verbose "$APP_PATH"
+          if [ -z "$APP_PATH" ]; then
+            echo "The Pair.app not found in dist"
+            exit 1
+          fi
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
 
       - name: Create or update GitHub release
         env:
