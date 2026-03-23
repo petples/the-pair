@@ -104,64 +104,15 @@ jobs:
           echo "resolved_identity=$RESOLVED_IDENTITY" >> "$GITHUB_OUTPUT"
           echo "resolved_hash=$RESOLVED_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Build app (unsigned)
+      - name: Build and sign app with electron-builder
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run build:mac -- --dir
-
-      - name: Manually sign app bundle
-        env:
-          CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
-        run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "The Pair.app not found in dist"
-            exit 1
-          fi
-
-          xattr -cr "$APP_PATH"
-
-          # Sign all .node files (native modules) first
-          find "$APP_PATH" -name "*.node" -type f | while read -r file; do
-            echo "Signing native module: $file"
-            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file"
-          done
-
-          # Sign all executables and dylibs (excluding Electron Framework)
-          find "$APP_PATH/Contents" -type f \( -name "*.dylib" -o -perm +111 \) | while read -r file; do
-            # Skip Electron Framework entirely (already signed by Electron team)
-            if [[ "$file" == *"Electron Framework.framework"* ]]; then
-              continue
-            fi
-            # Skip if it's part of other .app or .framework (will be signed later)
-            if [[ "$file" == *".app/"* ]] || [[ "$file" == *".framework/"* ]]; then
-              if file "$file" 2>/dev/null | grep -q "Mach-O"; then
-                echo "Signing binary: $file"
-                codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file" 2>/dev/null || true
-              fi
-            fi
-          done
-
-          # Sign helper apps
-          find "$APP_PATH/Contents/Frameworks" -name "*.app" -type d | while read -r helper; do
-            echo "Signing helper app: $helper"
-            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$helper"
-          done
-
-          # Sign frameworks (seals everything inside) - skip Electron Framework
-          find "$APP_PATH/Contents/Frameworks" -name "*.framework" -type d -depth 1 | while read -r framework; do
-            if [[ "$framework" == *"Electron Framework.framework" ]]; then
-              echo "Skipping Electron Framework (already signed by Electron team)"
-              continue
-            fi
-            echo "Signing framework: $framework"
-            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$framework"
-          done
-
-          # Sign main app
-          echo "Signing main app: $APP_PATH"
-          codesign --force --options runtime --timestamp --entitlements build/entitlements.mac.plist --sign "$CODESIGN_IDENTITY" "$APP_PATH"
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Inspect signed binaries
         run: |
