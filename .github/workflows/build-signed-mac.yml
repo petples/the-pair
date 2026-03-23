@@ -150,6 +150,7 @@ jobs:
             --wait
 
       - name: Staple notarization ticket
+        continue-on-error: true
         run: |
           APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
