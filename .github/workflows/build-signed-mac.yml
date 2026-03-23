@@ -118,7 +118,23 @@ jobs:
           fi
 
           xattr -cr "$APP_PATH"
-          codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_PATH"
+          
+          # Sign all frameworks first
+          find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" | while read -r framework; do
+            echo "Signing framework: $framework"
+            codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$framework"
+          done
+          
+          # Sign all dylibs and executables
+          find "$APP_PATH/Contents" -type f \( -name "*.dylib" -o -name "*.node" -o -perm -111 \) | while read -r file; do
+            if file "$file" | grep -q "Mach-O"; then
+              echo "Signing binary: $file"
+              codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file"
+            fi
+          done
+          
+          # Finally sign the app bundle itself
+          codesign --force --options runtime --timestamp --entitlements build/entitlements.mac.plist --sign "$CODESIGN_IDENTITY" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Inspect signed binaries
