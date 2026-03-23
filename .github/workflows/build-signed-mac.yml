@@ -113,7 +113,7 @@ jobs:
         env:
           IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
         run: |
-          npm exec -- @electron/osx-sign "dist/mac-arm64/The Pair.app" \
+          npx electron-osx-sign "dist/mac-arm64/The Pair.app" \
             --identity="$IDENTITY" \
             --entitlements="build/entitlements.mac.plist" \
             --entitlements-inherit="build/entitlements.mac.plist" \
