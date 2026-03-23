@@ -113,34 +113,44 @@ jobs:
         env:
           IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
         run: |
-          npx @electron/osx-sign "dist/mac-arm64/The Pair.app" \
+          npm exec -- @electron/osx-sign "dist/mac-arm64/The Pair.app" \
             --identity="$IDENTITY" \
             --entitlements="build/entitlements.mac.plist" \
             --entitlements-inherit="build/entitlements.mac.plist" \
             --keychain="signing_temp.keychain" \
             --hardened-runtime \
             --timestamp
-          
+
           codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/The Pair.app"
 
       - name: Inspect signed binaries
         run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | sed -n '1,40p'
-          find "$APP_PATH/Contents/Frameworks" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.node" \) | head -n 8 | while read -r file; do
-            echo "=== $file ==="
-            codesign -dv --verbose=4 "$file" 2>&1 | sed -n '1,20p'
+          APP_PATH="dist/mac-arm64/The Pair.app"
+          echo "=== Main app ==="
+          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | head -20
+          echo ""
+          echo "=== Checking all Frameworks binaries ==="
+          find "$APP_PATH/Contents/Frameworks" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.node" \) | while read -r file; do
+            echo "--- $file ---"
+            codesign -dv --verbose=4 "$file" 2>&1 | head -5
           done
 
-      - name: Create DMG
-        run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          hdiutil create -volname "The Pair" -srcfolder "$APP_PATH" -ov -format UDZO "dist/the-pair-${VERSION}.dmg"
-
-      - name: Sign DMG
+      - name: Create and sign DMG
         env:
           CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
         run: |
+          APP_PATH="dist/mac-arm64/The Pair.app"
+          STAGING_DIR=$(mktemp -d)
+          cp -R "$APP_PATH" "$STAGING_DIR/The Pair.app"
+          ln -s /Applications "$STAGING_DIR/Applications"
+
+          hdiutil create \
+            -volname "The Pair" \
+            -srcfolder "$STAGING_DIR" \
+            -ov \
+            -format UDZO \
+            "dist/the-pair-${VERSION}.dmg"
+
           codesign --force --sign "$CODESIGN_IDENTITY" "dist/the-pair-${VERSION}.dmg"
 
       - name: Notarize DMG
@@ -188,39 +198,19 @@ jobs:
 
       - name: Create ZIP for distribution
         run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
+          APP_PATH="dist/mac-arm64/The Pair.app"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
-
-      - name: Package distributable artifacts
-        run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "The Pair.app not found in dist"
-            exit 1
-          fi
-
-          rm -f "dist/the-pair-${VERSION}.zip" "dist/the-pair-${VERSION}.dmg"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
-
-          STAGING_DIR=$(mktemp -d)
-          cp -R "$APP_PATH" "$STAGING_DIR/The Pair.app"
-          ln -s /Applications "$STAGING_DIR/Applications"
-
-          hdiutil create \
-            -volname "The Pair" \
-            -srcfolder "$STAGING_DIR" \
-            -ov \
-            -format UDZO \
-            "dist/the-pair-${VERSION}.dmg"
 
       - name: Verify signature
         run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
+          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
           if [ -z "$APP_PATH" ]; then
             echo "The Pair.app not found in dist"
             exit 1
           fi
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          echo "=== Verifying DMG ==="
+          codesign --verify --verbose=2 "dist/the-pair-${VERSION}.dmg"
 
       - name: Create or update GitHub release
         env:
