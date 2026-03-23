@@ -29,7 +29,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
       const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
-      const defaultModel = `${defaultEntry.provider}/${defaultEntry.modelId}`
+      const defaultModel = defaultEntry.provider === 'opencode' 
+        ? defaultEntry.modelId 
+        : `${defaultEntry.provider}/${defaultEntry.modelId}`
       setMentorModel(defaultModel)
       setExecutorModel(defaultModel)
     }

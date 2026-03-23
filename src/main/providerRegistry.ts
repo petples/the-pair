@@ -87,7 +87,7 @@ class OpenCodeAdapter implements ProviderAdapter {
                   if (modelConfig && typeof modelConfig === 'object') {
                     const mcfg = modelConfig as Record<string, unknown>
                     models.push({
-                      modelId,
+                      modelId: `${providerId}/${modelId}`,
                       displayName: (mcfg.name as string) || `${providerId}/${modelId}`,
                       sourceProvider: providerId,
                       subscriptionLabel: 'provider-backed',
@@ -103,7 +103,7 @@ class OpenCodeAdapter implements ProviderAdapter {
 
         if (models.length === 0) {
           models = CODING_MODEL_CATALOG.opencode.map((id) => ({
-            modelId: id,
+            modelId: `opencode/${id}`,
             displayName: id,
             sourceProvider: 'openai',
             subscriptionLabel: 'provider-backed',
@@ -117,7 +117,7 @@ class OpenCodeAdapter implements ProviderAdapter {
 
     if (!authenticated) {
       models = CODING_MODEL_CATALOG.opencode.map((id) => ({
-        modelId: id,
+        modelId: `opencode/${id}`,
         displayName: id,
         sourceProvider: 'openai',
         subscriptionLabel: 'provider-backed',
@@ -139,19 +139,24 @@ class OpenCodeAdapter implements ProviderAdapter {
 
   getRuntimeSpec(modelId: string): PairRuntimeSpec {
     void modelId
-    const argBuilder: ArgBuilder = (model: string, sessionId?: string) => {
+    const argBuilder: ArgBuilder = (model: string, sessionId?: string, extraArgs?: string[]) => {
       const args = ['run', '--model', model]
       if (sessionId) {
         args.push('--session', sessionId)
       }
       args.push('--format', 'json')
+      if (extraArgs && extraArgs.length > 0) {
+        // Add -- to mark end of options, ensuring message is treated as positional argument
+        // This prevents messages starting with - from being parsed as options
+        args.push('--', ...extraArgs)
+      }
       return args
     }
 
     return {
       executable: 'opencode',
       argBuilder,
-      inputTransport: 'json-events',
+      inputTransport: 'stdio',
       outputTransport: 'json-events',
       sessionStrategy: 'new-first',
       permissionStrategy: 'auto',

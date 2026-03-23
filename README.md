@@ -104,7 +104,12 @@ Unlike traditional IDEs or single-agent tools, The Pair provides:
 
 ## 📥 Installation
 
-### Homebrew (macOS) — Recommended
+### Homebrew (macOS)
+
+Homebrew installation works only when the release assets are publicly downloadable.
+
+- If `timwuhaotian/the-pair` is public, users can install with Homebrew normally.
+- If the repository is still private, `brew install --cask the-pair` will fail because Homebrew cannot access private GitHub release assets.
 
 ```bash
 # Add the tap
@@ -116,7 +121,12 @@ brew install --cask the-pair
 
 ### Manual Download
 
-Download the latest release from [GitHub Releases](https://github.com/timwuhaotian/the-pair/releases):
+Download the latest release from [GitHub Releases](https://github.com/timwuhaotian/the-pair/releases).
+
+Note:
+
+- If the repository is public, the release assets are directly downloadable.
+- If the repository is private, users need authenticated GitHub access; public Homebrew installs will not work yet.
 
 | Platform    | File                           |
 | ----------- | ------------------------------ |
@@ -461,10 +471,10 @@ After building, find your distributables in `dist/`:
 
 ```
 dist/
-├── the-pair-1.0.0.dmg              # macOS installer
-├── the-pair-1.0.0-win.exe          # Windows installer
-├── the-pair-1.0.0.AppImage         # Linux AppImage
-└── the-pair-1.0.0.deb              # Debian package
+├── the-pair-{version}.dmg          # macOS installer
+├── the-pair-{version}-setup.exe    # Windows installer
+├── the-pair-{version}.AppImage     # Linux AppImage
+└── the-pair-{version}.deb          # Debian package
 ```
 
 ---
@@ -475,7 +485,7 @@ dist/
 
 This repository now uses a GitHub Actions release pipeline:
 
-`push to main` -> detect `package.json` version bump -> build signed macOS release -> notarize DMG -> create/update GitHub Release -> update Homebrew tap cask
+`push to main` -> detect `package.json` version bump -> build unpacked macOS app -> manually codesign the app bundle -> notarize the notarization archive -> staple when available -> package DMG/ZIP -> create/update GitHub Release -> update Homebrew tap cask
 
 The workflow file is:
 
@@ -547,21 +557,26 @@ npm run build:mac
 If you want to verify notarization manually:
 
 ```bash
-xcrun notarytool submit dist/the-pair-1.0.0.dmg \
+APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
+ZIP_PATH="dist/the-pair-{version}.zip"
+
+ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+
+xcrun notarytool submit "$ZIP_PATH" \
   --apple-id "$APPLE_ID" \
   --password "$APPLE_APP_SPECIFIC_PASSWORD" \
   --team-id "$TEAM_ID" \
   --wait
 
-xcrun stapler staple dist/the-pair-1.0.0.dmg
+xcrun stapler staple "$APP_PATH"
+xcrun stapler validate "$APP_PATH"
 ```
 
 ### Verify signature
 
 ```bash
 APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
-codesign --verify --verbose "$APP_PATH"
-spctl --assess --type exec --verbose "$APP_PATH"
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 ```
 
 ### Do I need App Store Connect setup?
@@ -598,7 +613,9 @@ Homebrew publishing is now driven by the same release workflow:
 1. Push to `main`
 2. Workflow compares `package.json` version against the previous commit
 3. If the version changed:
-   - signed DMG is built
+   - signed macOS app bundle is built
+   - the app is manually codesigned
+   - the notarization archive is submitted to Apple
    - release `v<version>` is created or updated
    - SHA256 is recalculated
    - `Casks/the-pair.rb` is committed to `timwuhaotian/homebrew-the-pair`
@@ -612,6 +629,13 @@ timwuhaotian/homebrew-the-pair
 ```
 
 The workflow will write `Casks/the-pair.rb` there automatically.
+
+Important:
+
+- The tap itself can be public while the source repository remains private.
+- However, Homebrew installation only works when the release asset URL in the cask is publicly reachable.
+- If `timwuhaotian/the-pair` is private, the generated cask URL will point to private release assets and `brew install --cask the-pair` will fail for normal users.
+- When you are ready for public distribution, make the release source public or move assets to a separate public release repository/object store before announcing the cask.
 
 ### Manual fallback workflow
 

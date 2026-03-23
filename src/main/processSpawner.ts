@@ -166,18 +166,19 @@ Workflow:
     }
 
     const fullMessage = `[SYSTEM INSTRUCTIONS - STRICTLY FOLLOW THESE]\n${systemPrompt}\n\n[NEW INPUT]\n${message}`
-    const messagePath = path.join(runtimeDir, `msg_${role}_${Date.now()}.txt`)
-    fs.writeFileSync(messagePath, fullMessage, 'utf-8')
+    let cmd: string
+    let messagePath: string | null = null
 
+    // All providers use stdin for message input to avoid command-line length limits
     const runtimeArgs = runtime.argBuilder(model, sessionId)
     const cmdParts = [runtime.executable, ...runtimeArgs]
-
-    let cmd: string
-    if (runtime.inputTransport === 'stdio') {
-      cmd = `${cmdParts.join(' ')} < "${messagePath}"`
-    } else {
-      cmd = `${cmdParts.join(' ')} < "${messagePath}"`
-    }
+    
+    messagePath = path.join(runtimeDir, `msg_${role}_${Date.now()}.txt`)
+    fs.writeFileSync(messagePath, fullMessage, 'utf-8')
+    cmd = `${cmdParts.join(' ')} < "${messagePath}"`
+    
+    console.log('[ProcessSpawner] Executing command:', cmdParts.join(' '))
+    console.log('[ProcessSpawner] Model:', model, 'SessionId:', sessionId)
 
     this.updateActivity(
       pairId,
@@ -227,14 +228,33 @@ Workflow:
               }
             }
 
-            if (event.type === 'text' && event.part?.text) {
-              responseText += event.part.text
+            const text =
+              event.part?.text ||
+              event.text ||
+              event.content ||
+              (event.type === 'text' && event.text)
+
+            if (text) {
+              responseText += text
               this.updateActivity(
                 pairId,
                 role,
                 'responding',
                 'Writing response',
                 lastActivityDetail
+              )
+            } else if (event.type === 'error') {
+              // Capture error events from opencode JSON output
+              const errorName = event.error?.name || 'UnknownError'
+              const errorMessage =
+                event.error?.data?.message || event.error?.message || 'Unknown error'
+              errorOutput += `${errorName}: ${errorMessage}\n`
+              this.updateActivity(
+                pairId,
+                role,
+                'error',
+                'Error occurred',
+                `${errorName}: ${errorMessage.slice(0, 50)}`
               )
             } else if (event.type === 'tool' && event.name) {
               lastActivityDetail = `Using ${event.name}`
@@ -246,9 +266,7 @@ Workflow:
             responseText += line
           }
         } catch {
-          if (runtime.outputTransport !== 'json-events') {
-            responseText += line
-          }
+          responseText += line
         }
       }
     })
@@ -260,10 +278,12 @@ Workflow:
     proc.on('close', (code) => {
       this.activeProcesses.delete(processKey)
 
-      try {
-        fs.unlinkSync(messagePath)
-      } catch {
-        // Ignore cleanup errors for transient runtime files.
+      if (messagePath) {
+        try {
+          fs.unlinkSync(messagePath)
+        } catch {
+          // Ignore cleanup errors for transient runtime files.
+        }
       }
 
       const result = buildAgentTurnResult(responseText, code, errorOutput)

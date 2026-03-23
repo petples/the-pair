@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -19,7 +20,15 @@ export function GlassModal({
   title,
   className
 }: GlassModalProps): React.ReactNode {
-  return (
+  const [portalRoot, setPortalRoot] = useState<HTMLElement | null>(null)
+
+  useEffect(() => {
+    setPortalRoot(document.body)
+  }, [])
+
+  if (!portalRoot) return null
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -52,6 +61,7 @@ export function GlassModal({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    portalRoot
   )
 }

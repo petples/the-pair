@@ -42,3 +42,16 @@ test('getAgentTurnDirective keeps normal executor updates flowing back to the me
     }
   )
 })
+
+test('getAgentTurnDirective pauses on error instead of handing off', () => {
+  const directive = getAgentTurnDirective('mentor', {
+    kind: 'error',
+    content: 'ProviderModelNotFoundError: Model not found'
+  })
+
+  assert.equal(directive.type, 'pause')
+  assert.equal(directive.to, 'human')
+  assert.equal(directive.messageType, 'question')
+  assert.match(directive.content, /Error occurred/i)
+  assert.match(directive.content, /ProviderModelNotFoundError/i)
+})

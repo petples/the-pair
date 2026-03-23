@@ -1,14 +1,15 @@
-import { execSync } from 'child_process'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import * as path from 'path'
 import type { GitTracking, ModifiedFile, FileStatus } from './types'
 
+const execAsync = promisify(exec)
+
 class PairGitTracker {
-  detectGitRepo(workspaceDir: string): GitTracking {
+  async detectGitRepo(workspaceDir: string): Promise<GitTracking> {
     try {
-      const gitRoot = execSync('git -C "${workspaceDir}" rev-parse --show-toplevel', {
-        encoding: 'utf-8',
-        cwd: workspaceDir
-      }).trim()
+      const { stdout } = await execAsync(`git -C "${workspaceDir}" rev-parse --show-toplevel`)
+      const gitRoot = stdout.trim()
       return {
         available: true,
         rootPath: gitRoot,
@@ -19,23 +20,25 @@ class PairGitTracker {
     }
   }
 
-  captureBaseline(gitRoot: string): string {
-    const output = execSync('git status --porcelain=v1 -z --untracked-files=all', {
-      encoding: 'utf-8',
-      cwd: gitRoot
-    })
-    return output
+  async captureBaseline(gitRoot: string): Promise<string> {
+    try {
+      const { stdout } = await execAsync('git status --porcelain=v1 -z --untracked-files=all', {
+        cwd: gitRoot
+      })
+      return stdout
+    } catch {
+      return ''
+    }
   }
 
-  getModifiedFiles(gitRoot: string, baseline: string): ModifiedFile[] {
+  async getModifiedFiles(gitRoot: string, baseline: string): Promise<ModifiedFile[]> {
     try {
-      const currentOutput = execSync('git status --porcelain=v1 -z --untracked-files=all', {
-        encoding: 'utf-8',
+      const { stdout } = await execAsync('git status --porcelain=v1 -z --untracked-files=all', {
         cwd: gitRoot
       })
 
       const baselineFiles = this.parseStatusOutput(baseline, gitRoot)
-      const currentFiles = this.parseStatusOutput(currentOutput, gitRoot)
+      const currentFiles = this.parseStatusOutput(stdout, gitRoot)
 
       return currentFiles.filter((file) => {
         const baselineFile = baselineFiles.find((bf) => bf.displayPath === file.displayPath)
@@ -46,13 +49,12 @@ class PairGitTracker {
     }
   }
 
-  getModifiedFilesRelative(gitRoot: string, workspaceDir: string): ModifiedFile[] {
+  async getModifiedFilesRelative(gitRoot: string, workspaceDir: string): Promise<ModifiedFile[]> {
     try {
-      const output = execSync('git status --porcelain=v1 -z --untracked-files=all', {
-        encoding: 'utf-8',
+      const { stdout } = await execAsync('git status --porcelain=v1 -z --untracked-files=all', {
         cwd: gitRoot
       })
-      return this.parseStatusOutput(output, workspaceDir)
+      return this.parseStatusOutput(stdout, workspaceDir)
     } catch {
       return []
     }

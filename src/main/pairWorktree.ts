@@ -1,9 +1,11 @@
 import { app } from 'electron'
-import { execSync } from 'child_process'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as crypto from 'crypto'
-import type { GitTracking } from './types'
+
+const execAsync = promisify(exec)
 
 export interface WorktreeInfo {
   worktreePath: string
@@ -25,27 +27,11 @@ export function getPairWorktreesRoot(): string {
   return path.join(userDataPath, 'pair-worktrees')
 }
 
-export function detectGitRepo(workspaceDir: string): GitTracking {
-  try {
-    const gitRoot = execSync('git -C "${workspaceDir}" rev-parse --show-toplevel', {
-      encoding: 'utf-8',
-      cwd: workspaceDir
-    }).trim()
-    return {
-      available: true,
-      rootPath: gitRoot,
-      gitReviewAvailable: true
-    }
-  } catch {
-    return { available: false, gitReviewAvailable: false }
-  }
-}
-
-export function createPairWorktree(
+export async function createPairWorktree(
   pairId: string,
   sourceRepoPath: string,
   sourceBranch: string = 'HEAD'
-): WorktreeInfo | null {
+): Promise<WorktreeInfo | null> {
   try {
     const worktreesRoot = getPairWorktreesRoot()
     if (!fs.existsSync(worktreesRoot)) {
@@ -61,16 +47,13 @@ export function createPairWorktree(
       fs.mkdirSync(worktreeDir, { recursive: true })
     }
 
-    execSync(
-      `git -C "${sourceRepoPath}" worktree add "${worktreePath}" -b ${branchName} ${sourceBranch}`,
-      {
-        encoding: 'utf-8'
-      }
+    await execAsync(
+      `git -C "${sourceRepoPath}" worktree add "${worktreePath}" -b ${branchName} ${sourceBranch}`
     )
 
-    copyLocalChangesToWorktree(sourceRepoPath, worktreePath)
+    await copyLocalChangesToWorktree(sourceRepoPath, worktreePath)
 
-    const preTurnHead = getCurrentHead(sourceRepoPath)
+    const preTurnHead = await getCurrentHead(sourceRepoPath)
 
     return {
       worktreePath,
@@ -83,12 +66,13 @@ export function createPairWorktree(
   }
 }
 
-export function copyLocalChangesToWorktree(sourceRepoPath: string, worktreePath: string): void {
+export async function copyLocalChangesToWorktree(
+  sourceRepoPath: string,
+  worktreePath: string
+): Promise<void> {
   try {
-    const statusOutput = execSync('git -C "${sourceRepoPath}" status --porcelain', {
-      encoding: 'utf-8',
-      cwd: sourceRepoPath
-    }).trim()
+    const { stdout } = await execAsync(`git -C "${sourceRepoPath}" status --porcelain`)
+    const statusOutput = stdout.trim()
 
     if (!statusOutput) return
 
@@ -127,55 +111,41 @@ export function copyLocalChangesToWorktree(sourceRepoPath: string, worktreePath:
   }
 }
 
-export function getCurrentHead(repoPath: string): string {
+export async function getCurrentHead(repoPath: string): Promise<string> {
   try {
-    return execSync('git -C "${repoPath}" rev-parse HEAD', {
-      encoding: 'utf-8',
-      cwd: repoPath
-    }).trim()
+    const { stdout } = await execAsync(`git -C "${repoPath}" rev-parse HEAD`)
+    return stdout.trim()
   } catch {
     return ''
   }
 }
 
-export function commitPairChanges(
+export async function commitPairChanges(
   pairId: string,
   worktreePath: string,
   iteration: number
-): { commitSha?: string; noChanges: boolean; commitSubject?: string } {
+): Promise<{ commitSha?: string; noChanges: boolean; commitSubject?: string }> {
   try {
-    const statusOutput = execSync('git -C "${worktreePath}" status --porcelain', {
-      encoding: 'utf-8',
-      cwd: worktreePath
-    }).trim()
+    const { stdout } = await execAsync(`git -C "${worktreePath}" status --porcelain`)
+    const statusOutput = stdout.trim()
 
     if (!statusOutput) {
       return { noChanges: true }
     }
 
-    execSync('git -C "${worktreePath}" add -A', {
-      encoding: 'utf-8',
-      cwd: worktreePath
-    })
+    await execAsync(`git -C "${worktreePath}" add -A`)
 
-    const diffOutput = execSync('git -C "${worktreePath}" diff --cached --stat', {
-      encoding: 'utf-8',
-      cwd: worktreePath
-    }).trim()
+    const { stdout: diffOutput } = await execAsync(`git -C "${worktreePath}" diff --cached --stat`)
 
-    if (!diffOutput) {
+    if (!diffOutput.trim()) {
       return { noChanges: true }
     }
 
     const commitMessage = `pair(${pairId}): executor turn ${iteration}`
-    execSync(`git -C "${worktreePath}" commit -m "${commitMessage}"`, {
-      encoding: 'utf-8'
-    })
+    await execAsync(`git -C "${worktreePath}" commit -m "${commitMessage}"`)
 
-    const commitSha = execSync('git -C "${worktreePath}" rev-parse HEAD', {
-      encoding: 'utf-8',
-      cwd: worktreePath
-    }).trim()
+    const { stdout: headOutput } = await execAsync(`git -C "${worktreePath}" rev-parse HEAD`)
+    const commitSha = headOutput.trim()
 
     return {
       commitSha,
@@ -188,29 +158,27 @@ export function commitPairChanges(
   }
 }
 
-export function getDiffStat(worktreePath: string, sha: string): string {
+export async function getDiffStat(worktreePath: string, sha: string): Promise<string> {
   try {
-    return execSync(`git -C "${worktreePath}" diff --stat --summary ${sha}^..${sha}`, {
-      encoding: 'utf-8',
-      cwd: worktreePath
-    }).trim()
+    const { stdout } = await execAsync(
+      `git -C "${worktreePath}" diff --stat --summary ${sha}^..${sha}`
+    )
+    return stdout.trim()
   } catch {
     return ''
   }
 }
 
-export function getPatchExcerpt(
+export async function getPatchExcerpt(
   worktreePath: string,
   sha: string,
   maxLines: number = 800,
   maxBytes: number = 204800
-): string {
+): Promise<string> {
   try {
-    const patch = execSync(
+    const { stdout: patch } = await execAsync(
       `git -C "${worktreePath}" show --stat --summary --patch --unified=3 --no-ext-diff ${sha}`,
       {
-        encoding: 'utf-8',
-        cwd: worktreePath,
         maxBuffer: maxBytes * 2
       }
     )
@@ -234,29 +202,23 @@ export function getPatchExcerpt(
   }
 }
 
-export function removePairWorktree(
+export async function removePairWorktree(
   worktreePath: string,
   branchName: string,
   originalRepoPath: string
-): void {
+): Promise<void> {
   try {
-    execSync(`git -C "${originalRepoPath}" worktree remove "${worktreePath}" --force`, {
-      encoding: 'utf-8'
-    })
-    execSync(`git -C "${originalRepoPath}" branch -d "${branchName}"`, {
-      encoding: 'utf-8'
-    })
+    await execAsync(`git -C "${originalRepoPath}" worktree remove "${worktreePath}" --force`)
+    await execAsync(`git -C "${originalRepoPath}" branch -d "${branchName}"`)
   } catch (error) {
     console.error('Failed to remove worktree:', error)
   }
 }
 
-export function getWorktreeStatus(worktreePath: string): string {
+export async function getWorktreeStatus(worktreePath: string): Promise<string> {
   try {
-    return execSync('git -C "${worktreePath}" status --porcelain', {
-      encoding: 'utf-8',
-      cwd: worktreePath
-    }).trim()
+    const { stdout } = await execAsync(`git -C "${worktreePath}" status --porcelain`)
+    return stdout.trim()
   } catch {
     return ''
   }

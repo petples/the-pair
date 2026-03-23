@@ -74,23 +74,23 @@ export class MessageBroker {
   private worktrees: Map<string, WorktreeInfo> = new Map()
   private preTurnHeads: Map<string, string> = new Map()
 
-  initializePair(pairId: string, input: CreatePairInput): { worktreePath?: string } {
+  async initializePair(pairId: string, input: CreatePairInput): Promise<{ worktreePath?: string }> {
     const pairDir = path.join(input.directory, '.pair')
     ensureDir(pairDir)
 
     const specData = JSON.stringify({ spec: input.spec, name: input.name }, null, 2)
     fs.writeFileSync(path.join(pairDir, 'spec.json'), specData, 'utf-8')
 
-    const gitTracking = pairGitTracker.detectGitRepo(input.directory)
+    const gitTracking = await pairGitTracker.detectGitRepo(input.directory)
     let modifiedFiles: ModifiedFile[] = []
     let worktreeInfo: WorktreeInfo | null = null
 
     if (gitTracking.available && gitTracking.rootPath) {
-      gitTracking.baseline = pairGitTracker.captureBaseline(gitTracking.rootPath)
-      modifiedFiles = pairGitTracker.getModifiedFiles(gitTracking.rootPath, gitTracking.baseline)
+      gitTracking.baseline = await pairGitTracker.captureBaseline(gitTracking.rootPath)
+      modifiedFiles = await pairGitTracker.getModifiedFiles(gitTracking.rootPath, gitTracking.baseline)
 
       if (gitTracking.gitReviewAvailable) {
-        worktreeInfo = createPairWorktree(pairId, gitTracking.rootPath)
+        worktreeInfo = await createPairWorktree(pairId, gitTracking.rootPath)
         if (worktreeInfo) {
           gitTracking.worktreePath = worktreeInfo.worktreePath
           gitTracking.worktreeBranch = worktreeInfo.branchName
@@ -181,7 +181,7 @@ export class MessageBroker {
     }, 1000)
   }
 
-  assignTask(pairId: string, input: Pick<CreatePairInput, 'name' | 'spec'>): void {
+  async assignTask(pairId: string, input: Pick<CreatePairInput, 'name' | 'spec'>): Promise<void> {
     const state = this.pairStates.get(pairId)
     if (!state) {
       throw new Error(`Unknown pair: ${pairId}`)
@@ -200,7 +200,7 @@ export class MessageBroker {
       nextState.gitTracking.rootPath &&
       !nextState.gitTracking.worktreePath
     ) {
-      nextState.gitTracking.baseline = pairGitTracker.captureBaseline(
+      nextState.gitTracking.baseline = await pairGitTracker.captureBaseline(
         nextState.gitTracking.rootPath
       )
     }
@@ -211,7 +211,11 @@ export class MessageBroker {
     this.notifyStateUpdate(pairId)
   }
 
-  handleAgentResponse(pairId: string, role: 'mentor' | 'executor', result: AgentTurnResult): void {
+  async handleAgentResponse(
+    pairId: string,
+    role: 'mentor' | 'executor',
+    result: AgentTurnResult
+  ): Promise<void> {
     const state = this.pairStates.get(pairId)
     if (!state) return
 
@@ -255,9 +259,9 @@ export class MessageBroker {
       state.mentor.status = 'Reviewing'
       state.mentorActivity = updateActivity(
         state.mentorActivity,
-        'thinking',
-        'Recovering from silent turn',
-        undefined
+        'idle',
+        'Paused: No response from agent',
+        'Check logs or retry turn'
       )
       state.executorActivity = updateActivity(
         state.executorActivity,
@@ -269,8 +273,6 @@ export class MessageBroker {
       this.writeStateFile(pairId, state)
       this.notifyRenderer(pairId, newMessage)
       this.notifyStateUpdate(pairId)
-
-      processSpawner.triggerTurn(pairId, 'mentor', directive.content)
       return
     }
 
@@ -299,7 +301,7 @@ export class MessageBroker {
       }
 
       if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
-        const preTurnHead = getCurrentHead(state.gitTracking.worktreePath)
+        const preTurnHead = await getCurrentHead(state.gitTracking.worktreePath)
         this.preTurnHeads.set(pairId, preTurnHead)
       }
 
@@ -332,17 +334,17 @@ export class MessageBroker {
       let turnArtifact: TurnArtifact | null = null
 
       if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
-        postTurnHead = getCurrentHead(state.gitTracking.worktreePath)
+        postTurnHead = await getCurrentHead(state.gitTracking.worktreePath)
 
-        const commitResult = commitPairChanges(
+        const commitResult = await commitPairChanges(
           pairId,
           state.gitTracking.worktreePath,
           state.iteration
         )
 
         if (!commitResult.noChanges && commitResult.commitSha) {
-          const diffStat = getDiffStat(state.gitTracking.worktreePath, commitResult.commitSha)
-          const patchExcerpt = getPatchExcerpt(
+          const diffStat = await getDiffStat(state.gitTracking.worktreePath, commitResult.commitSha)
+          const patchExcerpt = await getPatchExcerpt(
             state.gitTracking.worktreePath,
             commitResult.commitSha
           )
@@ -390,7 +392,7 @@ export class MessageBroker {
       }
 
       if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
-        state.modifiedFiles = pairGitTracker.getModifiedFilesRelative(
+        state.modifiedFiles = await pairGitTracker.getModifiedFilesRelative(
           state.gitTracking.worktreePath,
           state.gitTracking.worktreePath
         )
@@ -399,7 +401,7 @@ export class MessageBroker {
         state.gitTracking.rootPath &&
         state.gitTracking.baseline
       ) {
-        state.modifiedFiles = pairGitTracker.getModifiedFiles(
+        state.modifiedFiles = await pairGitTracker.getModifiedFiles(
           state.gitTracking.rootPath,
           state.gitTracking.baseline
         )
@@ -513,12 +515,12 @@ ${commitInfo}${diffInfo}${patchSection}${instructionSummary}${footer}`
     return this.pairStates.get(pairId)
   }
 
-  stopPair(pairId: string): void {
+  async stopPair(pairId: string): Promise<void> {
     const worktreeInfo = this.worktrees.get(pairId)
     const state = this.pairStates.get(pairId)
 
     if (worktreeInfo && state?.gitTracking.rootPath) {
-      removePairWorktree(
+      await removePairWorktree(
         worktreeInfo.worktreePath,
         worktreeInfo.branchName,
         state.gitTracking.rootPath

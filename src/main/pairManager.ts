@@ -37,10 +37,12 @@ class PairManager {
   private pairs: Map<string, ManagedPair> = new Map()
 
   private parseProviderModel(qualifiedModel: string): { provider: ProviderKind; model: string } {
+    const KNOWN_PROVIDERS: ProviderKind[] = ['opencode', 'codex', 'claude', 'gemini']
     const parts = qualifiedModel.split('/')
-    if (parts.length === 2) {
+    if (parts.length === 2 && KNOWN_PROVIDERS.includes(parts[0] as ProviderKind)) {
       return { provider: parts[0] as ProviderKind, model: parts[1] }
     }
+    // Custom opencode provider (e.g. bailian-coding-plan/glm-5) — pass full model string to opencode
     return { provider: 'opencode', model: qualifiedModel }
   }
 
@@ -64,13 +66,13 @@ class PairManager {
       )
     }
 
-    const initResult = messageBroker.initializePair(pairId, input)
+    const initResult = await messageBroker.initializePair(pairId, input)
     messageBroker.startWatching(pairId)
 
     const pairProcess = await processSpawner.spawnPair(
       pairId,
-      mentorParsed.model,
-      executorParsed.model,
+      input.mentor.model,
+      input.executor.model,
       input.directory,
       input.spec,
       mentorRuntime,
@@ -91,9 +93,9 @@ class PairManager {
     return pairProcess
   }
 
-  stopPair(pairId: string): void {
+  async stopPair(pairId: string): Promise<void> {
     processSpawner.killPair(pairId)
-    messageBroker.stopPair(pairId)
+    await messageBroker.stopPair(pairId)
     this.cleanupPairDir(pairId)
     this.pairs.delete(pairId)
     this.notifyRenderer('pair:stopped', { pairId })
@@ -144,7 +146,7 @@ class PairManager {
     messageBroker.humanFeedback(pairId, approved)
   }
 
-  assignTask(pairId: string, input: AssignTaskInput): AssignTaskResult {
+  async assignTask(pairId: string, input: AssignTaskInput): Promise<AssignTaskResult> {
     const pair = this.pairs.get(pairId)
     if (!pair) {
       throw new Error(`Unknown pair: ${pairId}`)
@@ -164,8 +166,8 @@ class PairManager {
     const runtimeSelection = this.resolveRuntimeSelection(mentorModel, executorModel)
 
     processSpawner.updatePairRuntime(pairId, {
-      mentorModel: runtimeSelection.mentor.model,
-      executorModel: runtimeSelection.executor.model,
+      mentorModel: runtimeSelection.mentorQualifiedModel,
+      executorModel: runtimeSelection.executorQualifiedModel,
       mentorRuntime: runtimeSelection.mentorRuntime,
       executorRuntime: runtimeSelection.executorRuntime,
       resetSessions: true
@@ -177,7 +179,7 @@ class PairManager {
     pair.pendingExecutorModel = undefined
     pair.spec = input.spec
 
-    messageBroker.assignTask(pairId, { name: pair.name, spec: input.spec })
+    await messageBroker.assignTask(pairId, { name: pair.name, spec: input.spec })
     messageBroker.startWatching(pairId)
 
     return {
@@ -212,8 +214,8 @@ class PairManager {
 
     const runtimeSelection = this.resolveRuntimeSelection(input.mentorModel, input.executorModel)
     processSpawner.updatePairRuntime(pairId, {
-      mentorModel: runtimeSelection.mentor.model,
-      executorModel: runtimeSelection.executor.model,
+      mentorModel: runtimeSelection.mentorQualifiedModel,
+      executorModel: runtimeSelection.executorQualifiedModel,
       mentorRuntime: runtimeSelection.mentorRuntime,
       executorRuntime: runtimeSelection.executorRuntime,
       resetSessions: true
@@ -230,8 +232,12 @@ class PairManager {
     }
   }
 
-  handleAgentResponse(pairId: string, role: 'mentor' | 'executor', result: AgentTurnResult): void {
-    messageBroker.handleAgentResponse(pairId, role, result)
+  async handleAgentResponse(
+    pairId: string,
+    role: 'mentor' | 'executor',
+    result: AgentTurnResult
+  ): Promise<void> {
+    await messageBroker.handleAgentResponse(pairId, role, result)
   }
 
   getMessages(pairId: string): Message[] {
@@ -252,8 +258,8 @@ class PairManager {
     mentorQualifiedModel: string,
     executorQualifiedModel: string
   ): {
-    mentor: { provider: ProviderKind; model: string }
-    executor: { provider: ProviderKind; model: string }
+    mentorQualifiedModel: string
+    executorQualifiedModel: string
     mentorRuntime: PairRuntimeSpec
     executorRuntime: PairRuntimeSpec
   } {
@@ -271,8 +277,8 @@ class PairManager {
     }
 
     return {
-      mentor,
-      executor,
+      mentorQualifiedModel,
+      executorQualifiedModel,
       mentorRuntime,
       executorRuntime
     }

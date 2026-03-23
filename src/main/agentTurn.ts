@@ -85,6 +85,15 @@ export function getAgentTurnDirective(
     }
   }
 
+  if (result.kind === 'error') {
+    return {
+      type: 'pause',
+      to: 'human',
+      messageType: 'question',
+      content: `Error occurred during ${role}'s turn:\n${result.content}\n\nPair paused due to error. Use Reject to retry or investigate the issue.`
+    }
+  }
+
   const nextRole = role === 'mentor' ? 'executor' : 'mentor'
 
   return {

@@ -12,6 +12,11 @@ interface ModelPickerProps {
 }
 
 function getQualifiedModel(model: AvailableModel): string {
+  // For opencode, modelId already contains the full provider/model path (e.g. bailian-coding-plan/glm-5)
+  // For other providers, we need to prepend the provider kind
+  if (model.provider === 'opencode') {
+    return model.modelId
+  }
   return `${model.provider}/${model.modelId}`
 }
 
