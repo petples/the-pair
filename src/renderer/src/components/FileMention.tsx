@@ -35,13 +35,18 @@ export function FileMention({
 
     window.api.file.listFiles({ pairId, directory }).then((fileList) => {
       setFiles(fileList)
-      fuseRef.current = new Fuse(fileList, {
-        keys: ['path'],
-        threshold: 0.4,
-        includeScore: true
-      })
     })
   }, [directory, pairId])
+
+  useEffect(() => {
+    if (files.length === 0) return
+
+    fuseRef.current = new Fuse(files, {
+      keys: ['path'],
+      threshold: 0.4,
+      includeScore: true
+    })
+  }, [files])
 
   const getCursorPosition = useCallback((): { top: number; left: number } | null => {
     const textarea = textareaRef.current
@@ -140,7 +145,7 @@ export function FileMention({
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
     }
-  }, [textareaRef, isOpen, results, selectedIndex, getCursorPosition, insertMention])
+  }, [textareaRef, isOpen, results, selectedIndex, getCursorPosition, insertMention, files])
 
   useEffect(() => {
     if (!query || !fuseRef.current) {
