@@ -10,6 +10,42 @@ export type PairStatus =
   | 'Error'
   | 'Finished'
 
+export type ActivityPhase = 'idle' | 'thinking' | 'using_tools' | 'responding' | 'waiting' | 'error'
+
+export interface AgentActivity {
+  phase: ActivityPhase
+  label: string
+  detail?: string
+  startedAt: number
+  updatedAt: number
+}
+
+export interface ResourceInfo {
+  cpu: number
+  memMb: number
+}
+
+export interface PairResources {
+  mentor: ResourceInfo
+  executor: ResourceInfo
+  pairTotal: ResourceInfo
+}
+
+export type FileStatus = 'A' | 'M' | 'D' | 'R' | '??'
+
+export interface ModifiedFile {
+  path: string
+  status: FileStatus
+  displayPath: string
+}
+
+export interface GitTracking {
+  available: boolean
+  rootPath?: string
+}
+
+export type AutomationMode = 'full-auto'
+
 export interface Message {
   id: string
   timestamp: number
@@ -34,6 +70,16 @@ export interface Pair {
   mentorModel: string
   executorModel: string
   messages: Message[]
+  mentorActivity: AgentActivity
+  executorActivity: AgentActivity
+  mentorCpu: number
+  mentorMemMb: number
+  executorCpu: number
+  executorMemMb: number
+  modifiedFiles: ModifiedFile[]
+  gitTracking: GitTracking
+  automationMode: AutomationMode
+  turn: 'mentor' | 'executor'
 }
 
 interface PairStore {
@@ -55,7 +101,9 @@ interface PairStore {
   addMessage: (pairId: string, message: Message) => void
   setMessages: (pairId: string, messages: Message[]) => void
   syncState: (pairId: string, status: PairStatus, iteration: number) => void
+  syncFullState: (pairId: string, state: Record<string, unknown>) => void
   humanFeedback: (pairId: string, approved: boolean) => Promise<void>
+  retryTurn: (id: string) => Promise<void>
   initMessageListener: () => void
 }
 
@@ -82,7 +130,7 @@ export const usePairStore = create<PairStore>((set) => ({
     window.api.pair.onState((_state: any) => {
       set((state) => ({
         pairs: state.pairs.map((p) =>
-          p.id === _state.pairId ? { ...p, status: _state.status, iterations: _state.iteration } : p
+          p.id === _state.pairId ? syncPairFromState(p, _state) : p
         )
       }))
     })
@@ -121,7 +169,17 @@ export const usePairStore = create<PairStore>((set) => ({
         spec: input.spec,
         mentorModel: input.mentorModel,
         executorModel: input.executorModel,
-        messages: []
+        messages: [],
+        mentorActivity: { phase: 'idle', label: 'Mentor idle', startedAt: Date.now(), updatedAt: Date.now() },
+        executorActivity: { phase: 'idle', label: 'Executor idle', startedAt: Date.now(), updatedAt: Date.now() },
+        mentorCpu: 0,
+        mentorMemMb: 0,
+        executorCpu: 0,
+        executorMemMb: 0,
+        modifiedFiles: [],
+        gitTracking: { available: false },
+        automationMode: 'full-auto',
+        turn: 'mentor'
       }
 
       set((state) => ({
@@ -139,6 +197,10 @@ export const usePairStore = create<PairStore>((set) => ({
   removePair: (id) => {
     window.api.pair.stop(id)
     set((state) => ({ pairs: state.pairs.filter((p) => p.id !== id) }))
+  },
+
+  retryTurn: async (id) => {
+    await window.api.pair.retryTurn(id)
   },
 
   updatePairStatus: (id, status) =>
@@ -168,7 +230,32 @@ export const usePairStore = create<PairStore>((set) => ({
       pairs: state.pairs.map((p) => (p.id === pairId ? { ...p, status, iterations: iteration } : p))
     })),
 
+  syncFullState: (pairId, state) =>
+    set((s) => ({
+      pairs: s.pairs.map((p) => (p.id === pairId ? syncPairFromState(p, state) : p))
+    })),
+
   humanFeedback: async (pairId, approved) => {
     await window.api.pair.humanFeedback(pairId, approved)
   }
 }))
+
+function syncPairFromState(pair: Pair, state: Record<string, unknown>): Pair {
+  return {
+    ...pair,
+    status: (state.status as PairStatus) ?? pair.status,
+    iterations: (state.iteration as number) ?? pair.iterations,
+    turn: (state.turn as 'mentor' | 'executor') ?? pair.turn,
+    mentorActivity: (state.mentorActivity as AgentActivity) ?? pair.mentorActivity,
+    executorActivity: (state.executorActivity as AgentActivity) ?? pair.executorActivity,
+    mentorCpu: (state.resources as { mentor: ResourceInfo })?.mentor?.cpu ?? pair.mentorCpu,
+    mentorMemMb: (state.resources as { mentor: ResourceInfo })?.mentor?.memMb ?? pair.mentorMemMb,
+    executorCpu: (state.resources as { executor: ResourceInfo })?.executor?.cpu ?? pair.executorCpu,
+    executorMemMb: (state.resources as { executor: ResourceInfo })?.executor?.memMb ?? pair.executorMemMb,
+    cpuUsage: (state.resources as { pairTotal: ResourceInfo })?.pairTotal?.cpu ?? pair.cpuUsage,
+    memUsage: (state.resources as { pairTotal: ResourceInfo })?.pairTotal?.memMb ?? pair.memUsage,
+    modifiedFiles: (state.modifiedFiles as ModifiedFile[]) ?? pair.modifiedFiles,
+    gitTracking: (state.gitTracking as GitTracking) ?? pair.gitTracking,
+    automationMode: (state.automationMode as AutomationMode) ?? pair.automationMode
+  }
+}

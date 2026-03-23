@@ -1,7 +1,9 @@
-appId: com.electron.app
-productName: the-pair
+appId: com.electron.the-pair
+productName: The Pair
+copyright: Copyright © 2024 timwuhaotian
 directories:
   buildResources: build
+  output: dist
 files:
   - '!**/.vscode/*'
   - '!src/*'
@@ -9,35 +11,68 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.pair/**/*}'
 asarUnpack:
   - resources/**
+  - node_modules/pidusage
 win:
   executableName: the-pair
+  signingHashAlgorithms:
+    - sha256
+  requestedExecutionLevel: asInvoker
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  type: distribution
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  provisioningProfile: build/embedded.provisionprofile
+  identity: ${CSC_NAME}
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  minimumSystemVersion: '12.0'
+  target:
+    - target: dmg
+      sign: true
+    - target: zip
+      sign: true
   extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
+    NSCameraUsageDescription: Application requests access to the device's camera.
+    NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    ITSAppUsesNonExemptEncryption: false
+  notarize: true
+  darkModeSupport: true
 dmg:
   artifactName: ${name}-${version}.${ext}
+  sign: true
+  contents:
+    - x: 130
+      'y': 220
+    - x: 410
+      'y': 220
+      type: link
+      path: /Applications
 linux:
   target:
     - AppImage
-    - snap
     - deb
-  maintainer: electronjs.org
+  maintainer: timwuhaotian
   category: Utility
+  mimeTypes: []
 appImage:
+  artifactName: ${name}-${version}.${ext}
+deb:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: timwuhaotian
+  repo: the-pair
+  releaseType: release

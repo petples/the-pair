@@ -1,9 +1,19 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { BrowserWindow } from 'electron'
-import type { Message, PairState, CreatePairInput } from './types'
+import type { Message, PairState, CreatePairInput, AgentActivity, ActivityPhase, PairResources, ModifiedFile, TurnArtifact } from './types'
 import { processSpawner } from './processSpawner'
 import { getAgentTurnDirective, type AgentTurnResult } from './agentTurn'
+import { pairGitTracker } from './pairGitTracker'
+import { pairResourceMonitor } from './pairResourceMonitor'
+import {
+  createPairWorktree,
+  commitPairChanges,
+  getDiffStat,
+  getPatchExcerpt,
+  getCurrentHead,
+  type WorktreeInfo
+} from './pairWorktree'
 
 const MAX_ITERATIONS = 9999
 
@@ -17,8 +27,36 @@ function ensureDir(dirPath: string): void {
   }
 }
 
+function createIdleActivity(label: string = 'Idle'): AgentActivity {
+  const now = Date.now()
+  return {
+    phase: 'idle',
+    label,
+    startedAt: now,
+    updatedAt: now
+  }
+}
+
+function updateActivity(activity: AgentActivity, phase: ActivityPhase, label: string, detail?: string): AgentActivity {
+  return {
+    phase,
+    label,
+    detail,
+    startedAt: activity.startedAt,
+    updatedAt: Date.now()
+  }
+}
+
+const EMPTY_RESOURCES: PairResources = {
+  mentor: { cpu: 0, memMb: 0 },
+  executor: { cpu: 0, memMb: 0 },
+  pairTotal: { cpu: 0, memMb: 0 }
+}
+
 export class MessageBroker {
   private pairStates: Map<string, PairState> = new Map()
+  private worktrees: Map<string, WorktreeInfo> = new Map()
+  private preTurnHeads: Map<string, string> = new Map()
 
   initializePair(pairId: string, input: CreatePairInput): void {
     const pairDir = path.join(input.directory, '.pair')
@@ -27,6 +65,24 @@ export class MessageBroker {
     const specData = JSON.stringify({ spec: input.spec, name: input.name }, null, 2)
     fs.writeFileSync(path.join(pairDir, 'spec.json'), specData, 'utf-8')
 
+    const gitTracking = pairGitTracker.detectGitRepo(input.directory)
+    let modifiedFiles: ModifiedFile[] = []
+    let worktreeInfo: WorktreeInfo | null = null
+
+    if (gitTracking.available && gitTracking.rootPath) {
+      gitTracking.baseline = pairGitTracker.captureBaseline(gitTracking.rootPath)
+      modifiedFiles = pairGitTracker.getModifiedFiles(gitTracking.rootPath, gitTracking.baseline)
+
+      if (gitTracking.gitReviewAvailable) {
+        worktreeInfo = createPairWorktree(pairId, gitTracking.rootPath)
+        if (worktreeInfo) {
+          gitTracking.worktreePath = worktreeInfo.worktreePath
+          gitTracking.worktreeBranch = worktreeInfo.branchName
+          this.worktrees.set(pairId, worktreeInfo)
+        }
+      }
+    }
+
     const state: PairState = {
       pairId,
       directory: input.directory,
@@ -34,13 +90,23 @@ export class MessageBroker {
       iteration: 0,
       maxIterations: MAX_ITERATIONS,
       turn: 'mentor',
-      mentor: { status: 'Idle', turn: 'mentor' },
-      executor: { status: 'Idle', turn: 'executor' },
-      messages: []
+      mentor: { status: 'Idle', turn: 'mentor', activity: createIdleActivity('Mentor idle') },
+      executor: { status: 'Idle', turn: 'executor', activity: createIdleActivity('Executor idle') },
+      messages: [],
+      mentorActivity: createIdleActivity('Mentor idle'),
+      executorActivity: createIdleActivity('Executor idle'),
+      resources: { ...EMPTY_RESOURCES },
+      modifiedFiles,
+      gitTracking,
+      automationMode: 'full-auto',
+      turnArtifacts: [],
+      gitReviewAvailable: gitTracking.gitReviewAvailable ?? false
     }
 
     this.writeStateFile(pairId, state)
     this.pairStates.set(pairId, state)
+
+    pairResourceMonitor.registerPair(pairId, () => this.pairStates.get(pairId))
   }
 
   private getPairDir(pairId: string): string | null {
@@ -62,13 +128,14 @@ export class MessageBroker {
   }
 
   startWatching(pairId: string): void {
-    // We no longer watch files. We directly trigger the first turn.
     const state = this.pairStates.get(pairId)
     if (!state) return
 
     setTimeout(() => {
       state.status = 'Mentoring'
       state.mentor.status = 'Executing'
+      state.mentorActivity = updateActivity(state.mentorActivity, 'thinking', 'Analyzing task', 'Preparing first instruction')
+      state.executorActivity = updateActivity(state.executorActivity, 'waiting', 'Executor standing by', undefined)
       this.notifyStateUpdate(pairId)
 
       const specPath = path.join(state.directory, '.pair', 'spec.json')
@@ -88,9 +155,10 @@ export class MessageBroker {
     const state = this.pairStates.get(pairId)
     if (!state) return
 
-    // Limit iterations to prevent runaway
     if (state.iteration >= state.maxIterations) {
-      state.status = 'Finished'
+      state.status = 'Error'
+      state.mentorActivity = updateActivity(state.mentorActivity, 'error', 'Max iterations reached', undefined)
+      state.executorActivity = updateActivity(state.executorActivity, 'idle', 'Executor stopped', undefined)
       this.writeStateFile(pairId, state)
       this.notifyStateUpdate(pairId)
       return
@@ -112,14 +180,17 @@ export class MessageBroker {
     state[role].lastMessage = newMessage
 
     if (directive.type === 'pause') {
-      state.status = 'Awaiting Human Review'
-      state.turn = role
-      state.mentor.status = role === 'mentor' ? 'Awaiting Human Review' : 'Idle'
-      state.executor.status = role === 'executor' ? 'Awaiting Human Review' : 'Idle'
+      state.status = 'Reviewing'
+      state.turn = 'mentor'
+      state.mentor.status = 'Reviewing'
+      state.mentorActivity = updateActivity(state.mentorActivity, 'thinking', 'Recovering from silent turn', undefined)
+      state.executorActivity = updateActivity(state.executorActivity, 'idle', 'Executor idle', undefined)
 
       this.writeStateFile(pairId, state)
       this.notifyRenderer(pairId, newMessage)
       this.notifyStateUpdate(pairId)
+
+      processSpawner.triggerTurn(pairId, 'mentor', directive.content)
       return
     }
 
@@ -128,6 +199,8 @@ export class MessageBroker {
         state.status = 'Finished'
         state.mentor.status = 'Finished'
         state.executor.status = 'Finished'
+        state.mentorActivity = updateActivity(state.mentorActivity, 'idle', 'Task completed', undefined)
+        state.executorActivity = updateActivity(state.executorActivity, 'idle', 'Executor stopped', undefined)
 
         this.writeStateFile(pairId, state)
         this.notifyRenderer(pairId, newMessage)
@@ -135,11 +208,18 @@ export class MessageBroker {
         return
       }
 
+      if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
+        const preTurnHead = getCurrentHead(state.gitTracking.worktreePath)
+        this.preTurnHeads.set(pairId, preTurnHead)
+      }
+
       state.status = 'Executing'
       state.turn = 'executor'
       state.iteration++
       state.mentor.status = 'Idle'
       state.executor.status = 'Executing'
+      state.mentorActivity = updateActivity(state.mentorActivity, 'waiting', 'Waiting for executor', undefined)
+      state.executorActivity = updateActivity(state.executorActivity, 'thinking', 'Executing instruction', undefined)
 
       this.writeStateFile(pairId, state)
       this.notifyRenderer(pairId, newMessage)
@@ -147,18 +227,106 @@ export class MessageBroker {
 
       processSpawner.triggerTurn(pairId, 'executor', directive.content)
     } else {
-      // Executor finished its turn
+      const preTurnHead = this.preTurnHeads.get(pairId) || ''
+      let postTurnHead = ''
+      let turnArtifact: TurnArtifact | null = null
+
+      if (state.gitReviewAvailable && state.gitTracking.worktreePath) {
+        postTurnHead = getCurrentHead(state.gitTracking.worktreePath)
+
+        const commitResult = commitPairChanges(pairId, state.gitTracking.worktreePath, state.iteration)
+
+        if (!commitResult.noChanges && commitResult.commitSha) {
+          const diffStat = getDiffStat(state.gitTracking.worktreePath, commitResult.commitSha)
+          const patchExcerpt = getPatchExcerpt(state.gitTracking.worktreePath, commitResult.commitSha)
+
+          turnArtifact = {
+            iteration: state.iteration,
+            instructionSummary: state.messages.length > 0 ? state.messages[state.messages.length - 2]?.content.slice(0, 200) || '' : '',
+            preTurnHead,
+            postTurnHead,
+            commitSha: commitResult.commitSha,
+            commitSubject: commitResult.commitSubject,
+            changedFiles: state.modifiedFiles,
+            statusShort: 'success',
+            diffStat,
+            patchExcerpt,
+            executorSummary: directive.content.slice(0, 500),
+            verificationSummary: 'Changes committed successfully',
+            noChanges: false
+          }
+        } else {
+          turnArtifact = {
+            iteration: state.iteration,
+            instructionSummary: state.messages.length > 0 ? state.messages[state.messages.length - 2]?.content.slice(0, 200) || '' : '',
+            preTurnHead,
+            postTurnHead,
+            changedFiles: [],
+            statusShort: 'no_changes',
+            diffStat: '',
+            patchExcerpt: '',
+            executorSummary: directive.content.slice(0, 500),
+            verificationSummary: 'No file changes detected',
+            noChanges: true
+          }
+        }
+
+        if (turnArtifact) {
+          state.turnArtifacts.push(turnArtifact)
+        }
+      }
+
+      if (state.gitTracking.available && state.gitTracking.rootPath && state.gitTracking.baseline) {
+        state.modifiedFiles = pairGitTracker.getModifiedFiles(state.gitTracking.rootPath, state.gitTracking.baseline)
+      }
+
       state.status = 'Reviewing'
       state.turn = 'mentor'
       state.executor.status = 'Idle'
       state.mentor.status = 'Reviewing'
+      state.executorActivity = updateActivity(state.executorActivity, 'waiting', 'Executor completed', undefined)
+      state.mentorActivity = updateActivity(state.mentorActivity, 'thinking', 'Reviewing executor output', undefined)
 
       this.writeStateFile(pairId, state)
       this.notifyRenderer(pairId, newMessage)
       this.notifyStateUpdate(pairId)
 
-      processSpawner.triggerTurn(pairId, 'mentor', directive.content)
+      const reviewPacket = this.buildMentorReviewPacket(state, turnArtifact, directive.content)
+      processSpawner.triggerTurn(pairId, 'mentor', reviewPacket)
     }
+  }
+
+  private buildMentorReviewPacket(state: PairState, artifact: TurnArtifact | null, executorSummary: string): string {
+    if (!state.gitReviewAvailable || !artifact) {
+      return `Executor summary:\n${executorSummary}\n\nNo git changes detected in this turn.`
+    }
+
+    const header = `[MENTOR REVIEW PACKET - Iteration ${artifact.iteration}]`
+
+    const commitInfo = artifact.commitSha
+      ? `Commit: ${artifact.commitSha}\nSubject: ${artifact.commitSubject}\n`
+      : 'No commit (no changes)\n'
+
+    const diffInfo = artifact.commitSha
+      ? `\nDiff Stat:\n${artifact.diffStat}\n`
+      : ''
+
+    const patchSection = artifact.patchExcerpt
+      ? `\nPatch Excerpt (first 800 lines):\n${artifact.patchExcerpt}\n`
+      : ''
+
+    const instructionSummary = artifact.instructionSummary
+      ? `\nOriginal Instruction:\n${artifact.instructionSummary}\n`
+      : ''
+
+    const footer = `\n[END REVIEW PACKET]
+Executor's text summary:
+${executorSummary}
+
+IMPORTANT: First review the actual code changes above, then provide your feedback and next instruction.`
+
+    return `${header}
+${commitInfo}${diffInfo}${patchSection}${instructionSummary}${footer}`
   }
 
   humanFeedback(pairId: string, approved: boolean): void {
@@ -209,7 +377,52 @@ export class MessageBroker {
   }
 
   stopPair(pairId: string): void {
+    pairResourceMonitor.unregisterPair(pairId)
     this.pairStates.delete(pairId)
+  }
+
+  retryTurn(pairId: string): void {
+    const state = this.pairStates.get(pairId)
+    if (!state) return
+
+    if (state.status !== 'Error') return
+
+    const lastMessage = state.messages[state.messages.length - 1]
+    if (!lastMessage) return
+
+    state.status = state.turn === 'mentor' ? 'Mentoring' : 'Executing'
+    state.mentorActivity = updateActivity(state.mentorActivity, 'thinking', 'Retrying turn', undefined)
+    state.executorActivity = updateActivity(state.executorActivity, 'thinking', 'Retrying turn', undefined)
+
+    this.writeStateFile(pairId, state)
+    this.notifyStateUpdate(pairId)
+
+    processSpawner.triggerTurn(pairId, state.turn, lastMessage.content)
+  }
+
+  updateActivity(pairId: string, role: 'mentor' | 'executor', phase: ActivityPhase, label: string, detail?: string): void {
+    const state = this.pairStates.get(pairId)
+    if (!state) return
+
+    const activity = role === 'mentor' ? state.mentorActivity : state.executorActivity
+    const updated = updateActivity(activity, phase, label, detail)
+
+    if (role === 'mentor') {
+      state.mentorActivity = updated
+      state.mentor.activity = updated
+    } else {
+      state.executorActivity = updated
+      state.executor.activity = updated
+    }
+
+    this.notifyStateUpdate(pairId)
+  }
+
+  updateResources(pairId: string, resources: PairResources): void {
+    const state = this.pairStates.get(pairId)
+    if (!state) return
+    state.resources = resources
+    this.notifyStateUpdate(pairId)
   }
 
   private notifyRenderer(pairId: string, message: Message): void {
@@ -229,7 +442,13 @@ export class MessageBroker {
         maxIterations: state.maxIterations,
         turn: state.turn,
         mentorStatus: state.mentor.status,
-        executorStatus: state.executor.status
+        executorStatus: state.executor.status,
+        mentorActivity: state.mentorActivity,
+        executorActivity: state.executorActivity,
+        resources: state.resources,
+        modifiedFiles: state.modifiedFiles,
+        gitTracking: state.gitTracking,
+        automationMode: state.automationMode
       })
     })
   }

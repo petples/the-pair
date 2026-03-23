@@ -1,14 +1,19 @@
 import { spawn, ChildProcess } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
-import type { AgentRole, PairProcess } from './types'
+import type { AgentRole, PairProcess, ActivityPhase, PairRuntimeSpec } from './types'
 import { buildAgentTurnResult, type AgentTurnResult } from './agentTurn'
-import { buildOpencodeRunArgs, extractOpencodeSessionId } from './opencodeSession'
+import { extractOpencodeSessionId } from './opencodeSession'
+import { pairResourceMonitor } from './pairResourceMonitor'
+import { messageBroker } from './messageBroker'
 
 interface PairContext {
   directory: string
+  worktreePath?: string
   mentorModel: string
   executorModel: string
+  mentorRuntime: PairRuntimeSpec
+  executorRuntime: PairRuntimeSpec
   mentorPrompt: string
   executorPrompt: string
   mentorSessionId?: string
@@ -19,7 +24,7 @@ type ResponseHandler = (pairId: string, role: AgentRole, result: AgentTurnResult
 
 export class ProcessSpawner {
   private pairs: Map<string, PairContext> = new Map()
-  private activeProcesses: Map<string, ChildProcess> = new Map()
+  private activeProcesses: Map<string, { pid: number; proc: ChildProcess }> = new Map()
   private responseHandler: ResponseHandler | null = null
 
   setResponseHandler(handler: ResponseHandler): void {
@@ -57,7 +62,10 @@ Workflow:
     mentorModel: string,
     executorModel: string,
     directory: string,
-    _spec: string
+    _spec: string,
+    mentorRuntime: PairRuntimeSpec,
+    executorRuntime: PairRuntimeSpec,
+    worktreePath?: string
   ): Promise<PairProcess> {
     const mentorPrompt = this.buildMentorPrompt()
     const executorPrompt = this.buildExecutorPrompt()
@@ -67,20 +75,42 @@ Workflow:
       fs.mkdirSync(pairDir, { recursive: true })
     }
 
+    const runtimeDir = path.join(pairDir, 'runtime', pairId)
+    if (!fs.existsSync(runtimeDir)) {
+      fs.mkdirSync(runtimeDir, { recursive: true })
+    }
+
     this.pairs.set(pairId, {
       directory,
+      worktreePath,
       mentorModel,
       executorModel,
+      mentorRuntime,
+      executorRuntime,
       mentorPrompt,
       executorPrompt
     })
 
     return {
       pairId,
-      mentorPid: 0,
-      executorPid: 0,
+      mentorPid: null,
+      executorPid: null,
       mentorStatus: 'Idle',
-      executorStatus: 'Idle'
+      executorStatus: 'Idle',
+      mentorActivity: { phase: 'idle', label: 'Mentor idle', startedAt: Date.now(), updatedAt: Date.now() },
+      executorActivity: { phase: 'idle', label: 'Executor idle', startedAt: Date.now(), updatedAt: Date.now() },
+      resources: {
+        mentor: { cpu: 0, memMb: 0 },
+        executor: { cpu: 0, memMb: 0 },
+        pairTotal: { cpu: 0, memMb: 0 }
+      },
+      modifiedFiles: [],
+      gitTracking: { available: false },
+      automationMode: 'full-auto',
+      turnArtifacts: [],
+      mentorRuntime,
+      executorRuntime,
+      gitReviewAvailable: false
     }
   }
 
@@ -88,60 +118,59 @@ Workflow:
     const ctx = this.pairs.get(pairId)
     if (!ctx) return
 
-    const isMac = process.platform === 'darwin'
+    const runtime = role === 'mentor' ? ctx.mentorRuntime : ctx.executorRuntime
     const model = role === 'mentor' ? ctx.mentorModel : ctx.executorModel
     const systemPrompt = role === 'mentor' ? ctx.mentorPrompt : ctx.executorPrompt
     const processKey = `${pairId}-${role}`
     const sessionId = role === 'mentor' ? ctx.mentorSessionId : ctx.executorSessionId
 
-    // Ensure the .pair directory exists for temporary scripts
+    const cwd = runtime.cwdStrategy === 'worktree' && ctx.worktreePath
+      ? ctx.worktreePath
+      : ctx.directory
+
     const pairDir = path.join(ctx.directory, '.pair')
-    const scriptsDir = path.join(pairDir, 'scripts')
-    if (!fs.existsSync(scriptsDir)) {
-      fs.mkdirSync(scriptsDir, { recursive: true })
+    const runtimeDir = path.join(pairDir, 'runtime', pairId)
+    if (!fs.existsSync(runtimeDir)) {
+      fs.mkdirSync(runtimeDir, { recursive: true })
     }
 
-    const scriptPath = path.join(scriptsDir, `run_${role}_${Date.now()}.sh`)
-    const messagePath = path.join(scriptsDir, `msg_${role}_${Date.now()}.txt`)
-    
-    // Write system instructions and message to a file to avoid command line length limits
     const fullMessage = `[SYSTEM INSTRUCTIONS - STRICTLY FOLLOW THESE]\n${systemPrompt}\n\n[NEW INPUT]\n${message}`
+    const messagePath = path.join(runtimeDir, `msg_${role}_${Date.now()}.txt`)
     fs.writeFileSync(messagePath, fullMessage, 'utf-8')
 
-    const commonArgs = buildOpencodeRunArgs(model, sessionId)
+    const runtimeArgs = runtime.argBuilder(model, sessionId)
+    const cmdParts = [runtime.executable, ...runtimeArgs]
 
-    const scriptContent = isMac 
-      ? `#!/bin/bash
-source ~/.bash_profile 2>/dev/null || true
-source ~/.zshrc 2>/dev/null || true
-cd "${ctx.directory}"
-cat "${messagePath}" | opencode ${commonArgs.join(' ')}
-`
-      : `cd "${ctx.directory}" && cat "${messagePath}" | opencode ${commonArgs.join(' ')}`
-
-    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
-
-    let proc: ChildProcess
-
-    if (isMac) {
-      proc = spawn('bash', [scriptPath], {
-        cwd: ctx.directory,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true
-      })
+    let cmd: string
+    if (runtime.inputTransport === 'stdio') {
+      cmd = `${cmdParts.join(' ')} < "${messagePath}"`
     } else {
-      proc = spawn('sh', [scriptPath], {
-        cwd: ctx.directory,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true
-      })
+      cmd = `${cmdParts.join(' ')} < "${messagePath}"`
     }
 
-    this.activeProcesses.set(processKey, proc)
+    this.updateActivity(pairId, role, 'thinking', role === 'mentor' ? 'Analyzing task' : 'Executing instruction', undefined)
+
+    let proc: ChildProcess
+    let pid: number
+
+    proc = spawn('bash', ['-c', cmd], {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    pid = proc.pid!
+
+    this.activeProcesses.set(processKey, { pid, proc })
+
+    if (role === 'mentor') {
+      pairResourceMonitor.setPids(pairId, pid, null)
+    } else {
+      pairResourceMonitor.setPids(pairId, null, pid)
+    }
 
     let responseText = ''
     let errorOutput = ''
     let buffer = ''
+    let lastActivityDetail = ''
 
     proc.stdout?.on('data', (data) => {
       buffer += data.toString()
@@ -152,21 +181,34 @@ cat "${messagePath}" | opencode ${commonArgs.join(' ')}
         if (!line.trim()) continue
         try {
           const event = JSON.parse(line)
-          const discoveredSessionId = extractOpencodeSessionId(event)
 
-          if (discoveredSessionId) {
-            if (role === 'mentor') {
-              ctx.mentorSessionId = discoveredSessionId
-            } else {
-              ctx.executorSessionId = discoveredSessionId
+          if (runtime.outputTransport === 'json-events') {
+            const discoveredSessionId = extractOpencodeSessionId(event)
+
+            if (discoveredSessionId) {
+              if (role === 'mentor') {
+                ctx.mentorSessionId = discoveredSessionId
+              } else {
+                ctx.executorSessionId = discoveredSessionId
+              }
             }
-          }
 
-          if (event.type === 'text' && event.part?.text) {
-            responseText += event.part.text
+            if (event.type === 'text' && event.part?.text) {
+              responseText += event.part.text
+              this.updateActivity(pairId, role, 'responding', 'Writing response', lastActivityDetail)
+            } else if (event.type === 'tool' && event.name) {
+              lastActivityDetail = `Using ${event.name}`
+              this.updateActivity(pairId, role, 'using_tools', 'Running tools', lastActivityDetail)
+            } else if (event.type === 'step_start') {
+              this.updateActivity(pairId, role, 'thinking', 'Processing', undefined)
+            }
+          } else {
+            responseText += line
           }
         } catch {
-          // If it's not JSON, it might be a shell banner or something else, ignore
+          if (runtime.outputTransport !== 'json-events') {
+            responseText += line
+          }
         }
       }
     })
@@ -177,43 +219,63 @@ cat "${messagePath}" | opencode ${commonArgs.join(' ')}
 
     proc.on('close', (code) => {
       this.activeProcesses.delete(processKey)
-      
-      // Cleanup temporary files
+
       try {
-        fs.unlinkSync(scriptPath)
         fs.unlinkSync(messagePath)
       } catch {}
 
       const result = buildAgentTurnResult(responseText, code, errorOutput)
 
+      if (result.kind === 'error') {
+        this.updateActivity(pairId, role, 'error', 'Error occurred', result.content.slice(0, 50))
+      } else {
+        this.updateActivity(pairId, role, 'waiting', 'Turn completed', undefined)
+      }
+
+      pairResourceMonitor.setPids(pairId, null, null)
+
       if (this.responseHandler) {
         this.responseHandler(pairId, role, result)
       }
     })
+
+    proc.on('error', () => {
+      this.updateActivity(pairId, role, 'error', 'Failed to start', undefined)
+      pairResourceMonitor.setPids(pairId, null, null)
+    })
+  }
+
+  private updateActivity(pairId: string, role: AgentRole, phase: ActivityPhase, label: string, detail?: string): void {
+    try {
+      messageBroker.updateActivity(pairId, role, phase, label, detail)
+    } catch {
+      // messageBroker might not be ready
+    }
   }
 
   killPair(pairId: string): void {
     const mentorProc = this.activeProcesses.get(`${pairId}-mentor`)
     const executorProc = this.activeProcesses.get(`${pairId}-executor`)
 
-    if (mentorProc && mentorProc.pid) {
+    if (mentorProc) {
       try {
-        process.kill(-mentorProc.pid, 'SIGKILL')
+        process.kill(mentorProc.pid, 'SIGKILL')
       } catch {
-        mentorProc.kill()
+        mentorProc.proc.kill()
       }
     }
-    if (executorProc && executorProc.pid) {
+    if (executorProc) {
       try {
-        process.kill(-executorProc.pid, 'SIGKILL')
+        process.kill(executorProc.pid, 'SIGKILL')
       } catch {
-        executorProc.kill()
+        executorProc.proc.kill()
       }
     }
 
     this.activeProcesses.delete(`${pairId}-mentor`)
     this.activeProcesses.delete(`${pairId}-executor`)
     this.pairs.delete(pairId)
+    pairResourceMonitor.setPids(pairId, null, null)
   }
 }
 

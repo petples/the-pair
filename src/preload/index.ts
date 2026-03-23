@@ -23,6 +23,16 @@ interface AvailableModel {
   displayName: string
 }
 
+interface DetectedProviderProfile {
+  kind: string
+  installed: boolean
+  authenticated: boolean
+  runnable: boolean
+  subscriptionLabel: string
+  currentModels: AvailableModel[]
+  detectedAt: number
+}
+
 interface Message {
   id: string
   timestamp: number
@@ -40,6 +50,8 @@ const api = {
       ipcRenderer.invoke('pair:create', input),
     stop: (pairId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('pair:stop', pairId),
+    retryTurn: (pairId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('pair:retryTurn', pairId),
     list: (): Promise<PairProcess[]> => ipcRenderer.invoke('pair:list'),
     getMessages: (pairId: string): Promise<Message[]> =>
       ipcRenderer.invoke('pair:getMessages', pairId),
@@ -61,6 +73,7 @@ const api = {
   },
   config: {
     getModels: (): Promise<AvailableModel[]> => ipcRenderer.invoke('config:getModels'),
+    getProviders: (): Promise<DetectedProviderProfile[]> => ipcRenderer.invoke('config:getProviders'),
     read: (): Promise<unknown> => ipcRenderer.invoke('config:read'),
     openFile: (): Promise<string> => ipcRenderer.invoke('config:openFile')
   }

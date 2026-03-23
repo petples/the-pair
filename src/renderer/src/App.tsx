@@ -1,6 +1,6 @@
 import React from 'react'
 import { useState, useEffect } from 'react'
-import { Plus, Terminal, ChevronLeft, Check, X, RefreshCw, Sun, Moon } from 'lucide-react'
+import { Plus, Terminal, ChevronLeft, RefreshCw, Sun, Moon, Square, RotateCcw, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from './lib/utils'
 import { usePairStore, Pair, Message } from './store/usePairStore'
@@ -146,18 +146,17 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
 }
 
 function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React.ReactNode {
-  const humanFeedback = usePairStore((s) => s.humanFeedback)
-  const updatePairStatus = usePairStore((s) => s.updatePairStatus)
+  const removePair = usePairStore((s) => s.removePair)
+  const retryTurn = usePairStore((s) => s.retryTurn)
   const { theme, toggleTheme } = useThemeStore()
 
-  const handleApprove = () => {
-    humanFeedback(pair.id, true)
-    updatePairStatus(pair.id, 'Finished')
+  const handleStop = () => {
+    removePair(pair.id)
+    onBack()
   }
 
-  const handleReject = () => {
-    humanFeedback(pair.id, false)
-    updatePairStatus(pair.id, 'Executing')
+  const handleRetryTurn = () => {
+    retryTurn(pair.id)
   }
 
   const formatTime = (ts: number) => {
@@ -183,7 +182,26 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
     return labels[msg.type] || `[${msg.type.toUpperCase()}]`
   }
 
-  const allAttachments = pair.messages.flatMap((msg) => msg.attachments || [])
+  const getActivityIcon = (phase: string) => {
+    switch (phase) {
+      case 'thinking': return '🤔'
+      case 'using_tools': return '🔧'
+      case 'responding': return '✍️'
+      case 'waiting': return '⏳'
+      case 'error': return '❌'
+      default: return '💤'
+    }
+  }
+
+  const getDuration = (startedAt: number, updatedAt: number) => {
+    const seconds = Math.floor((updatedAt - startedAt) / 1000)
+    if (seconds < 60) return `${seconds}s`
+    const minutes = Math.floor(seconds / 60)
+    return `${minutes}m ${seconds % 60}s`
+  }
+
+  const activeRole = pair.turn
+  const isRunning = pair.status === 'Mentoring' || pair.status === 'Executing' || pair.status === 'Reviewing'
 
   return (
     <div className="flex flex-col h-full">
@@ -203,6 +221,12 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
         </div>
         <div className="ml-auto flex items-center gap-3">
           <StatusBadge status={pair.status} />
+          {pair.automationMode === 'full-auto' && (
+            <div className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-1 rounded-full">
+              <Zap size={10} />
+              <span>Full Auto</span>
+            </div>
+          )}
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
@@ -210,20 +234,13 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
           >
             {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
           </button>
-          {pair.status === 'Awaiting Human Review' && (
-            <div className="flex gap-2 ml-2">
-              <GlassButton variant="reject" size="sm" icon={<X size={12} />} onClick={handleReject}>
-                Reject
-              </GlassButton>
-              <GlassButton
-                variant="approve"
-                size="sm"
-                icon={<Check size={12} />}
-                onClick={handleApprove}
-              >
-                Approve
-              </GlassButton>
-            </div>
+          <GlassButton variant="secondary" size="sm" icon={<Square size={12} />} onClick={handleStop}>
+            Stop Pair
+          </GlassButton>
+          {pair.status === 'Error' && (
+            <GlassButton variant="primary" size="sm" icon={<RotateCcw size={12} />} onClick={handleRetryTurn}>
+              Retry Turn
+            </GlassButton>
           )}
         </div>
       </div>
@@ -281,15 +298,50 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
             <Terminal size={13} />
             <span>Console</span>
             <div className="ml-auto flex items-center gap-3">
-              <span className="text-blue-600 dark:text-blue-400">
-                {pair.mentorModel.split('/').pop()}
-              </span>
-              <span className="text-purple-600 dark:text-purple-400">
-                {pair.executorModel.split('/').pop()}
-              </span>
               <span className="text-muted-foreground/50">
                 iter {pair.iterations}/{pair.maxIterations}
               </span>
+            </div>
+          </div>
+          <div className="h-12 border-b border-border/30 flex items-center px-4 gap-4 shrink-0 bg-muted/5">
+            <div className={cn(
+              'flex items-center gap-2 text-xs transition-all',
+              activeRole === 'mentor' ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground/50'
+            )}>
+              <div className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                pair.mentorActivity.phase === 'thinking' || pair.mentorActivity.phase === 'using_tools' || pair.mentorActivity.phase === 'responding'
+                  ? 'bg-blue-500 animate-pulse'
+                  : pair.mentorActivity.phase === 'error'
+                  ? 'bg-red-500'
+                  : 'bg-blue-500/50'
+              )} />
+              <span className="font-medium">MENTOR</span>
+              <span className="text-[10px]">{getActivityIcon(pair.mentorActivity.phase)}</span>
+              <span className="text-[10px] max-w-[120px] truncate">{pair.mentorActivity.label}</span>
+              {isRunning && activeRole === 'mentor' && (
+                <span className="text-[9px] text-muted-foreground/50">{getDuration(pair.mentorActivity.startedAt, pair.mentorActivity.updatedAt)}</span>
+              )}
+            </div>
+            <div className="w-px h-4 bg-border/50" />
+            <div className={cn(
+              'flex items-center gap-2 text-xs transition-all',
+              activeRole === 'executor' ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground/50'
+            )}>
+              <div className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                pair.executorActivity.phase === 'thinking' || pair.executorActivity.phase === 'using_tools' || pair.executorActivity.phase === 'responding'
+                  ? 'bg-purple-500 animate-pulse'
+                  : pair.executorActivity.phase === 'error'
+                  ? 'bg-red-500'
+                  : 'bg-purple-500/50'
+              )} />
+              <span className="font-medium">EXECUTOR</span>
+              <span className="text-[10px]">{getActivityIcon(pair.executorActivity.phase)}</span>
+              <span className="text-[10px] max-w-[120px] truncate">{pair.executorActivity.label}</span>
+              {isRunning && activeRole === 'executor' && (
+                <span className="text-[9px] text-muted-foreground/50">{getDuration(pair.executorActivity.startedAt, pair.executorActivity.updatedAt)}</span>
+              )}
             </div>
           </div>
           <div className="flex-1 p-4 font-mono text-[13px] overflow-y-auto scrollbar-thin space-y-1">
@@ -324,6 +376,27 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
                 </div>
               ))
             )}
+            {isRunning && (
+              <div className={cn(
+                'flex items-start gap-2 animate-pulse',
+                activeRole === 'mentor' ? 'text-blue-600/70 dark:text-blue-400/70' : 'text-purple-600/70 dark:text-purple-400/70'
+              )}>
+                <span className="text-muted-foreground/50 shrink-0 mt-0.5">
+                  {formatTime(Date.now())}
+                </span>
+                <span>[{activeRole === 'mentor' ? 'MENTOR' : 'EXECUTOR'}]</span>
+                <span>{getActivityIcon(activeRole === 'mentor' ? pair.mentorActivity.phase : pair.executorActivity.phase)}</span>
+                <span className="text-muted-foreground/70">
+                  {activeRole === 'mentor' ? pair.mentorActivity.label : pair.executorActivity.label}
+                  {(() => {
+                    const detail = activeRole === 'mentor' ? pair.mentorActivity.detail : pair.executorActivity.detail
+                    return detail && (
+                      <span className="text-muted-foreground/50 ml-1">({detail})</span>
+                    )
+                  })()}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -332,27 +405,58 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
             <h3 className="text-[10px] font-semibold uppercase text-muted-foreground mb-3 tracking-wider">
               System Resources
             </h3>
-            <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
+            <div className="space-y-3">
+              <div className="glass-card p-3">
+                <div className="text-[10px] text-muted-foreground mb-2">Pair Total</div>
+                <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
+              </div>
+              <div className="glass-card p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">MENTOR</span>
+                </div>
+                <div className="h-1 rounded-full bg-muted overflow-hidden mb-1.5">
+                  <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${Math.min(pair.mentorCpu, 100)}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>CPU: {pair.mentorCpu.toFixed(1)}%</span>
+                  <span>MEM: {pair.mentorMemMb}MB</span>
+                </div>
+              </div>
+              <div className="glass-card p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">EXECUTOR</span>
+                </div>
+                <div className="h-1 rounded-full bg-muted overflow-hidden mb-1.5">
+                  <div className="h-full rounded-full bg-purple-500 transition-all" style={{ width: `${Math.min(pair.executorCpu, 100)}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>CPU: {pair.executorCpu.toFixed(1)}%</span>
+                  <span>MEM: {pair.executorMemMb}MB</span>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="flex-1">
             <h3 className="text-[10px] font-semibold uppercase text-muted-foreground mb-3 tracking-wider">
               Modified Files
             </h3>
             <div className="glass-card p-3">
-              {allAttachments.length === 0 ? (
+              {!pair.gitTracking.available ? (
+                <div className="text-xs font-mono text-amber-600/70 dark:text-amber-400/70">
+                  Git tracking unavailable for this workspace
+                </div>
+              ) : pair.modifiedFiles.length === 0 ? (
                 <div className="text-xs font-mono text-muted-foreground/60">
                   No files modified yet
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {allAttachments.map((att, i) => (
-                    <div
-                      key={i}
-                      className="text-xs font-mono text-muted-foreground truncate"
-                      title={att.description}
-                    >
-                      <span className="text-purple-500/60 mr-1">•</span>
-                      {att.path.split('/').pop()}
+                  {pair.modifiedFiles.map((file, i) => (
+                    <div key={i} className="text-xs font-mono text-muted-foreground truncate flex items-center gap-1" title={file.path}>
+                      <span className="text-purple-500/60">{file.status}</span>
+                      <span className="truncate">{file.displayPath}</span>
                     </div>
                   ))}
                 </div>
@@ -363,27 +467,28 @@ function PairDetail({ pair, onBack }: { pair: Pair; onBack: () => void }): React
             <h3 className="text-[10px] font-semibold uppercase text-muted-foreground mb-3 tracking-wider">
               Recent Activity
             </h3>
-            <div className="space-y-2">
-              {[
-                { time: 'now', event: 'Pair created', color: 'text-muted-foreground/50' },
-                {
-                  time: '-2s',
-                  event: 'Mentor spawned',
-                  color: 'text-blue-600 dark:text-blue-400'
-                },
-                {
-                  time: '-1s',
-                  event: 'Executor spawned',
-                  color: 'text-purple-600 dark:text-purple-400'
-                }
-              ].map((item) => (
-                <div key={item.time} className="flex items-center gap-2 text-xs">
-                  <span className="text-muted-foreground/30 font-mono text-[10px] w-6">
-                    {item.time}
-                  </span>
-                  <span className={cn('font-mono', item.color)}>{item.event}</span>
+            <div className="glass-card p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs">
+                <div className={cn(
+                  'w-1.5 h-1.5 rounded-full',
+                  pair.mentorActivity.phase === 'error' ? 'bg-red-500' : pair.mentorActivity.phase !== 'idle' ? 'bg-blue-500 animate-pulse' : 'bg-blue-500/50'
+                )} />
+                <span className="text-muted-foreground/70">MENTOR:</span>
+                <span className="text-blue-600 dark:text-blue-400 truncate">{pair.mentorActivity.label}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <div className={cn(
+                  'w-1.5 h-1.5 rounded-full',
+                  pair.executorActivity.phase === 'error' ? 'bg-red-500' : pair.executorActivity.phase !== 'idle' ? 'bg-purple-500 animate-pulse' : 'bg-purple-500/50'
+                )} />
+                <span className="text-muted-foreground/70">EXEC:</span>
+                <span className="text-purple-600 dark:text-purple-400 truncate">{pair.executorActivity.label}</span>
+              </div>
+              {pair.mentorActivity.detail && (
+                <div className="text-[10px] text-muted-foreground/50 pl-4 truncate">
+                  {pair.mentorActivity.detail}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>

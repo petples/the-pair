@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { processSpawner } from './processSpawner'
 import { messageBroker } from './messageBroker'
-import { readOpenCodeConfig, getAvailableModels } from './configReader'
+import { providerRegistry } from './providerRegistry'
 import type { CreatePairInput, PairProcess, AvailableModel, OpenCodeConfig } from './types'
 import type { AgentTurnResult } from './agentTurn'
 
@@ -11,6 +11,14 @@ class PairManager {
   async createPair(input: CreatePairInput): Promise<PairProcess> {
     const pairId = this.generateId()
 
+    providerRegistry.detectAll()
+
+    const defaultMentorRuntime = providerRegistry.getRuntimeSpec('opencode', input.mentor.model)
+    const defaultExecutorRuntime = providerRegistry.getRuntimeSpec('opencode', input.executor.model)
+
+    const mentorRuntime = defaultMentorRuntime || providerRegistry.getRuntimeSpec('opencode', 'claude-3-5-sonnet')!
+    const executorRuntime = defaultExecutorRuntime || providerRegistry.getRuntimeSpec('opencode', 'claude-3-5-sonnet')!
+
     messageBroker.initializePair(pairId, input)
     messageBroker.startWatching(pairId)
 
@@ -19,7 +27,9 @@ class PairManager {
       input.mentor.model,
       input.executor.model,
       input.directory,
-      input.spec
+      input.spec,
+      mentorRuntime,
+      executorRuntime
     )
 
     this.pairs.set(pairId, { ...pairProcess, directory: input.directory })
@@ -34,6 +44,10 @@ class PairManager {
     this.cleanupPairDir(pairId)
     this.pairs.delete(pairId)
     this.notifyRenderer('pair:stopped', { pairId })
+  }
+
+  retryTurn(pairId: string): void {
+    messageBroker.retryTurn(pairId)
   }
 
   private cleanupPairDir(pairId: string): void {
@@ -59,12 +73,26 @@ class PairManager {
   }
 
   getAvailableModels(): AvailableModel[] {
-    const config = readOpenCodeConfig()
-    return getAvailableModels(config)
+    const models: AvailableModel[] = []
+    const profiles = providerRegistry.getRunnableProviders()
+    for (const profile of profiles) {
+      for (const model of profile.currentModels) {
+        models.push({
+          provider: profile.kind,
+          modelId: model.modelId,
+          displayName: model.displayName
+        })
+      }
+    }
+    return models
+  }
+
+  getProviderProfiles() {
+    return providerRegistry.getRunnableProviders()
   }
 
   readOpenCodeConfig(): OpenCodeConfig | null {
-    return readOpenCodeConfig()
+    return null
   }
 
   humanFeedback(pairId: string, approved: boolean): void {
@@ -92,7 +120,6 @@ class PairManager {
 
 export const pairManager = new PairManager()
 
-// Break circular dependency by setting up the callback handler here
 processSpawner.setResponseHandler((pairId, role, result) => {
   pairManager.handleAgentResponse(pairId, role, result)
 })

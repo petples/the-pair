@@ -66,6 +66,11 @@ app.whenReady().then(() => {
     return { success: true }
   })
 
+  ipcMain.handle('pair:retryTurn', async (_event, pairId: string) => {
+    pairManager.retryTurn(pairId)
+    return { success: true }
+  })
+
   ipcMain.handle('pair:list', async () => {
     return pairManager.getAllPairs()
   })
@@ -88,6 +93,10 @@ app.whenReady().then(() => {
 
   ipcMain.handle('config:getModels', async () => {
     return pairManager.getAvailableModels()
+  })
+
+  ipcMain.handle('config:getProviders', async () => {
+    return pairManager.getProviderProfiles()
   })
 
   ipcMain.handle('config:read', async () => {

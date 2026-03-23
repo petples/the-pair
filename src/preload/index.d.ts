@@ -62,6 +62,7 @@ interface PairStateUpdate {
 interface PairAPI {
   create: (input: CreatePairInput) => Promise<PairProcess>
   stop: (pairId: string) => Promise<{ success: boolean }>
+  retryTurn: (pairId: string) => Promise<{ success: boolean }>
   list: () => Promise<PairProcess[]>
   getMessages: (pairId: string) => Promise<Message[]>
   getState: (pairId: string) => Promise<PairStateUpdate | null>
