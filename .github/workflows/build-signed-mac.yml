@@ -223,9 +223,6 @@ jobs:
           APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
 
-          echo "Stapling failed after multiple retries."
-          exit 1
-
       - name: Package distributable artifacts
         run: |
           APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
