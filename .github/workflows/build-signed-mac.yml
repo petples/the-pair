@@ -106,16 +106,9 @@ jobs:
 
       - name: Build and sign app with electron-builder
         env:
-          CSC_LINK: ${{ github.workspace }}/certificate.p12
-          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
           CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          echo "${{ secrets.MACOS_CERTIFICATE }}" | base64 --decode > certificate.p12
-          npm run build:mac -- --dir
-          rm -f certificate.p12
+          CSC_KEYCHAIN: ${{ steps.import_certificate.outputs.keychain_path }}
+        run: npm run build:mac -- --dir
 
       - name: Inspect signed binaries
         run: |
