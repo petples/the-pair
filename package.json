@@ -1,10 +1,20 @@
 {
   "name": "the-pair",
-  "version": "1.0.1",
-  "description": "An Electron application with React and TypeScript",
+  "version": "1.0.2",
+  "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": {
+    "name": "timwuhaotian",
+    "url": "https://github.com/timwuhaotian"
+  },
+  "homepage": "https://github.com/timwuhaotian/the-pair",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/timwuhaotian/the-pair.git"
+  },
+  "bugs": {
+    "url": "https://github.com/timwuhaotian/the-pair/issues"
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -56,6 +66,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "png-to-ico": "^3.0.1",
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
