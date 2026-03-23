@@ -17,8 +17,6 @@ asarUnpack:
   - node_modules/pidusage
 win:
   executableName: the-pair
-  signingHashAlgorithms:
-    - sha256
   requestedExecutionLevel: asInvoker
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
@@ -37,9 +35,7 @@ mac:
   minimumSystemVersion: '12.0'
   target:
     - target: dmg
-      sign: true
     - target: zip
-      sign: true
   extendInfo:
     NSCameraUsageDescription: Application requests access to the device's camera.
     NSMicrophoneUsageDescription: Application requests access to the device's microphone.
