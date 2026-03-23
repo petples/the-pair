@@ -22,7 +22,14 @@ export interface ProviderAdapter {
 }
 
 const CODING_MODEL_CATALOG: Record<ProviderKind, string[]> = {
-  opencode: ['claude-3-5-sonnet', 'claude-3-5-haiku', 'gpt-4o', 'gpt-4o-mini', 'o1-preview', 'o1-mini'],
+  opencode: [
+    'claude-3-5-sonnet',
+    'claude-3-5-haiku',
+    'gpt-4o',
+    'gpt-4o-mini',
+    'o1-preview',
+    'o1-mini'
+  ],
   codex: ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet'],
   claude: ['claude-3-5-sonnet', 'claude-3-5-haiku', 'claude-3-opus'],
   gemini: ['gemini-2-5-flash', 'gemini-2-5-pro', 'gemini-1-5-pro']
@@ -61,7 +68,7 @@ class OpenCodeAdapter implements ProviderAdapter {
 
     let authenticated = false
     let models: DetectedModelOption[] = []
-    let subscriptionLabel: SubscriptionLabel = 'provider-backed'
+    const subscriptionLabel: SubscriptionLabel = 'provider-backed'
 
     for (const configPath of configPaths) {
       const config = safeReadJson(configPath)
@@ -82,6 +89,7 @@ class OpenCodeAdapter implements ProviderAdapter {
                     models.push({
                       modelId,
                       displayName: (mcfg.name as string) || `${providerId}/${modelId}`,
+                      sourceProvider: providerId,
                       subscriptionLabel: 'provider-backed',
                       supportsPairExecution: true,
                       runnable: true
@@ -94,9 +102,10 @@ class OpenCodeAdapter implements ProviderAdapter {
         }
 
         if (models.length === 0) {
-          models = CODING_MODEL_CATALOG.opencode.map(id => ({
+          models = CODING_MODEL_CATALOG.opencode.map((id) => ({
             modelId: id,
             displayName: id,
+            sourceProvider: 'openai',
             subscriptionLabel: 'provider-backed',
             supportsPairExecution: true,
             runnable: true
@@ -107,9 +116,10 @@ class OpenCodeAdapter implements ProviderAdapter {
     }
 
     if (!authenticated) {
-      models = CODING_MODEL_CATALOG.opencode.map(id => ({
+      models = CODING_MODEL_CATALOG.opencode.map((id) => ({
         modelId: id,
         displayName: id,
+        sourceProvider: 'openai',
         subscriptionLabel: 'provider-backed',
         supportsPairExecution: true,
         runnable: installed
@@ -127,7 +137,8 @@ class OpenCodeAdapter implements ProviderAdapter {
     }
   }
 
-  getRuntimeSpec(_modelId: string): PairRuntimeSpec {
+  getRuntimeSpec(modelId: string): PairRuntimeSpec {
+    void modelId
     const argBuilder: ArgBuilder = (model: string, sessionId?: string) => {
       const args = ['run', '--model', model]
       if (sessionId) {
@@ -184,9 +195,10 @@ class CodexAdapter implements ProviderAdapter {
     }
 
     if (authenticated && models.length === 0) {
-      models = CODING_MODEL_CATALOG.codex.map(id => ({
+      models = CODING_MODEL_CATALOG.codex.map((id) => ({
         modelId: id,
         displayName: id,
+        sourceProvider: 'openai',
         subscriptionLabel,
         supportsPairExecution: true,
         runnable: installed
@@ -194,9 +206,10 @@ class CodexAdapter implements ProviderAdapter {
     }
 
     if (!authenticated || models.length === 0) {
-      models = CODING_MODEL_CATALOG.codex.map(id => ({
+      models = CODING_MODEL_CATALOG.codex.map((id) => ({
         modelId: id,
         displayName: id,
+        sourceProvider: 'openai',
         subscriptionLabel: 'provider-backed',
         supportsPairExecution: true,
         runnable: installed
@@ -214,7 +227,8 @@ class CodexAdapter implements ProviderAdapter {
     }
   }
 
-  getRuntimeSpec(_modelId: string): PairRuntimeSpec {
+  getRuntimeSpec(modelId: string): PairRuntimeSpec {
+    void modelId
     const argBuilder: ArgBuilder = (model: string, sessionId?: string) => {
       const args = ['exec', '--model', model, '--json']
       if (sessionId) {
@@ -257,9 +271,10 @@ class ClaudeCodeAdapter implements ProviderAdapter {
 
     if (authenticated) {
       subscriptionLabel = 'subscription-backed'
-      models = CODING_MODEL_CATALOG.claude.map(id => ({
+      models = CODING_MODEL_CATALOG.claude.map((id) => ({
         modelId: id,
         displayName: id,
+        sourceProvider: 'anthropic',
         subscriptionLabel,
         supportsPairExecution: true,
         runnable: installed
@@ -267,9 +282,10 @@ class ClaudeCodeAdapter implements ProviderAdapter {
     }
 
     if (!authenticated || models.length === 0) {
-      models = CODING_MODEL_CATALOG.claude.map(id => ({
+      models = CODING_MODEL_CATALOG.claude.map((id) => ({
         modelId: id,
         displayName: id,
+        sourceProvider: 'anthropic',
         subscriptionLabel: authenticated ? 'subscription-backed' : 'provider-backed',
         supportsPairExecution: true,
         runnable: installed
@@ -291,7 +307,8 @@ class ClaudeCodeAdapter implements ProviderAdapter {
     }
   }
 
-  getRuntimeSpec(_modelId: string): PairRuntimeSpec {
+  getRuntimeSpec(modelId: string): PairRuntimeSpec {
+    void modelId
     const argBuilder: ArgBuilder = (model: string, sessionId?: string) => {
       const args = ['-p', '--model', model, '--output-format', 'stream-json']
       if (sessionId) {
@@ -341,9 +358,10 @@ class GeminiAdapter implements ProviderAdapter {
       }
     }
 
-    models = CODING_MODEL_CATALOG.gemini.map(id => ({
+    models = CODING_MODEL_CATALOG.gemini.map((id) => ({
       modelId: id,
       displayName: id,
+      sourceProvider: 'google',
       subscriptionLabel,
       supportsPairExecution: authenticated,
       runnable: false
@@ -361,7 +379,7 @@ class GeminiAdapter implements ProviderAdapter {
   }
 
   getRuntimeSpec(modelId: string): PairRuntimeSpec {
-    const argBuilder: ArgBuilder = (_model: string, _sessionId?: string) => {
+    const argBuilder: ArgBuilder = () => {
       return ['--model', modelId]
     }
 
@@ -420,8 +438,16 @@ class ProviderRegistry {
     }
 
     return Array.from(this.profiles.values()).filter(
-      p => p.installed && p.authenticated && p.runnable
+      (p) => p.installed && p.authenticated && p.runnable
     )
+  }
+
+  getProfiles(): DetectedProviderProfile[] {
+    if (!this.detected) {
+      this.detectAll()
+    }
+
+    return Array.from(this.profiles.values())
   }
 
   getAllModels(): DetectedModelOption[] {

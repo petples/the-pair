@@ -8,11 +8,14 @@ interface PairMonitorState {
 }
 
 class PairResourceMonitor {
-  private monitors: Map<string, {
-    state: PairMonitorState
-    getPairState: () => { resources: PairResources } | undefined
-    intervalId: NodeJS.Timeout | null
-  }> = new Map()
+  private monitors: Map<
+    string,
+    {
+      state: PairMonitorState
+      getPairState: () => { resources: PairResources } | undefined
+      intervalId: NodeJS.Timeout | null
+    }
+  > = new Map()
 
   registerPair(pairId: string, getPairState: () => { resources: PairResources } | undefined): void {
     this.monitors.set(pairId, {
@@ -55,7 +58,9 @@ class PairResourceMonitor {
       const mentorCpu = mentorStats?.cpu ?? 0
       const mentorMem = mentorStats?.memory ? Math.round(mentorStats.memory / (1024 * 1024)) : 0
       const executorCpu = executorStats?.cpu ?? 0
-      const executorMem = executorStats?.memory ? Math.round(executorStats.memory / (1024 * 1024)) : 0
+      const executorMem = executorStats?.memory
+        ? Math.round(executorStats.memory / (1024 * 1024))
+        : 0
 
       const resources: PairResources = {
         mentor: { cpu: mentorCpu, memMb: mentorMem },

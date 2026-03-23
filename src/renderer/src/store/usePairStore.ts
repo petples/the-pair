@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AvailableModel, CreatePairInput } from '../types'
+import type { AvailableModel, CreatePairInput, PairModelSelection } from '../types'
 
 export type PairStatus =
   | 'Idle'
@@ -57,6 +57,17 @@ export interface Message {
   iteration: number
 }
 
+export interface PairRunSummary {
+  id: string
+  spec: string
+  status: PairStatus
+  startedAt: number
+  finishedAt?: number
+  mentorModel: string
+  executorModel: string
+  iterations: number
+}
+
 export interface Pair {
   id: string
   name: string
@@ -69,6 +80,8 @@ export interface Pair {
   spec: string
   mentorModel: string
   executorModel: string
+  pendingMentorModel?: string
+  pendingExecutorModel?: string
   messages: Message[]
   mentorActivity: AgentActivity
   executorActivity: AgentActivity
@@ -80,6 +93,26 @@ export interface Pair {
   gitTracking: GitTracking
   automationMode: AutomationMode
   turn: 'mentor' | 'executor'
+  runCount: number
+  runHistory: PairRunSummary[]
+  currentRunStartedAt: number
+  currentRunFinishedAt?: number
+}
+
+interface PairStateSnapshot {
+  pairId?: string
+  status?: PairStatus
+  iteration?: number
+  maxIterations?: number
+  turn?: 'mentor' | 'executor'
+  mentorStatus?: PairStatus
+  executorStatus?: PairStatus
+  mentorActivity?: AgentActivity
+  executorActivity?: AgentActivity
+  resources?: PairResources
+  modifiedFiles?: ModifiedFile[]
+  gitTracking?: GitTracking
+  automationMode?: AutomationMode
 }
 
 interface PairStore {
@@ -95,6 +128,8 @@ interface PairStore {
       executorModel: string
     }
   ) => Promise<void>
+  assignTask: (pairId: string, spec: string) => Promise<void>
+  updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   removePair: (id: string) => void
   updatePairStatus: (id: string, status: PairStatus) => void
   updatePairUsage: (id: string, cpu: number, mem: number) => void
@@ -108,6 +143,90 @@ interface PairStore {
 }
 
 let _listenersInitialized = false
+
+function createIdleActivity(label: string): AgentActivity {
+  const now = Date.now()
+  return {
+    phase: 'idle',
+    label,
+    startedAt: now,
+    updatedAt: now
+  }
+}
+
+function createRunSummary(pair: Pair): PairRunSummary | null {
+  if (!pair.spec.trim()) {
+    return null
+  }
+
+  return {
+    id: `${pair.id}-run-${pair.runCount}`,
+    spec: pair.spec,
+    status: pair.status,
+    startedAt: pair.currentRunStartedAt,
+    finishedAt: pair.currentRunFinishedAt ?? Date.now(),
+    mentorModel: pair.mentorModel,
+    executorModel: pair.executorModel,
+    iterations: pair.iterations
+  }
+}
+
+function resetPairForNewRun(pair: Pair, nextSpec: string, selection: PairModelSelection): Pair {
+  const archivedRun = createRunSummary(pair)
+
+  return {
+    ...pair,
+    status: 'Idle',
+    iterations: 0,
+    cpuUsage: 0,
+    memUsage: 0,
+    spec: nextSpec,
+    mentorModel: selection.mentorModel,
+    executorModel: selection.executorModel,
+    pendingMentorModel: selection.pendingMentorModel,
+    pendingExecutorModel: selection.pendingExecutorModel,
+    messages: [],
+    mentorActivity: createIdleActivity('Mentor idle'),
+    executorActivity: createIdleActivity('Executor idle'),
+    mentorCpu: 0,
+    mentorMemMb: 0,
+    executorCpu: 0,
+    executorMemMb: 0,
+    modifiedFiles: [],
+    turn: 'mentor',
+    runCount: pair.runCount + 1,
+    runHistory: archivedRun ? [...pair.runHistory, archivedRun] : pair.runHistory,
+    currentRunStartedAt: Date.now(),
+    currentRunFinishedAt: undefined
+  }
+}
+
+function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
+  const nextStatus = state.status ?? pair.status
+  const finishedNow =
+    pair.currentRunFinishedAt === undefined &&
+    (nextStatus === 'Finished' || nextStatus === 'Error') &&
+    pair.status !== nextStatus
+
+  return {
+    ...pair,
+    status: nextStatus,
+    iterations: state.iteration ?? pair.iterations,
+    turn: state.turn ?? pair.turn,
+    mentorActivity: state.mentorActivity ?? pair.mentorActivity,
+    executorActivity: state.executorActivity ?? pair.executorActivity,
+    mentorCpu: state.resources?.mentor?.cpu ?? pair.mentorCpu,
+    mentorMemMb: state.resources?.mentor?.memMb ?? pair.mentorMemMb,
+    executorCpu: state.resources?.executor?.cpu ?? pair.executorCpu,
+    executorMemMb: state.resources?.executor?.memMb ?? pair.executorMemMb,
+    cpuUsage: state.resources?.pairTotal?.cpu ?? pair.cpuUsage,
+    memUsage: state.resources?.pairTotal?.memMb ?? pair.memUsage,
+    modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
+    gitTracking: state.gitTracking ?? pair.gitTracking,
+    automationMode: state.automationMode ?? pair.automationMode,
+    currentRunFinishedAt: finishedNow ? Date.now() : pair.currentRunFinishedAt
+  }
+}
 
 export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
@@ -127,11 +246,9 @@ export const usePairStore = create<PairStore>((set) => ({
       }))
     })
 
-    window.api.pair.onState((_state: any) => {
+    window.api.pair.onState((_state: PairStateSnapshot) => {
       set((state) => ({
-        pairs: state.pairs.map((p) =>
-          p.id === _state.pairId ? syncPairFromState(p, _state) : p
-        )
+        pairs: state.pairs.map((p) => (p.id === _state.pairId ? syncPairFromState(p, _state) : p))
       }))
     })
   },
@@ -142,6 +259,7 @@ export const usePairStore = create<PairStore>((set) => ({
       set({ availableModels: models })
     } catch (error) {
       console.error('Failed to load models:', error)
+      set({ error: 'Failed to load models' })
     }
   },
 
@@ -157,6 +275,7 @@ export const usePairStore = create<PairStore>((set) => ({
         executor: { role: 'executor', model: input.executorModel }
       })
 
+      const now = Date.now()
       const newPair: Pair = {
         id: pairProcess.pairId,
         name: input.name,
@@ -170,8 +289,8 @@ export const usePairStore = create<PairStore>((set) => ({
         mentorModel: input.mentorModel,
         executorModel: input.executorModel,
         messages: [],
-        mentorActivity: { phase: 'idle', label: 'Mentor idle', startedAt: Date.now(), updatedAt: Date.now() },
-        executorActivity: { phase: 'idle', label: 'Executor idle', startedAt: Date.now(), updatedAt: Date.now() },
+        mentorActivity: createIdleActivity('Mentor idle'),
+        executorActivity: createIdleActivity('Executor idle'),
         mentorCpu: 0,
         mentorMemMb: 0,
         executorCpu: 0,
@@ -179,7 +298,10 @@ export const usePairStore = create<PairStore>((set) => ({
         modifiedFiles: [],
         gitTracking: { available: false },
         automationMode: 'full-auto',
-        turn: 'mentor'
+        turn: 'mentor',
+        runCount: 1,
+        runHistory: [],
+        currentRunStartedAt: now
       }
 
       set((state) => ({
@@ -187,10 +309,64 @@ export const usePairStore = create<PairStore>((set) => ({
         isLoading: false
       }))
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create pair'
       set({
         isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to create pair'
+        error: message
       })
+      throw error instanceof Error ? error : new Error(message)
+    }
+  },
+
+  assignTask: async (pairId, spec) => {
+    set({ isLoading: true, error: null })
+
+    try {
+      const result = await window.api.pair.assignTask(pairId, { spec })
+
+      set((state) => ({
+        isLoading: false,
+        pairs: state.pairs.map((pair) =>
+          pair.id === pairId ? resetPairForNewRun(pair, result.spec, result) : pair
+        )
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to assign task'
+      set({
+        isLoading: false,
+        error: message
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
+  },
+
+  updatePairModels: async (pairId, selection) => {
+    set({ isLoading: true, error: null })
+
+    try {
+      const result = await window.api.pair.updateModels(pairId, selection)
+
+      set((state) => ({
+        isLoading: false,
+        pairs: state.pairs.map((pair) =>
+          pair.id === pairId
+            ? {
+                ...pair,
+                mentorModel: result.mentorModel,
+                executorModel: result.executorModel,
+                pendingMentorModel: result.pendingMentorModel,
+                pendingExecutorModel: result.pendingExecutorModel
+              }
+            : pair
+        )
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update pair models'
+      set({
+        isLoading: false,
+        error: message
+      })
+      throw error instanceof Error ? error : new Error(message)
     }
   },
 
@@ -232,30 +408,12 @@ export const usePairStore = create<PairStore>((set) => ({
 
   syncFullState: (pairId, state) =>
     set((s) => ({
-      pairs: s.pairs.map((p) => (p.id === pairId ? syncPairFromState(p, state) : p))
+      pairs: s.pairs.map((p) =>
+        p.id === pairId ? syncPairFromState(p, state as PairStateSnapshot) : p
+      )
     })),
 
   humanFeedback: async (pairId, approved) => {
     await window.api.pair.humanFeedback(pairId, approved)
   }
 }))
-
-function syncPairFromState(pair: Pair, state: Record<string, unknown>): Pair {
-  return {
-    ...pair,
-    status: (state.status as PairStatus) ?? pair.status,
-    iterations: (state.iteration as number) ?? pair.iterations,
-    turn: (state.turn as 'mentor' | 'executor') ?? pair.turn,
-    mentorActivity: (state.mentorActivity as AgentActivity) ?? pair.mentorActivity,
-    executorActivity: (state.executorActivity as AgentActivity) ?? pair.executorActivity,
-    mentorCpu: (state.resources as { mentor: ResourceInfo })?.mentor?.cpu ?? pair.mentorCpu,
-    mentorMemMb: (state.resources as { mentor: ResourceInfo })?.mentor?.memMb ?? pair.mentorMemMb,
-    executorCpu: (state.resources as { executor: ResourceInfo })?.executor?.cpu ?? pair.executorCpu,
-    executorMemMb: (state.resources as { executor: ResourceInfo })?.executor?.memMb ?? pair.executorMemMb,
-    cpuUsage: (state.resources as { pairTotal: ResourceInfo })?.pairTotal?.cpu ?? pair.cpuUsage,
-    memUsage: (state.resources as { pairTotal: ResourceInfo })?.pairTotal?.memMb ?? pair.memUsage,
-    modifiedFiles: (state.modifiedFiles as ModifiedFile[]) ?? pair.modifiedFiles,
-    gitTracking: (state.gitTracking as GitTracking) ?? pair.gitTracking,
-    automationMode: (state.automationMode as AutomationMode) ?? pair.automationMode
-  }
-}

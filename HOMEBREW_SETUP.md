@@ -1,11 +1,53 @@
 # Homebrew Cask Setup Guide
 
-This guide walks you through publishing The Pair to Homebrew Cask.
+This guide covers the release flow now used in this repository:
+
+`push to main` -> detect `package.json` version bump -> build signed/notarized macOS release -> publish GitHub release -> update Homebrew tap cask.
 
 ## Prerequisites
 
 1. **GitHub Account** - You need a GitHub account (you have one: `timwuhaotian`)
-2. **Apple Developer Account** - For code signing and notarization (optional but recommended)
+2. **Apple Developer Account** - Required for Developer ID signing and notarization
+
+---
+
+## Required GitHub Secrets
+
+Add these repository secrets in `Settings -> Secrets and variables -> Actions`:
+
+1. `MACOS_CERTIFICATE_P12_BASE64`
+   - Your exported Developer ID Application certificate as a `.p12`, base64-encoded
+   - You can generate it with:
+     ```bash
+     base64 -i developer-id.p12 | pbcopy
+     ```
+
+2. `MACOS_CERTIFICATE_PASSWORD`
+   - The password you set when exporting that `.p12`
+
+3. `MACOS_SIGNING_IDENTITY`
+   - The exact certificate identity string
+   - Usually looks like:
+     ```text
+     Developer ID Application: Your Name or Company (TEAMID)
+     ```
+   - You can inspect it with:
+     ```bash
+     security find-identity -v -p codesigning
+     ```
+
+4. `APPLE_ID`
+   - The Apple ID email used for notarization
+
+5. `APPLE_APP_SPECIFIC_PASSWORD`
+   - An app-specific password from https://appleid.apple.com/
+
+6. `APPLE_TEAM_ID`
+   - Your Apple Developer Team ID
+
+7. `HOMEBREW_TAP_GITHUB_TOKEN`
+   - A GitHub personal access token that can push to `timwuhaotian/homebrew-the-pair`
+   - Minimal practical scope: repository contents write access to that tap repo
 
 ---
 
@@ -15,24 +57,29 @@ This guide walks you through publishing The Pair to Homebrew Cask.
    - Or use the standard format: `homebrew-tap`
 
 2. Initialize with a README:
-   ```markdown
+
+   ````markdown
    # Homebrew Tap for The Pair
-   
+
    This repository contains Homebrew Cask formulas for The Pair application.
-   
+
    ## Installation
-   
+
    ```bash
    brew tap timwuhaotian/the-pair
    brew install --cask the-pair
    ```
-   
+   ````
+
    ## Uninstall
-   
+
    ```bash
    brew uninstall --cask the-pair
    brew untap timwuhaotian/the-pair
    ```
+
+   ```
+
    ```
 
 ---
@@ -40,6 +87,7 @@ This guide walks you through publishing The Pair to Homebrew Cask.
 ## Step 2: Create Cask File
 
 1. In your new repository, create the directory structure:
+
    ```
    homebrew-the-pair/
    └── Casks/
@@ -114,27 +162,27 @@ open -a "The Pair"
 
 ---
 
-## Step 6: Automate Updates (Optional)
+## Step 6: Automate Updates
 
-The repository includes a GitHub Actions workflow (`.github/workflows/update-cask.yml`) that automatically updates the cask when you publish a new release.
+The repository now uses `.github/workflows/build-signed-mac.yml` as the primary release pipeline.
 
-### Setup:
+### What happens automatically
 
-1. **Create a GitHub Personal Access Token**:
-   - Go to: https://github.com/settings/tokens
-   - Create token with `repo` scope
-   - Name it `HOMEBREW_GITHUB_TOKEN`
+1. Push to `main`
+2. Workflow checks whether `package.json` version changed
+3. If the version changed, it:
+   - builds the signed macOS app
+   - notarizes and staples the DMG
+   - creates or updates the GitHub release for `v<version>`
+   - recalculates the Homebrew SHA256
+   - commits the updated cask to `timwuhaotian/homebrew-the-pair`
 
-2. **Add secret to main repository**:
-   - Go to: https://github.com/timwuhaotian/the-pair/settings/secrets/actions
-   - Add new secret: `HOMEBREW_GITHUB_TOKEN` = your token
+### Manual fallback
 
-3. **The workflow will**:
-   - Trigger when you publish a new release
-   - Download the DMG
-   - Calculate SHA256
-   - Update the cask file
-   - Commit and push to your tap repository
+If you ever need to repair the cask without rebuilding the app, use:
+
+- `.github/workflows/update-cask.yml`
+- Trigger it manually with the released version number
 
 ---
 
@@ -145,6 +193,7 @@ To make The Pair available to all Homebrew users:
 1. **Fork** [`Homebrew/homebrew-cask`](https://github.com/Homebrew/homebrew-cask)
 
 2. **Add your cask**:
+
    ```bash
    git clone https://github.com/YOUR_USERNAME/homebrew-cask.git
    cd homebrew-cask
@@ -153,6 +202,7 @@ To make The Pair available to all Homebrew users:
    ```
 
 3. **Run audit**:
+
    ```bash
    brew install brew-test-bot
    brew audit --cask the-pair --strict
@@ -161,6 +211,7 @@ To make The Pair available to all Homebrew users:
 4. **Fix any issues** reported by the audit
 
 5. **Submit PR**:
+
    ```bash
    git add Casks/t/the-pair.rb
    git commit -m "Add the-pair v1.0.0"
@@ -171,6 +222,7 @@ To make The Pair available to all Homebrew users:
 6. **Wait for review** - Homebrew maintainers will review your submission
 
 **Requirements for homebrew-cask**:
+
 - App must be signed and notarized
 - SHA256 must be correct
 - Cask must follow [homebrew-cask guidelines](https://github.com/Homebrew/homebrew-cask/blob/master/CONTRIBUTING.md)
@@ -204,6 +256,7 @@ spctl --assess --type exec --verbose /Applications/the-pair.app
 ### "Cannot open because developer cannot be verified"
 
 User needs to manually approve in System Preferences:
+
 1. Go to System Preferences → Security & Privacy
 2. Click "Open Anyway"
 3. Or disable Gatekeeper temporarily (not recommended)
@@ -211,6 +264,7 @@ User needs to manually approve in System Preferences:
 ### Brew audit fails
 
 Common issues:
+
 - **Missing description**: Add clear `desc` field
 - **Bad URL**: Ensure download URL is correct
 - **Version mismatch**: Version in cask must match release tag
@@ -220,23 +274,27 @@ Common issues:
 ## Quick Reference
 
 ### Install from your tap
+
 ```bash
 brew tap timwuhaotian/the-pair
 brew install --cask the-pair
 ```
 
 ### Uninstall
+
 ```bash
 brew uninstall --cask the-pair
 brew untap timwuhaotian/the-pair
 ```
 
 ### Check installed version
+
 ```bash
 brew info --cask the-pair
 ```
 
 ### Update cask
+
 ```bash
 brew update
 brew upgrade --cask the-pair

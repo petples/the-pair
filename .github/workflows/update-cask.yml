@@ -1,64 +1,67 @@
-name: Update Homebrew Cask
+name: Sync Homebrew Cask (Manual)
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the leading v (for example 1.2.3)
+        required: true
+        type: string
 
 jobs:
   update-cask:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Homebrew Tap
         uses: actions/checkout@v4
         with:
           repository: timwuhaotian/homebrew-the-pair
-          token: ${{ secrets.HOMEBREW_GITHUB_TOKEN }}
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           path: homebrew-tap
 
       - name: Download DMG
         id: download
         run: |
-          cd homebrew-tap
-          curl -L -o the-pair.dmg "${{ github.event.release.assets[0].browser_download_url }}"
+          curl -L -o the-pair.dmg "https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/the-pair-${{ inputs.version }}.dmg"
           SHA256=$(shasum -a 256 the-pair.dmg | cut -d ' ' -f 1)
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
           rm the-pair.dmg
 
       - name: Update Cask File
         run: |
+          mkdir -p homebrew-tap/Casks
           cd homebrew-tap/Casks
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#v}"
+          VERSION="${{ inputs.version }}"
           SHA256="${{ steps.download.outputs.sha256 }}"
-          
-          cat > the-pair.rb << END_OF_CASK
-cask "the-pair" do
-  version "${VERSION}"
-  sha256 "${SHA256}"
 
-  url "https://github.com/timwuhaotian/the-pair/releases/download/v\#{version}/the-pair-\#{version}.dmg",
-      verified: "github.com/timwuhaotian/the-pair/"
-  name "The Pair"
-  desc "Desktop orchestrator for dual AI agents (Mentor + Executor) for autonomous coding tasks"
-  homepage "https://github.com/timwuhaotian/the-pair"
+          cat > the-pair.rb <<END_OF_CASK
+          cask "the-pair" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
 
-  auto_updates true
-  depends_on macos: ">= :monterey"
+            url "https://github.com/timwuhaotian/the-pair/releases/download/v\#{version}/the-pair-\#{version}.dmg",
+                verified: "github.com/timwuhaotian/the-pair/"
+            name "The Pair"
+            desc "Desktop orchestrator for dual AI agents (Mentor + Executor) for autonomous coding tasks"
+            homepage "https://github.com/timwuhaotian/the-pair"
 
-  app "the-pair.app"
+            auto_updates true
+            depends_on macos: ">= :monterey"
 
-  uninstall quit: "com.electron.the-pair"
+            app "The Pair.app"
 
-  zap trash: [
-    "~/.config/the-pair",
-    "~/Library/Application Support/the-pair",
-    "~/Library/Caches/com.electron.the-pair",
-    "~/Library/Logs/the-pair",
-    "~/Library/Preferences/com.electron.the-pair.plist",
-    "~/Library/Saved Application State/com.electron.the-pair.savedState",
-  ]
-end
-END_OF_CASK
+            uninstall quit: "com.electron.the-pair"
+
+            zap trash: [
+              "~/.config/the-pair",
+              "~/Library/Application Support/the-pair",
+              "~/Library/Caches/com.electron.the-pair",
+              "~/Library/Logs/the-pair",
+              "~/Library/Preferences/com.electron.the-pair.plist",
+              "~/Library/Saved Application State/com.electron.the-pair.savedState",
+            ]
+          end
+          END_OF_CASK
 
       - name: Commit and Push
         run: |
@@ -66,5 +69,9 @@ END_OF_CASK
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add Casks/the-pair.rb
-          git commit -m "Update the-pair to ${{ github.event.release.tag_name }}"
+          if git diff --cached --quiet; then
+            echo "Cask already up to date"
+            exit 0
+          fi
+          git commit -m "Update the-pair to v${{ inputs.version }}"
           git push

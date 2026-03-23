@@ -57,7 +57,9 @@ export function buildAgentTurnResult(
 
   return {
     kind: 'error',
-    content: lastError || `(Process exited with error code: ${exitCode}. Stderr: ${errorOutput.slice(-200)})`
+    content:
+      lastError ||
+      `(Process exited with error code: ${exitCode}. Stderr: ${errorOutput.slice(-200)})`
   }
 }
 

@@ -1,38 +1,91 @@
 import { BrowserWindow } from 'electron'
+import { existsSync, rmSync } from 'fs'
+import { join } from 'path'
 import { processSpawner } from './processSpawner'
 import { messageBroker } from './messageBroker'
 import { providerRegistry } from './providerRegistry'
-import type { CreatePairInput, PairProcess, AvailableModel, OpenCodeConfig } from './types'
+import { buildModelCatalog } from './modelCatalog'
+import { isPairBusy } from './pairTaskState'
+import { readOpenCodeConfig } from './configReader'
+import type {
+  AssignTaskInput,
+  AssignTaskResult,
+  CreatePairInput,
+  PairModelSelection,
+  PairProcess,
+  AvailableModel,
+  DetectedProviderProfile,
+  Message,
+  OpenCodeConfig,
+  PairRuntimeSpec,
+  ProviderKind,
+  UpdatePairModelsInput
+} from './types'
 import type { AgentTurnResult } from './agentTurn'
 
+interface ManagedPair extends PairProcess {
+  directory: string
+  name: string
+  spec: string
+  mentorModel: string
+  executorModel: string
+  pendingMentorModel?: string
+  pendingExecutorModel?: string
+}
+
 class PairManager {
-  private pairs: Map<string, PairProcess & { directory: string }> = new Map()
+  private pairs: Map<string, ManagedPair> = new Map()
+
+  private parseProviderModel(qualifiedModel: string): { provider: ProviderKind; model: string } {
+    const parts = qualifiedModel.split('/')
+    if (parts.length === 2) {
+      return { provider: parts[0] as ProviderKind, model: parts[1] }
+    }
+    return { provider: 'opencode', model: qualifiedModel }
+  }
 
   async createPair(input: CreatePairInput): Promise<PairProcess> {
     const pairId = this.generateId()
 
     providerRegistry.detectAll()
 
-    const defaultMentorRuntime = providerRegistry.getRuntimeSpec('opencode', input.mentor.model)
-    const defaultExecutorRuntime = providerRegistry.getRuntimeSpec('opencode', input.executor.model)
+    const mentorParsed = this.parseProviderModel(input.mentor.model)
+    const executorParsed = this.parseProviderModel(input.executor.model)
 
-    const mentorRuntime = defaultMentorRuntime || providerRegistry.getRuntimeSpec('opencode', 'claude-3-5-sonnet')!
-    const executorRuntime = defaultExecutorRuntime || providerRegistry.getRuntimeSpec('opencode', 'claude-3-5-sonnet')!
+    const mentorRuntime = providerRegistry.getRuntimeSpec(mentorParsed.provider, mentorParsed.model)
+    const executorRuntime = providerRegistry.getRuntimeSpec(
+      executorParsed.provider,
+      executorParsed.model
+    )
 
-    messageBroker.initializePair(pairId, input)
+    if (!mentorRuntime || !executorRuntime) {
+      throw new Error(
+        `Could not get runtime spec for models: ${input.mentor.model}, ${input.executor.model}`
+      )
+    }
+
+    const initResult = messageBroker.initializePair(pairId, input)
     messageBroker.startWatching(pairId)
 
     const pairProcess = await processSpawner.spawnPair(
       pairId,
-      input.mentor.model,
-      input.executor.model,
+      mentorParsed.model,
+      executorParsed.model,
       input.directory,
       input.spec,
       mentorRuntime,
-      executorRuntime
+      executorRuntime,
+      initResult.worktreePath
     )
 
-    this.pairs.set(pairId, { ...pairProcess, directory: input.directory })
+    this.pairs.set(pairId, {
+      ...pairProcess,
+      directory: input.directory,
+      name: input.name,
+      spec: input.spec,
+      mentorModel: input.mentor.model,
+      executorModel: input.executor.model
+    })
     this.notifyRenderer('pair:created', pairProcess)
 
     return pairProcess
@@ -54,9 +107,8 @@ class PairManager {
     const pair = this.pairs.get(pairId)
     if (!pair) return
     try {
-      const { rmSync } = require('fs')
-      const pairDir = require('path').join(pair.directory, '.pair')
-      if (require('fs').existsSync(pairDir)) {
+      const pairDir = join(pair.directory, '.pair')
+      if (existsSync(pairDir)) {
         rmSync(pairDir, { recursive: true, force: true })
       }
     } catch {
@@ -69,41 +121,120 @@ class PairManager {
   }
 
   getAllPairs(): PairProcess[] {
-    return Array.from(this.pairs.values()).map(({ directory: _dir, ...proc }) => proc)
+    return Array.from(this.pairs.values()).map((pair) => {
+      const { directory, ...proc } = pair
+      void directory
+      return proc
+    })
   }
 
   getAvailableModels(): AvailableModel[] {
-    const models: AvailableModel[] = []
-    const profiles = providerRegistry.getRunnableProviders()
-    for (const profile of profiles) {
-      for (const model of profile.currentModels) {
-        models.push({
-          provider: profile.kind,
-          modelId: model.modelId,
-          displayName: model.displayName
-        })
-      }
-    }
-    return models
+    return buildModelCatalog(providerRegistry.getProfiles())
   }
 
-  getProviderProfiles() {
-    return providerRegistry.getRunnableProviders()
+  getProviderProfiles(): DetectedProviderProfile[] {
+    return providerRegistry.getProfiles()
   }
 
   readOpenCodeConfig(): OpenCodeConfig | null {
-    return null
+    return readOpenCodeConfig()
   }
 
   humanFeedback(pairId: string, approved: boolean): void {
     messageBroker.humanFeedback(pairId, approved)
   }
 
+  assignTask(pairId: string, input: AssignTaskInput): AssignTaskResult {
+    const pair = this.pairs.get(pairId)
+    if (!pair) {
+      throw new Error(`Unknown pair: ${pairId}`)
+    }
+
+    const state = messageBroker.getState(pairId)
+    if (!state) {
+      throw new Error(`Missing state for pair: ${pairId}`)
+    }
+
+    if (isPairBusy(state.status)) {
+      throw new Error('Wait for the current task to finish before assigning a new one')
+    }
+
+    const mentorModel = pair.pendingMentorModel ?? pair.mentorModel
+    const executorModel = pair.pendingExecutorModel ?? pair.executorModel
+    const runtimeSelection = this.resolveRuntimeSelection(mentorModel, executorModel)
+
+    processSpawner.updatePairRuntime(pairId, {
+      mentorModel: runtimeSelection.mentor.model,
+      executorModel: runtimeSelection.executor.model,
+      mentorRuntime: runtimeSelection.mentorRuntime,
+      executorRuntime: runtimeSelection.executorRuntime,
+      resetSessions: true
+    })
+
+    pair.mentorModel = mentorModel
+    pair.executorModel = executorModel
+    pair.pendingMentorModel = undefined
+    pair.pendingExecutorModel = undefined
+    pair.spec = input.spec
+
+    messageBroker.assignTask(pairId, { name: pair.name, spec: input.spec })
+    messageBroker.startWatching(pairId)
+
+    return {
+      spec: input.spec,
+      mentorModel: pair.mentorModel,
+      executorModel: pair.executorModel
+    }
+  }
+
+  updatePairModels(pairId: string, input: UpdatePairModelsInput): PairModelSelection {
+    const pair = this.pairs.get(pairId)
+    if (!pair) {
+      throw new Error(`Unknown pair: ${pairId}`)
+    }
+
+    const state = messageBroker.getState(pairId)
+    if (!state) {
+      throw new Error(`Missing state for pair: ${pairId}`)
+    }
+
+    if (isPairBusy(state.status)) {
+      pair.pendingMentorModel = input.mentorModel
+      pair.pendingExecutorModel = input.executorModel
+
+      return {
+        mentorModel: pair.mentorModel,
+        executorModel: pair.executorModel,
+        pendingMentorModel: pair.pendingMentorModel,
+        pendingExecutorModel: pair.pendingExecutorModel
+      }
+    }
+
+    const runtimeSelection = this.resolveRuntimeSelection(input.mentorModel, input.executorModel)
+    processSpawner.updatePairRuntime(pairId, {
+      mentorModel: runtimeSelection.mentor.model,
+      executorModel: runtimeSelection.executor.model,
+      mentorRuntime: runtimeSelection.mentorRuntime,
+      executorRuntime: runtimeSelection.executorRuntime,
+      resetSessions: true
+    })
+
+    pair.mentorModel = input.mentorModel
+    pair.executorModel = input.executorModel
+    pair.pendingMentorModel = undefined
+    pair.pendingExecutorModel = undefined
+
+    return {
+      mentorModel: pair.mentorModel,
+      executorModel: pair.executorModel
+    }
+  }
+
   handleAgentResponse(pairId: string, role: 'mentor' | 'executor', result: AgentTurnResult): void {
     messageBroker.handleAgentResponse(pairId, role, result)
   }
 
-  getMessages(pairId: string) {
+  getMessages(pairId: string): Message[] {
     return messageBroker.getMessages(pairId)
   }
 
@@ -115,6 +246,36 @@ class PairManager {
 
   private generateId(): string {
     return Math.random().toString(36).substring(2, 9)
+  }
+
+  private resolveRuntimeSelection(
+    mentorQualifiedModel: string,
+    executorQualifiedModel: string
+  ): {
+    mentor: { provider: ProviderKind; model: string }
+    executor: { provider: ProviderKind; model: string }
+    mentorRuntime: PairRuntimeSpec
+    executorRuntime: PairRuntimeSpec
+  } {
+    providerRegistry.detectAll()
+
+    const mentor = this.parseProviderModel(mentorQualifiedModel)
+    const executor = this.parseProviderModel(executorQualifiedModel)
+    const mentorRuntime = providerRegistry.getRuntimeSpec(mentor.provider, mentor.model)
+    const executorRuntime = providerRegistry.getRuntimeSpec(executor.provider, executor.model)
+
+    if (!mentorRuntime || !executorRuntime) {
+      throw new Error(
+        `Could not get runtime spec for models: ${mentorQualifiedModel}, ${executorQualifiedModel}`
+      )
+    }
+
+    return {
+      mentor,
+      executor,
+      mentorRuntime,
+      executorRuntime
+    }
   }
 }
 

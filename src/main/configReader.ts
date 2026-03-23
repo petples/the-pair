@@ -30,8 +30,19 @@ export function getAvailableModels(config: OpenCodeConfig | null): AvailableMode
       for (const [modelId, modelConfig] of Object.entries(providerConfig.models)) {
         models.push({
           provider: providerId,
-          modelId: modelId,
-          displayName: modelConfig.name || `${providerId}/${modelId}`
+          modelId,
+          displayName: modelConfig.name || `${providerId}/${modelId}`,
+          available: true,
+          providerLabel: providerId,
+          sourceProvider: providerId,
+          sourceProviderLabel: providerId,
+          billingKind: 'byok',
+          billingLabel: 'Pay as you go',
+          accessLabel: `${providerId} API key`,
+          planLabel: 'BYOK',
+          availabilityStatus: 'ready',
+          supportsPairExecution: true,
+          recommendedRoles: ['mentor', 'executor']
         })
       }
     }

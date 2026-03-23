@@ -1,17 +1,61 @@
-name: Build Signed macOS
+name: Publish Signed macOS + Homebrew
 
 on:
-  workflow_dispatch:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-signed-mac:
+  detect-version-bump:
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.version.outputs.should_publish }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect package version change
+        id: version
+        run: |
+          node <<'NODE'
+          const fs = require('fs')
+          const { execSync } = require('child_process')
+
+          const currentVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version
+          let previousVersion = ''
+
+          try {
+            previousVersion = JSON.parse(
+              execSync('git show HEAD^:package.json', { encoding: 'utf8' })
+            ).version
+          } catch {
+            previousVersion = ''
+          }
+
+          const shouldPublish = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
+            ? 'true'
+            : String(currentVersion !== previousVersion)
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${currentVersion}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${currentVersion}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_publish=${shouldPublish}\n`)
+          NODE
+
+  publish-release:
+    needs: detect-version-bump
+    if: needs.detect-version-bump.outputs.should_publish == 'true'
     runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.detect-version-bump.outputs.version }}
+      TAG: ${{ needs.detect-version-bump.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,26 +72,26 @@ jobs:
       - name: Import Code Signing Certificate
         uses: apple-actions/import-codesign-certs@v3
         with:
-          p12-file-base64: ${{ secrets.CSC_LINK }}
-          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
 
       - name: Build signed and notarized app
         env:
-          CSC_NAME: ${{ secrets.CSC_NAME }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_NAME: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run build:mac
 
       - name: Notarize DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          TEAM_ID: ${{ secrets.TEAM_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcrun notarytool submit dist/the-pair-*.dmg \
+          xcrun notarytool submit "dist/the-pair-${VERSION}.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$TEAM_ID" \
@@ -55,27 +99,73 @@ jobs:
 
       - name: Staple notarization ticket
         run: |
-          xcrun stapler staple dist/the-pair-*.dmg
+          xcrun stapler staple "dist/the-pair-${VERSION}.dmg"
 
       - name: Verify signature
         run: |
-          codesign --verify --verbose dist/the-pair.app
-          spctl --assess --type exec --verbose dist/the-pair.app
+          APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
+          codesign --verify --verbose "$APP_PATH"
+          spctl --assess --type exec --verbose "$APP_PATH"
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: the-pair-macOS-signed
-          path: dist/*.dmg
-          retention-days: 7
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/*.dmg
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+      - name: Create or update GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.dmg dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.dmg dist/*.zip --title "$TAG" --generate-notes
+          fi
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: timwuhaotian/homebrew-the-pair
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Homebrew cask
+        run: |
+          SHA256=$(shasum -a 256 "dist/the-pair-${VERSION}.dmg" | awk '{print $1}')
+          mkdir -p homebrew-tap/Casks
+          cat > homebrew-tap/Casks/the-pair.rb <<EOF
+          cask "the-pair" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/${{ github.repository }}/releases/download/v#{version}/the-pair-#{version}.dmg",
+                verified: "github.com/${{ github.repository }}/"
+            name "The Pair"
+            desc "Desktop orchestrator for dual AI agents (Mentor + Executor) for autonomous coding tasks"
+            homepage "https://github.com/${{ github.repository }}"
+
+            auto_updates true
+            depends_on macos: ">= :monterey"
+
+            app "The Pair.app"
+
+            uninstall quit: "com.electron.the-pair"
+
+            zap trash: [
+              "~/.config/the-pair",
+              "~/Library/Application Support/the-pair",
+              "~/Library/Caches/com.electron.the-pair",
+              "~/Library/Logs/the-pair",
+              "~/Library/Preferences/com.electron.the-pair.plist",
+              "~/Library/Saved Application State/com.electron.the-pair.savedState",
+            ]
+          end
+          EOF
+
+      - name: Commit and push Homebrew cask
+        run: |
+          cd homebrew-tap
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Casks/the-pair.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date"
+            exit 0
+          fi
+          git commit -m "Update the-pair to v${VERSION}"
+          git push

@@ -17,10 +17,37 @@ interface CreatePairInput {
   executor: { role: string; model: string }
 }
 
+interface AssignTaskInput {
+  spec: string
+}
+
+interface PairModelSelection {
+  mentorModel: string
+  executorModel: string
+  pendingMentorModel?: string
+  pendingExecutorModel?: string
+}
+
+interface AssignTaskResult extends PairModelSelection {
+  spec: string
+}
+
 interface AvailableModel {
   provider: string
   modelId: string
   displayName: string
+  available: boolean
+  providerLabel: string
+  sourceProvider?: string
+  sourceProviderLabel: string
+  billingKind: 'plan' | 'payg' | 'byok' | 'unknown'
+  billingLabel: string
+  accessLabel: string
+  planLabel?: string
+  availabilityStatus: 'ready' | 'cli-missing' | 'auth-missing' | 'runtime-unsupported'
+  availabilityReason?: string
+  supportsPairExecution: boolean
+  recommendedRoles: ('mentor' | 'executor')[]
 }
 
 interface DetectedProviderProfile {
@@ -48,6 +75,10 @@ const api = {
   pair: {
     create: (input: CreatePairInput): Promise<PairProcess> =>
       ipcRenderer.invoke('pair:create', input),
+    assignTask: (pairId: string, input: AssignTaskInput): Promise<AssignTaskResult> =>
+      ipcRenderer.invoke('pair:assignTask', pairId, input),
+    updateModels: (pairId: string, input: PairModelSelection): Promise<PairModelSelection> =>
+      ipcRenderer.invoke('pair:updateModels', pairId, input),
     stop: (pairId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('pair:stop', pairId),
     retryTurn: (pairId: string): Promise<{ success: boolean }> =>
@@ -73,7 +104,8 @@ const api = {
   },
   config: {
     getModels: (): Promise<AvailableModel[]> => ipcRenderer.invoke('config:getModels'),
-    getProviders: (): Promise<DetectedProviderProfile[]> => ipcRenderer.invoke('config:getProviders'),
+    getProviders: (): Promise<DetectedProviderProfile[]> =>
+      ipcRenderer.invoke('config:getProviders'),
     read: (): Promise<unknown> => ipcRenderer.invoke('config:read'),
     openFile: (): Promise<string> => ipcRenderer.invoke('config:openFile')
   }

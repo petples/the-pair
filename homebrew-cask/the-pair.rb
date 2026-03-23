@@ -27,7 +27,7 @@ cask "the-pair" do
   auto_updates true
   depends_on macos: ">= :monterey"
 
-  app "the-pair.app"
+  app "The Pair.app"
 
   uninstall quit: "com.electron.the-pair"
 

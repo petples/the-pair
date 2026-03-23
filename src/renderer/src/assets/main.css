@@ -158,10 +158,31 @@
   border-bottom: 1px solid var(--glass-border);
 }
 
+.app-chrome {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent),
+    var(--toolbar-bg);
+}
+
+.dark .app-chrome {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent),
+    var(--toolbar-bg);
+}
+
 .glass-panel {
   background: var(--panel-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag,
+.app-no-drag * {
+  -webkit-app-region: no-drag;
 }
 
 .text-primary-glow {

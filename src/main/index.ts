@@ -2,8 +2,9 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { messageBroker } from './messageBroker'
 import { pairManager } from './pairManager'
-import type { CreatePairInput } from './types'
+import type { AssignTaskInput, CreatePairInput, UpdatePairModelsInput } from './types'
 
 function createWindow(): void {
   // Create the browser window.
@@ -14,6 +15,16 @@ function createWindow(): void {
     minHeight: 700,
     show: false,
     autoHideMenuBar: true,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    titleBarOverlay:
+      process.platform === 'darwin'
+        ? false
+        : {
+            color: '#0f0f10',
+            symbolColor: '#f5f5f5',
+            height: 60
+          },
+    backgroundColor: '#0a0a0b',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -61,6 +72,17 @@ app.whenReady().then(() => {
     return pairManager.createPair(input)
   })
 
+  ipcMain.handle('pair:assignTask', async (_event, pairId: string, input: AssignTaskInput) => {
+    return pairManager.assignTask(pairId, input)
+  })
+
+  ipcMain.handle(
+    'pair:updateModels',
+    async (_event, pairId: string, input: UpdatePairModelsInput) => {
+      return pairManager.updatePairModels(pairId, input)
+    }
+  )
+
   ipcMain.handle('pair:stop', async (_event, pairId: string) => {
     pairManager.stopPair(pairId)
     return { success: true }
@@ -85,9 +107,6 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('pair:getState', async (_event, pairId: string) => {
-    // Break circular dependency by importing messageBroker from pairManager
-    // since pairManager already has a safe static import to it
-    const { messageBroker } = require('./messageBroker')
     return messageBroker.getState(pairId)
   })
 

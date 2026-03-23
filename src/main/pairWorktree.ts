@@ -61,9 +61,14 @@ export function createPairWorktree(
       fs.mkdirSync(worktreeDir, { recursive: true })
     }
 
-    execSync(`git -C "${sourceRepoPath}" worktree add "${worktreePath}" -b ${branchName} ${sourceBranch}`, {
-      encoding: 'utf-8'
-    })
+    execSync(
+      `git -C "${sourceRepoPath}" worktree add "${worktreePath}" -b ${branchName} ${sourceBranch}`,
+      {
+        encoding: 'utf-8'
+      }
+    )
+
+    copyLocalChangesToWorktree(sourceRepoPath, worktreePath)
 
     const preTurnHead = getCurrentHead(sourceRepoPath)
 
@@ -75,6 +80,50 @@ export function createPairWorktree(
   } catch (error) {
     console.error('Failed to create worktree:', error)
     return null
+  }
+}
+
+export function copyLocalChangesToWorktree(sourceRepoPath: string, worktreePath: string): void {
+  try {
+    const statusOutput = execSync('git -C "${sourceRepoPath}" status --porcelain', {
+      encoding: 'utf-8',
+      cwd: sourceRepoPath
+    }).trim()
+
+    if (!statusOutput) return
+
+    const lines = statusOutput.split('\n')
+    for (const line of lines) {
+      if (!line.trim()) continue
+
+      const statusCode = line.substring(0, 2)
+      let filePath = line.substring(3).trim()
+
+      if (filePath.startsWith('"') && filePath.endsWith('"')) {
+        filePath = filePath.slice(1, -1)
+      }
+
+      if (statusCode.includes('D')) continue
+
+      if (filePath.startsWith('.pair/') || filePath === '.pair') continue
+
+      const sourceFile = path.join(sourceRepoPath, filePath)
+      const targetFile = path.join(worktreePath, filePath)
+      const targetDir = path.dirname(targetFile)
+
+      if (!fs.existsSync(sourceFile)) continue
+
+      const stat = fs.statSync(sourceFile)
+      if (stat.isDirectory()) continue
+
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true })
+      }
+
+      fs.copyFileSync(sourceFile, targetFile)
+    }
+  } catch (error) {
+    console.error('Failed to copy local changes to worktree:', error)
   }
 }
 
@@ -150,7 +199,12 @@ export function getDiffStat(worktreePath: string, sha: string): string {
   }
 }
 
-export function getPatchExcerpt(worktreePath: string, sha: string, maxLines: number = 800, maxBytes: number = 204800): string {
+export function getPatchExcerpt(
+  worktreePath: string,
+  sha: string,
+  maxLines: number = 800,
+  maxBytes: number = 204800
+): string {
   try {
     const patch = execSync(
       `git -C "${worktreePath}" show --stat --summary --patch --unified=3 --no-ext-diff ${sha}`,
@@ -180,7 +234,11 @@ export function getPatchExcerpt(worktreePath: string, sha: string, maxLines: num
   }
 }
 
-export function removePairWorktree(worktreePath: string, branchName: string, originalRepoPath: string): void {
+export function removePairWorktree(
+  worktreePath: string,
+  branchName: string,
+  originalRepoPath: string
+): void {
   try {
     execSync(`git -C "${originalRepoPath}" worktree remove "${worktreePath}" --force`, {
       encoding: 'utf-8'

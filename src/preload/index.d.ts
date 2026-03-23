@@ -32,10 +32,37 @@ export interface CreatePairInput {
   executor: AgentConfig
 }
 
+export interface AssignTaskInput {
+  spec: string
+}
+
+export interface PairModelSelection {
+  mentorModel: string
+  executorModel: string
+  pendingMentorModel?: string
+  pendingExecutorModel?: string
+}
+
+export interface AssignTaskResult extends PairModelSelection {
+  spec: string
+}
+
 export interface AvailableModel {
   provider: string
   modelId: string
   displayName: string
+  available: boolean
+  providerLabel: string
+  sourceProvider?: string
+  sourceProviderLabel: string
+  billingKind: 'plan' | 'payg' | 'byok' | 'unknown'
+  billingLabel: string
+  accessLabel: string
+  planLabel?: string
+  availabilityStatus: 'ready' | 'cli-missing' | 'auth-missing' | 'runtime-unsupported'
+  availabilityReason?: string
+  supportsPairExecution: boolean
+  recommendedRoles: AgentRole[]
 }
 
 interface Message {
@@ -61,6 +88,8 @@ interface PairStateUpdate {
 
 interface PairAPI {
   create: (input: CreatePairInput) => Promise<PairProcess>
+  assignTask: (pairId: string, input: AssignTaskInput) => Promise<AssignTaskResult>
+  updateModels: (pairId: string, input: PairModelSelection) => Promise<PairModelSelection>
   stop: (pairId: string) => Promise<{ success: boolean }>
   retryTurn: (pairId: string) => Promise<{ success: boolean }>
   list: () => Promise<PairProcess[]>
@@ -75,6 +104,7 @@ interface PairAPI {
 
 interface ConfigAPI {
   getModels: () => Promise<AvailableModel[]>
+  getProviders: () => Promise<unknown>
   read: () => Promise<unknown>
   openFile: () => Promise<string>
 }

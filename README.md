@@ -45,6 +45,7 @@
 - **Executor Agent** — Writes code, runs commands, modifies files, and implements the Mentor's instructions
 
 Unlike traditional IDEs or single-agent tools, The Pair provides:
+
 - **Automated collaboration** — Agents work together without constant human intervention
 - **Real-time monitoring** — Watch CPU/memory usage per agent with live activity tracking
 - **Git integration** — Automatic tracking of all file changes made during a session
@@ -117,11 +118,11 @@ brew install --cask the-pair
 
 Download the latest release from [GitHub Releases](https://github.com/timwuhaotian/the-pair/releases):
 
-| Platform | File |
-|----------|------|
-| **macOS** | `the-pair-{version}.dmg` |
+| Platform    | File                           |
+| ----------- | ------------------------------ |
+| **macOS**   | `the-pair-{version}.dmg`       |
 | **Windows** | `the-pair-{version}-setup.exe` |
-| **Linux** | `the-pair-{version}.AppImage` |
+| **Linux**   | `the-pair-{version}.AppImage`  |
 
 ### From Source
 
@@ -143,7 +144,7 @@ npm run build:mac  # or build:win / build:linux
    ```bash
    # macOS
    brew install opencode
-   
+
    # Or visit: https://opencode.ai/install
    ```
 
@@ -156,7 +157,7 @@ npm run build:mac  # or build:win / build:linux
          "options": {
            "apiKey": "your-api-key"
          }
-      },
+       },
        "anthropic": {
          "options": {
            "apiKey": "your-api-key"
@@ -254,15 +255,15 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 
 ### Tech Stack
 
-| Layer | Technology |
-|-------|------------|
-| **Framework** | Electron 39 |
-| **Frontend** | React 19 + TypeScript |
-| **Styling** | Tailwind CSS v4 |
-| **State** | Zustand |
-| **Animations** | Framer Motion |
-| **Icons** | Lucide React |
-| **Process Monitor** | pidusage |
+| Layer               | Technology            |
+| ------------------- | --------------------- |
+| **Framework**       | Electron 39           |
+| **Frontend**        | React 19 + TypeScript |
+| **Styling**         | Tailwind CSS v4       |
+| **State**           | Zustand               |
+| **Animations**      | Framer Motion         |
+| **Icons**           | Lucide React          |
+| **Process Monitor** | pidusage              |
 
 ### System Architecture
 
@@ -470,160 +471,165 @@ dist/
 
 ## 🔐 Code Signing & Notarization
 
-### Prerequisites
+### Current release flow
 
-1. **Apple Developer Account** — Enroll in the [Apple Developer Program](https://developer.apple.com/)
+This repository now uses a GitHub Actions release pipeline:
 
-2. **Create Signing Certificate**
-   ```bash
-   # List available identities
-   security find-identity -v -p codesigning
-   
-   # Or use Xcode to create certificates
-   ```
+`push to main` -> detect `package.json` version bump -> build signed macOS release -> notarize DMG -> create/update GitHub Release -> update Homebrew tap cask
 
-3. **Create App Password** — For notarization, generate an [app-specific password](https://support.apple.com/en-us/HT204397)
+The workflow file is:
 
-### Configure electron-builder.yml
+- [build-signed-mac.yml](/Volumes/orico/code/the-pair/.github/workflows/build-signed-mac.yml)
 
-Update `electron-builder.yml` for signing:
+### What you need from Apple
 
-```yaml
-mac:
-  identity: "Your Developer ID Application: Your Name (TEAM_ID)"
-  hardenedRuntime: true
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
-  notarize: true
-  category: public.app-category.developer-tools
-```
+1. **Apple Developer Program membership**
+   Apple’s Developer ID docs state that software distributed outside the Mac App Store uses a Developer ID certificate plus notarization.
 
-### Build with Signing
+2. **Developer ID Application certificate**
+   Apple documents this under Developer ID certificates.
+
+   Steps:
+   1. Sign in to `developer.apple.com`
+   2. Open `Certificates, Identifiers & Profiles`
+   3. Create a `Developer ID Application` certificate
+   4. Download the `.cer`
+   5. Double-click it to install it into Keychain Access
+
+3. **Export the certificate as `.p12`**
+   In Keychain Access:
+   1. Find `Developer ID Application: ...`
+   2. Export it as `.p12`
+   3. Set an export password
+
+4. **Apple ID app-specific password**
+   Needed because the workflow uses `xcrun notarytool --apple-id --password --team-id`.
+
+5. **Apple Team ID**
+   Apple says Team ID is shown under `Membership details` in the developer account.
+
+### GitHub Actions secrets
+
+Configure these in `Settings -> Secrets and variables -> Actions`:
+
+| Secret                         | What it is                                                             | How to get it                                                                                                                       |
+| ------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `MACOS_SIGNING_IDENTITY`       | Exact signing identity string used by `electron-builder` as `CSC_NAME` | Run `security find-identity -v -p codesigning` after installing the certificate, then copy the `Developer ID Application: ...` line |
+| `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded `.p12` export of your Developer ID Application cert     | `base64 -i /path/to/developer-id.p12 \| pbcopy` on macOS                                                                            |
+| `MACOS_CERTIFICATE_PASSWORD`   | Password you chose when exporting the `.p12`                           | You set this during export                                                                                                          |
+| `APPLE_ID`                     | Apple Account email used for notarization                              | Your Apple Developer account email                                                                                                  |
+| `APPLE_APP_SPECIFIC_PASSWORD`  | App-specific password for notarization                                 | Go to `account.apple.com` -> `Sign-In and Security` -> `App-Specific Passwords`                                                     |
+| `APPLE_TEAM_ID`                | 10-character Apple team identifier                                     | `developer.apple.com` -> `Membership details`                                                                                       |
+| `HOMEBREW_TAP_GITHUB_TOKEN`    | Token allowed to push to `timwuhaotian/homebrew-the-pair`              | Create a GitHub PAT with repo contents write access to the tap repo                                                                 |
+
+Notes:
+
+- GitHub’s built-in `GITHUB_TOKEN` is already used for creating/updating releases in the main repo. You do **not** need to add that one manually.
+- For `HOMEBREW_TAP_GITHUB_TOKEN`, GitHub docs say a fine-grained PAT can be used when it has repository contents read/write access to the target repo.
+
+### Local signed build
+
+For local release builds, copy `.env.example` to `.env` and fill in:
 
 ```bash
-# Set environment variables
-export CSC_NAME="Your Developer ID Application: Your Name"
-export CSC_KEY_PASSWORD="your-key-password"
-export CSC_LINK="path-to-certificate.p12"
+export CSC_NAME="Developer ID Application: Your Name (TEAMID)"
+export CSC_KEY_PASSWORD="your-p12-password"
+export CSC_LINK="/absolute/path/to/developer-id.p12"
 export APPLE_ID="your-apple-id@example.com"
-export APPLE_APP_SPECIFIC_PASSWORD="your-app-password"
-export TEAM_ID="your-team-id"
+export APPLE_APP_SPECIFIC_PASSWORD="your-app-specific-password"
+export TEAM_ID="YOURTEAMID"
 
-# Build signed and notarized app
 npm run build:mac
 ```
 
-### Notarization
+### Manual notarization check
 
-The build process automatically notarizes your app if `notarize: true` is set. For manual notarization:
+If you want to verify notarization manually:
 
 ```bash
-# Notarize the DMG
 xcrun notarytool submit dist/the-pair-1.0.0.dmg \
-  --apple-id "your-apple-id@example.com" \
-  --password "your-app-password" \
-  --team-id "your-team-id" \
+  --apple-id "$APPLE_ID" \
+  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+  --team-id "$TEAM_ID" \
   --wait
 
-# Staple the ticket
 xcrun stapler staple dist/the-pair-1.0.0.dmg
 ```
 
-### Verify Signature
+### Verify signature
 
 ```bash
-# Check signature
-codesign --verify --verbose dist/the-pair.app
-
-# Check notarization status
-spctl --assess --type exec --verbose dist/the-pair.app
+APP_PATH=$(find dist -maxdepth 3 -name "*.app" | head -n 1)
+codesign --verify --verbose "$APP_PATH"
+spctl --assess --type exec --verbose "$APP_PATH"
 ```
+
+### Do I need App Store Connect setup?
+
+For the current workflow, **no App Store listing, no TestFlight app, and no App Store submission record are required**.
+
+This is because the app is being distributed outside the Mac App Store via:
+
+- GitHub Releases
+- Homebrew Cask
+
+What you **do** need is:
+
+- an active Apple Developer Program membership
+- a `Developer ID Application` certificate
+- notarization credentials (`APPLE_ID`, app-specific password, `APPLE_TEAM_ID`)
+
+What you **do not** need for this workflow:
+
+- App Store app record
+- TestFlight setup
+- provisioning profile for App Store distribution
+
+The only App Store Connect-related case you may care about is team management. Apple notes that, for Apple Developer Program organizations, team member access is managed in App Store Connect. If you are a solo developer, you can ignore that.
 
 ---
 
 ## 🍺 Publishing to Homebrew
 
-### Create Homebrew Tap
+### Automatic publish behavior
 
-1. **Create a GitHub repository** for your tap:
-   ```
-   timwuhaotian/homebrew-the-pair
-   ```
+Homebrew publishing is now driven by the same release workflow:
 
-2. **Create the Cask file** at `Casks/the-pair.rb`:
+1. Push to `main`
+2. Workflow compares `package.json` version against the previous commit
+3. If the version changed:
+   - signed DMG is built
+   - release `v<version>` is created or updated
+   - SHA256 is recalculated
+   - `Casks/the-pair.rb` is committed to `timwuhaotian/homebrew-the-pair`
 
-```ruby
-cask "the-pair" do
-  version "1.0.0"
-  sha256 "YOUR_DMG_SHA256_HASH"
+### Homebrew tap requirements
 
-  url "https://github.com/timwuhaotian/the-pair/releases/download/v#{version}/the-pair-#{version}.dmg",
-      verified: "github.com/timwuhaotian/the-pair/"
-  name "The Pair"
-  desc "Desktop orchestrator for dual AI agents"
-  homepage "https://github.com/timwuhaotian/the-pair"
+You still need a tap repository:
 
-  auto_updates true
-  depends_on macos: ">= :monterey"
-
-  app "the-pair.app"
-
-  uninstall quit: "com.electron.the-pair"
-
-  zap trash: [
-    "~/.config/the-pair",
-    "~/Library/Application Support/the-pair",
-    "~/Library/Caches/com.electron.the-pair",
-    "~/Library/Logs/the-pair",
-    "~/Library/Preferences/com.electron.the-pair.plist",
-    "~/Library/Saved Application State/com.electron.the-pair.savedState",
-  ]
-end
+```text
+timwuhaotian/homebrew-the-pair
 ```
 
-3. **Update the tap** with GitHub Actions (optional):
+The workflow will write `Casks/the-pair.rb` there automatically.
 
-Create `.github/workflows/update-cask.yml`:
+### Manual fallback workflow
 
-```yaml
-name: Update Homebrew Cask
+There is also a manual repair workflow:
 
-on:
-  release:
-    types: [published]
+- [update-cask.yml](/Volumes/orico/code/the-pair/.github/workflows/update-cask.yml)
 
-jobs:
-  update-cask:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: timwuhaotian/homebrew-the-pair
-          token: ${{ secrets.HOMEBREW_GITHUB_TOKEN }}
-      
-      - name: Update Cask
-        run: |
-          cd Casks
-          # Update version and SHA256
-          sed -i '' 's/version "[0-9.]*"/version "${{ github.event.release.tag_name }}"/' the-pair.rb
-          # Calculate new SHA256
-          SHA256=$(shasum -a 256 "${{ github.event.release.assets[0].browser_download_url }}")
-          sed -i '' "s/sha256 \"[a-f0-9]*\"/sha256 \"$SHA256\"/" the-pair.rb
-      
-      - name: Commit and Push
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add Casks/the-pair.rb
-          git commit -m "Update the-pair to ${{ github.event.release.tag_name }}"
-          git push
+Use it only if:
+
+- the release already exists
+- the brew cask needs to be regenerated or fixed
+
+### User install command
+
+```bash
+brew tap timwuhaotian/the-pair
+brew install --cask the-pair
 ```
-
-4. **Users can now install** via:
-   ```bash
-   brew tap timwuhaotian/the-pair
-   brew install --cask the-pair
-   ```
 
 ### Alternative: homebrew-cask
 
@@ -635,6 +641,7 @@ To submit to the official `homebrew-cask`:
 4. Submit a pull request
 
 **Requirements**:
+
 - App must be signed and notarized
 - SHA256 hash must be correct
 - Cask must follow [homebrew-cask guidelines](https://github.com/Homebrew/homebrew-cask/blob/master/CONTRIBUTING.md)

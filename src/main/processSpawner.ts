@@ -97,8 +97,18 @@ Workflow:
       executorPid: null,
       mentorStatus: 'Idle',
       executorStatus: 'Idle',
-      mentorActivity: { phase: 'idle', label: 'Mentor idle', startedAt: Date.now(), updatedAt: Date.now() },
-      executorActivity: { phase: 'idle', label: 'Executor idle', startedAt: Date.now(), updatedAt: Date.now() },
+      mentorActivity: {
+        phase: 'idle',
+        label: 'Mentor idle',
+        startedAt: Date.now(),
+        updatedAt: Date.now()
+      },
+      executorActivity: {
+        phase: 'idle',
+        label: 'Executor idle',
+        startedAt: Date.now(),
+        updatedAt: Date.now()
+      },
       resources: {
         mentor: { cpu: 0, memMb: 0 },
         executor: { cpu: 0, memMb: 0 },
@@ -108,9 +118,31 @@ Workflow:
       gitTracking: { available: false },
       automationMode: 'full-auto',
       turnArtifacts: [],
-      mentorRuntime,
-      executorRuntime,
       gitReviewAvailable: false
+    }
+  }
+
+  updatePairRuntime(
+    pairId: string,
+    updates: {
+      mentorModel: string
+      executorModel: string
+      mentorRuntime: PairRuntimeSpec
+      executorRuntime: PairRuntimeSpec
+      resetSessions?: boolean
+    }
+  ): void {
+    const ctx = this.pairs.get(pairId)
+    if (!ctx) return
+
+    ctx.mentorModel = updates.mentorModel
+    ctx.executorModel = updates.executorModel
+    ctx.mentorRuntime = updates.mentorRuntime
+    ctx.executorRuntime = updates.executorRuntime
+
+    if (updates.resetSessions) {
+      ctx.mentorSessionId = undefined
+      ctx.executorSessionId = undefined
     }
   }
 
@@ -124,9 +156,8 @@ Workflow:
     const processKey = `${pairId}-${role}`
     const sessionId = role === 'mentor' ? ctx.mentorSessionId : ctx.executorSessionId
 
-    const cwd = runtime.cwdStrategy === 'worktree' && ctx.worktreePath
-      ? ctx.worktreePath
-      : ctx.directory
+    const cwd =
+      runtime.cwdStrategy === 'worktree' && ctx.worktreePath ? ctx.worktreePath : ctx.directory
 
     const pairDir = path.join(ctx.directory, '.pair')
     const runtimeDir = path.join(pairDir, 'runtime', pairId)
@@ -148,16 +179,19 @@ Workflow:
       cmd = `${cmdParts.join(' ')} < "${messagePath}"`
     }
 
-    this.updateActivity(pairId, role, 'thinking', role === 'mentor' ? 'Analyzing task' : 'Executing instruction', undefined)
+    this.updateActivity(
+      pairId,
+      role,
+      'thinking',
+      role === 'mentor' ? 'Analyzing task' : 'Executing instruction',
+      undefined
+    )
 
-    let proc: ChildProcess
-    let pid: number
-
-    proc = spawn('bash', ['-c', cmd], {
+    const proc: ChildProcess = spawn('bash', ['-c', cmd], {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe']
     })
-    pid = proc.pid!
+    const pid = proc.pid!
 
     this.activeProcesses.set(processKey, { pid, proc })
 
@@ -195,7 +229,13 @@ Workflow:
 
             if (event.type === 'text' && event.part?.text) {
               responseText += event.part.text
-              this.updateActivity(pairId, role, 'responding', 'Writing response', lastActivityDetail)
+              this.updateActivity(
+                pairId,
+                role,
+                'responding',
+                'Writing response',
+                lastActivityDetail
+              )
             } else if (event.type === 'tool' && event.name) {
               lastActivityDetail = `Using ${event.name}`
               this.updateActivity(pairId, role, 'using_tools', 'Running tools', lastActivityDetail)
@@ -222,7 +262,9 @@ Workflow:
 
       try {
         fs.unlinkSync(messagePath)
-      } catch {}
+      } catch {
+        // Ignore cleanup errors for transient runtime files.
+      }
 
       const result = buildAgentTurnResult(responseText, code, errorOutput)
 
@@ -245,7 +287,13 @@ Workflow:
     })
   }
 
-  private updateActivity(pairId: string, role: AgentRole, phase: ActivityPhase, label: string, detail?: string): void {
+  private updateActivity(
+    pairId: string,
+    role: AgentRole,
+    phase: ActivityPhase,
+    label: string,
+    detail?: string
+  ): void {
     try {
       messageBroker.updateActivity(pairId, role, phase, label, detail)
     } catch {

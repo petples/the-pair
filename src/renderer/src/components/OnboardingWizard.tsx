@@ -19,6 +19,7 @@ import { useThemeStore } from '../store/useThemeStore'
 import type { AvailableModel, OpenCodeConfig } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
+import { ModelPicker } from './ModelPicker'
 
 interface OnboardingWizardProps {
   onComplete: () => void
@@ -62,7 +63,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
 
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
-      const defaultModel = `${availableModels[0].provider}/${availableModels[0].modelId}`
+      const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
+      const defaultModel = `${defaultEntry.provider}/${defaultEntry.modelId}`
       setMentorModel(defaultModel)
       setExecutorModel(defaultModel)
     }
@@ -576,7 +578,12 @@ function ModelStep({
               <p className="text-xs text-muted-foreground">Analyzes & plans</p>
             </div>
           </div>
-          <ModelSelect value={mentorModel} models={availableModels} onChange={onMentorChange} />
+          <ModelPicker
+            value={mentorModel}
+            models={availableModels}
+            onChange={onMentorChange}
+            role="mentor"
+          />
         </GlassCard>
 
         <GlassCard className="p-5 space-y-3">
@@ -589,7 +596,12 @@ function ModelStep({
               <p className="text-xs text-muted-foreground">Writes & executes</p>
             </div>
           </div>
-          <ModelSelect value={executorModel} models={availableModels} onChange={onExecutorChange} />
+          <ModelPicker
+            value={executorModel}
+            models={availableModels}
+            onChange={onExecutorChange}
+            role="executor"
+          />
         </GlassCard>
       </div>
 
@@ -603,36 +615,12 @@ function ModelStep({
           <span className="text-purple-600 dark:text-purple-400">Executor</span> — Can use a
           smaller/faster model for code writing tasks (e.g., GPT-4o-mini)
         </p>
+        <p className="text-xs text-muted-foreground">
+          Greyed-out entries stay visible so you can see which providers are detected, which ones
+          are paid via plan or token, and what still needs auth or runtime support.
+        </p>
       </GlassCard>
     </div>
-  )
-}
-
-function ModelSelect({
-  value,
-  models,
-  onChange
-}: {
-  value: string
-  models: AvailableModel[]
-  onChange: (m: string) => void
-}): React.ReactNode {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-3 py-2.5 glass-card text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
-    >
-      {models.length === 0 ? (
-        <option value="">No models found</option>
-      ) : (
-        models.map((m) => (
-          <option key={`${m.provider}/${m.modelId}`} value={`${m.provider}/${m.modelId}`}>
-            {m.displayName}
-          </option>
-        ))
-      )}
-    </select>
   )
 }
 

@@ -15,7 +15,7 @@ export type ActivityPhase = 'idle' | 'thinking' | 'using_tools' | 'responding' |
 
 export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
 
-export type SubscriptionLabel = 
+export type SubscriptionLabel =
   | 'provider-backed'
   | 'authenticated'
   | 'subscription-backed'
@@ -154,6 +154,26 @@ export interface CreatePairInput {
   executor: AgentConfig
 }
 
+export interface AssignTaskInput {
+  spec: string
+}
+
+export interface UpdatePairModelsInput {
+  mentorModel: string
+  executorModel: string
+}
+
+export interface PairModelSelection {
+  mentorModel: string
+  executorModel: string
+  pendingMentorModel?: string
+  pendingExecutorModel?: string
+}
+
+export interface AssignTaskResult extends PairModelSelection {
+  spec: string
+}
+
 export interface OpenCodeConfig {
   provider?: Record<
     string,
@@ -177,11 +197,24 @@ export interface AvailableModel {
   provider: string
   modelId: string
   displayName: string
+  available: boolean
+  providerLabel: string
+  sourceProvider?: string
+  sourceProviderLabel: string
+  billingKind: 'plan' | 'payg' | 'byok' | 'unknown'
+  billingLabel: string
+  accessLabel: string
+  planLabel?: string
+  availabilityStatus: 'ready' | 'cli-missing' | 'auth-missing' | 'runtime-unsupported'
+  availabilityReason?: string
+  supportsPairExecution: boolean
+  recommendedRoles: AgentRole[]
 }
 
 export interface DetectedModelOption {
   modelId: string
   displayName: string
+  sourceProvider?: string
   subscriptionLabel: SubscriptionLabel
   supportsPairExecution: boolean
   runnable?: boolean

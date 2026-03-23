@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { FolderOpen, ChevronDown } from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 import { usePairStore } from '../store/usePairStore'
-import type { AvailableModel } from '../types'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
+import { ModelPicker } from './ModelPicker'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -28,7 +28,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
-      const defaultModel = `${availableModels[0].provider}/${availableModels[0].modelId}`
+      const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
+      const defaultModel = `${defaultEntry.provider}/${defaultEntry.modelId}`
       setMentorModel(defaultModel)
       setExecutorModel(defaultModel)
     }
@@ -36,11 +37,15 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    await createPair({ name, directory, spec, mentorModel, executorModel })
-    setName('')
-    setDirectory('')
-    setSpec('')
-    onClose()
+    try {
+      await createPair({ name, directory, spec, mentorModel, executorModel })
+      setName('')
+      setDirectory('')
+      setSpec('')
+      onClose()
+    } catch {
+      // Store already exposes the error copy
+    }
   }
 
   const handleSelectDirectory = async (): Promise<void> => {
@@ -92,27 +97,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           <label className="block text-sm font-medium text-foreground mb-2">
             <span className="text-blue-600 dark:text-blue-400">Mentor</span> Model
           </label>
-          <div className="relative">
-            <select
-              value={mentorModel}
-              onChange={(e) => setMentorModel(e.target.value)}
-              className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
-            >
-              {availableModels.length === 0 ? (
-                <option value="">Loading models...</option>
-              ) : (
-                availableModels.map((m: AvailableModel) => (
-                  <option key={`${m.provider}/${m.modelId}`} value={`${m.provider}/${m.modelId}`}>
-                    {m.displayName}
-                  </option>
-                ))
-              )}
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-            />
-          </div>
+          <ModelPicker
+            value={mentorModel}
+            models={availableModels}
+            onChange={setMentorModel}
+            role="mentor"
+          />
           <p className="text-xs text-muted-foreground mt-1.5">
             Read-only: analyzes, plans, reviews
           </p>
@@ -122,27 +112,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           <label className="block text-sm font-medium text-foreground mb-2">
             <span className="text-purple-600 dark:text-purple-400">Executor</span> Model
           </label>
-          <div className="relative">
-            <select
-              value={executorModel}
-              onChange={(e) => setExecutorModel(e.target.value)}
-              className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
-            >
-              {availableModels.length === 0 ? (
-                <option value="">Loading models...</option>
-              ) : (
-                availableModels.map((m: AvailableModel) => (
-                  <option key={`${m.provider}/${m.modelId}`} value={`${m.provider}/${m.modelId}`}>
-                    {m.displayName}
-                  </option>
-                ))
-              )}
-            </select>
-            <ChevronDown
-              size={14}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-            />
-          </div>
+          <ModelPicker
+            value={executorModel}
+            models={availableModels}
+            onChange={setExecutorModel}
+            role="executor"
+          />
           <p className="text-xs text-muted-foreground mt-1.5">
             Full access: writes code, runs commands
           </p>

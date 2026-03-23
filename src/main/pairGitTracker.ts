@@ -11,10 +11,11 @@ class PairGitTracker {
       }).trim()
       return {
         available: true,
-        rootPath: gitRoot
+        rootPath: gitRoot,
+        gitReviewAvailable: true
       }
     } catch {
-      return { available: false }
+      return { available: false, gitReviewAvailable: false }
     }
   }
 
@@ -37,9 +38,7 @@ class PairGitTracker {
       const currentFiles = this.parseStatusOutput(currentOutput, gitRoot)
 
       return currentFiles.filter((file) => {
-        const baselineFile = baselineFiles.find(
-          (bf) => bf.displayPath === file.displayPath
-        )
+        const baselineFile = baselineFiles.find((bf) => bf.displayPath === file.displayPath)
         return !baselineFile || baselineFile.status !== file.status
       })
     } catch {
@@ -75,9 +74,7 @@ class PairGitTracker {
       else if (statusCode === 'D') status = 'D'
       else if (statusCode.startsWith('R')) status = 'R'
 
-      const displayPath = path.isAbsolute(filePath)
-        ? path.relative(basePath, filePath)
-        : filePath
+      const displayPath = path.isAbsolute(filePath) ? path.relative(basePath, filePath) : filePath
 
       return {
         path: filePath,
