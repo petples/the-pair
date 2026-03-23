@@ -127,9 +127,13 @@ jobs:
             codesign --force --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$file"
           done
 
-          # Sign all executables and dylibs (including those without extensions)
+          # Sign all executables and dylibs (excluding Electron Framework)
           find "$APP_PATH/Contents" -type f \( -name "*.dylib" -o -perm +111 \) | while read -r file; do
-            # Skip if it's part of a .app or .framework (will be signed later)
+            # Skip Electron Framework entirely (already signed by Electron team)
+            if [[ "$file" == *"Electron Framework.framework"* ]]; then
+              continue
+            fi
+            # Skip if it's part of other .app or .framework (will be signed later)
             if [[ "$file" == *".app/"* ]] || [[ "$file" == *".framework/"* ]]; then
               if file "$file" 2>/dev/null | grep -q "Mach-O"; then
                 echo "Signing binary: $file"
@@ -192,11 +196,11 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$TEAM_ID" \
             --wait 2>&1)
-          
+
           echo "$SUBMISSION_OUTPUT"
           SUBMISSION_ID=$(echo "$SUBMISSION_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
           echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
-          
+
           if echo "$SUBMISSION_OUTPUT" | grep -q "status: Invalid"; then
             echo "❌ Notarization failed. Fetching log..."
             xcrun notarytool log "$SUBMISSION_ID" \
@@ -218,7 +222,7 @@ jobs:
             echo "Stapling attempt $i failed, waiting 30s..."
             sleep 30
           done
-          
+
           echo "❌ Stapling failed after 5 attempts"
           exit 1
 
