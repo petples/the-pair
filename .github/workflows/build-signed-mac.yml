@@ -134,7 +134,7 @@ jobs:
           find "$APP/Contents/Frameworks" -name "*.framework" -type d | while read -r fw; do
             find "$fw" -type f -perm -111 | while read -r exe; do
               echo "Signing framework executable: $exe"
-              codesign --force --sign "$IDENTITY" --timestamp "$exe"
+              codesign --force --sign "$IDENTITY" --timestamp --options runtime "$exe"
             done
           done
 
