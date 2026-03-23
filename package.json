@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
   "main": "./out/main/index.js",
   "author": {
@@ -53,6 +53,7 @@
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@electron/osx-sign": "^2.3.0",
     "@types/chokidar": "^1.7.5",
     "@types/node": "^22.19.1",
     "@types/pidusage": "^2.0.5",

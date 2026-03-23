@@ -104,14 +104,24 @@ jobs:
           echo "resolved_identity=$RESOLVED_IDENTITY" >> "$GITHUB_OUTPUT"
           echo "resolved_hash=$RESOLVED_HASH" >> "$GITHUB_OUTPUT"
 
-      - name: Build and sign app with electron-builder
+      - name: Build app (unsigned)
         env:
-          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_identity }}
-          CSC_KEYCHAIN: signing_temp.keychain
-          CSC_FOR_PULL_REQUEST: true
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run build:mac -- --dir
+
+      - name: Sign app with @electron/osx-sign
+        env:
+          IDENTITY: ${{ steps.signing_identity.outputs.resolved_identity }}
         run: |
-          security unlock-keychain -p "${{ secrets.MACOS_CERTIFICATE_PWD }}" signing_temp.keychain
-          npm run build:mac -- --dir
+          npx @electron/osx-sign "dist/mac-arm64/The Pair.app" \
+            --identity="$IDENTITY" \
+            --entitlements="build/entitlements.mac.plist" \
+            --entitlements-inherit="build/entitlements.mac.plist" \
+            --keychain="signing_temp.keychain" \
+            --hardened-runtime \
+            --timestamp
+          
+          codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/The Pair.app"
 
       - name: Inspect signed binaries
         run: |
