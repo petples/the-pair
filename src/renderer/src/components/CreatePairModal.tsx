@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
 import { ModelPicker } from './ModelPicker'
+import { FileMention } from './FileMention'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -18,6 +19,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [spec, setSpec] = useState('')
   const [mentorModel, setMentorModel] = useState('')
   const [executorModel, setExecutorModel] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (isOpen && availableModels.length === 0) {
@@ -29,9 +31,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
       const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
-      const defaultModel = defaultEntry.provider === 'opencode' 
-        ? defaultEntry.modelId 
-        : `${defaultEntry.provider}/${defaultEntry.modelId}`
+      const defaultModel =
+        defaultEntry.provider === 'opencode'
+          ? defaultEntry.modelId
+          : `${defaultEntry.provider}/${defaultEntry.modelId}`
       setMentorModel(defaultModel)
       setExecutorModel(defaultModel)
     }
@@ -125,18 +128,25 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </p>
         </div>
 
-        <div>
+        <div className="relative">
           <label className="block text-sm font-medium text-foreground mb-2">
             Task Specification
           </label>
           <textarea
+            ref={textareaRef}
             value={spec}
             onChange={(e) => setSpec(e.target.value)}
-            placeholder="Describe what you want the pair to accomplish..."
+            placeholder="Describe what you want the pair to accomplish... Use @filename to reference files."
             rows={4}
             className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
             required
           />
+          {directory && (
+            <FileMention textareaRef={textareaRef} onChange={setSpec} directory={directory} />
+          )}
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            Type @ to reference workspace files
+          </p>
         </div>
 
         {error && (

@@ -110,9 +110,20 @@ interface ConfigAPI {
   getVersion: () => Promise<string>
 }
 
+export interface FileEntry {
+  path: string
+  type: 'file' | 'directory'
+}
+
+interface FileAPI {
+  listFiles: (options: { pairId?: string; directory?: string }) => Promise<FileEntry[]>
+  parseMentions: (pairId: string, spec: string) => Promise<string>
+}
+
 interface API {
   pair: PairAPI
   config: ConfigAPI
+  file: FileAPI
 }
 
 declare global {

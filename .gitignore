@@ -6,3 +6,4 @@ out
 *.log*
 .pair
 .vscode
+docs/superpowers

@@ -121,6 +121,10 @@ class PairManager {
     return this.pairs.get(pairId)
   }
 
+  getPairDirectory(pairId: string): string | undefined {
+    return this.pairs.get(pairId)?.directory
+  }
+
   getAllPairs(): PairProcess[] {
     return Array.from(this.pairs.values()).map((pair) => {
       const { directory, ...proc } = pair

@@ -12,6 +12,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { messageBroker } from './messageBroker'
 import { pairManager } from './pairManager'
+import { fileCacheService } from './services/fileCache'
 import type { AssignTaskInput, CreatePairInput, UpdatePairModelsInput } from './types'
 
 app.setName('The Pair')
@@ -118,6 +119,33 @@ app.whenReady().then(() => {
 
   ipcMain.handle('pair:getState', async (_event, pairId: string) => {
     return messageBroker.getState(pairId)
+  })
+
+  ipcMain.handle(
+    'file:listFiles',
+    async (_event, options: { pairId?: string; directory?: string }) => {
+      let directory: string | undefined
+
+      if (options.pairId) {
+        directory = pairManager.getPairDirectory(options.pairId)
+      } else if (options.directory) {
+        directory = options.directory
+      }
+
+      if (!directory) {
+        return []
+      }
+
+      return fileCacheService.buildCache(directory)
+    }
+  )
+
+  ipcMain.handle('file:parseMentions', async (_event, pairId: string, spec: string) => {
+    const directory = pairManager.getPairDirectory(pairId)
+    if (!directory) {
+      return spec
+    }
+    return fileCacheService.parseMentions(directory, spec)
   })
 
   ipcMain.handle('config:getModels', async () => {

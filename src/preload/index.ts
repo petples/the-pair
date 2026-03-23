@@ -71,6 +71,11 @@ interface Message {
   iteration: number
 }
 
+interface FileEntry {
+  path: string
+  type: 'file' | 'directory'
+}
+
 const api = {
   pair: {
     create: (input: CreatePairInput): Promise<PairProcess> =>
@@ -109,6 +114,12 @@ const api = {
     read: (): Promise<unknown> => ipcRenderer.invoke('config:read'),
     openFile: (): Promise<string> => ipcRenderer.invoke('config:openFile'),
     getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion')
+  },
+  file: {
+    listFiles: (options: { pairId?: string; directory?: string }): Promise<FileEntry[]> =>
+      ipcRenderer.invoke('file:listFiles', options),
+    parseMentions: (pairId: string, spec: string): Promise<string> =>
+      ipcRenderer.invoke('file:parseMentions', pairId, spec)
   }
 }
 

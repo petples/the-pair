@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef } from 'react'
 import { ArrowUpRight, Sparkles } from 'lucide-react'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
+import { FileMention } from './FileMention'
 
 interface AssignTaskModalProps {
   pair: Pair | null
@@ -13,6 +14,7 @@ interface AssignTaskModalProps {
 export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps): React.ReactNode {
   const { assignTask, isLoading, error } = usePairStore()
   const [spec, setSpec] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const effectiveMentorModel = useMemo(
     () => pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
@@ -100,20 +102,28 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
         )}
 
-        <div>
+        <div className="relative">
           <label className="mb-2 block text-sm font-medium text-foreground">
             Task Specification
           </label>
           <textarea
+            ref={textareaRef}
             value={spec}
             onChange={(e) => setSpec(e.target.value)}
-            placeholder="Describe the next task for this pair. Mention expected outcome, constraints, and how you want them to verify the work."
+            placeholder="Describe the next task for this pair. Mention expected outcome, constraints, and how you want them to verify the work. Use @filename to reference files."
             rows={6}
             className="glass-card w-full resize-none rounded-2xl px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             required
           />
+          <FileMention
+            textareaRef={textareaRef}
+            onChange={setSpec}
+            directory={pair.directory}
+            pairId={pair.id}
+          />
           <p className="mt-1.5 text-xs text-muted-foreground">
-            {spec.length} characters · the next run starts with a fresh planning loop
+            {spec.length} characters · the next run starts with a fresh planning loop · Type @ to
+            reference files
           </p>
         </div>
 
