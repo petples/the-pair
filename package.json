@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
   "main": "./out/main/index.js",
   "author": {
