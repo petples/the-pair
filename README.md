@@ -1,6 +1,6 @@
 <div align="center">
   <h1>The Pair</h1>
-  <p>A desktop orchestrator for dual AI agents that collaboratively solve coding tasks</p>
+  <p>Automated pair programming — grab a coffee while two AI agents cross-check each other's work</p>
   
   [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
   [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
@@ -39,13 +39,20 @@
 
 ## 🎯 What is The Pair?
 
-**The Pair** is a desktop application that orchestrates dual AI agents working together on coding tasks. It runs two specialized agents in an automated collaboration loop:
+**Worried about AI code hallucinations? You're not alone.**
 
-- **Mentor Agent** — Analyzes tasks, breaks down requirements, reviews code, and provides strategic guidance (read-only)
-- **Executor Agent** — Writes code, runs commands, modifies files, and implements the Mentor's instructions
+The Pair solves this by running **two AI agents that cross-check each other**:
 
-Unlike traditional IDEs or single-agent tools, The Pair provides:
+- **Mentor Agent** — Plans, reviews, and validates (read-only)
+- **Executor Agent** — Writes code and runs commands
 
+While they work, **go grab a coffee**. Come back to reviewed, cross-validated code.
+
+Unlike single-agent tools where one model's mistakes go unchecked, The Pair's dual-agent architecture means the Executor writes code while the Mentor catches issues before they land. You get higher-quality output with less supervision.
+
+### Key Benefits
+
+- **Dual-Model Cross-Validation** — Two models check each other's work, dramatically reducing code hallucinations
 - **Automated collaboration** — Agents work together without constant human intervention
 - **Real-time monitoring** — Watch CPU/memory usage per agent with live activity tracking
 - **Git integration** — Automatic tracking of all file changes made during a session
@@ -59,6 +66,18 @@ Unlike traditional IDEs or single-agent tools, The Pair provides:
 - 🐛 **Bug fixing** — Agents collaborate to diagnose and resolve issues
 - 📚 **Learning tool** — Observe how AI agents break down and solve problems
 - 🔧 **Task automation** — Repetitive coding tasks handled by the agent pair
+
+---
+
+## 🤔 Why Two Agents?
+
+**Single AI agents have a trust problem.**
+
+When one model writes code, who checks it? You do. Every line.
+
+The Pair flips this: one agent writes, another reviews. They catch each other's mistakes so you don't have to.
+
+**The result?** Less time debugging AI-generated code. More time shipping.
 
 ---
 
