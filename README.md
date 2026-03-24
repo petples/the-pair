@@ -23,6 +23,8 @@ _Watch Mentor and Executor agents collaborate in real-time_
 
 </div>
 
+<img width="1536" height="1024" alt="intro-2" src="https://github.com/user-attachments/assets/6c752f20-6841-49cc-ba1e-d2b7b5103add" />
+
 ---
 
 ## Overview
