@@ -29,14 +29,14 @@ cask "the-pair" do
 
   app "The Pair.app"
 
-  uninstall quit: "com.electron.the-pair"
+  uninstall quit: "com.thepair.app"
 
   zap trash: [
     "~/.config/the-pair",
     "~/Library/Application Support/the-pair",
-    "~/Library/Caches/com.electron.the-pair",
+    "~/Library/Caches/com.thepair.app",
     "~/Library/Logs/the-pair",
-    "~/Library/Preferences/com.electron.the-pair.plist",
-    "~/Library/Saved Application State/com.electron.the-pair.savedState",
+    "~/Library/Preferences/com.thepair.app.plist",
+    "~/Library/Saved Application State/com.thepair.app.savedState",
   ]
 end

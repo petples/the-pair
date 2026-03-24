@@ -27,3 +27,5 @@ uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
 sysinfo = "0.33"
 git2 = "0.19"
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-fs = "2.4.5"

@@ -59,7 +59,7 @@ Configure these in `Settings → Secrets and variables → Actions`:
 
 | Secret                         | What it is                                                             | How to get it                                                                                                                       |
 | ------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `MACOS_SIGNING_IDENTITY`       | Exact signing identity string used by `electron-builder` as `CSC_NAME` | Run `security find-identity -v -p codesigning` after installing the certificate, then copy the `Developer ID Application: ...` line |
+| `MACOS_SIGNING_IDENTITY`       | Exact signing identity string used by Tauri as `APPLE_SIGNING_IDENTITY` | Run `security find-identity -v -p codesigning` after installing the certificate, then copy the `Developer ID Application: ...` line |
 | `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded `.p12` export of your Developer ID Application cert     | `base64 -i /path/to/developer-id.p12 \| pbcopy` on macOS                                                                            |
 | `MACOS_CERTIFICATE_PASSWORD`   | Password you chose when exporting the `.p12`                           | You set this during export                                                                                                          |
 | `APPLE_ID`                     | Apple Account email used for notarization                              | Your Apple Developer account email                                                                                                  |

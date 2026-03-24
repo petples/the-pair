@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { open } from '@tauri-apps/plugin-dialog'
 import { FolderOpen } from 'lucide-react'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
@@ -54,9 +55,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   }
 
   const handleSelectDirectory = async (): Promise<void> => {
-    const result = await window.electron.ipcRenderer.invoke('dialog:openDirectory')
-    if (result && !result.canceled && result.filePaths.length > 0) {
-      setDirectory(result.filePaths[0])
+    const selected = await open({
+      directory: true,
+      multiple: false,
+    })
+    if (selected) {
+      setDirectory(selected)
     }
   }
 

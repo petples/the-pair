@@ -1,3 +1,4 @@
+import './tauri-shim'
 import './assets/main.css'
 
 import { StrictMode } from 'react'

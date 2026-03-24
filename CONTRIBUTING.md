@@ -429,7 +429,7 @@ including notarization requirements.
 
 ## Additional Resources
 
-- [Electron Documentation](https://www.electronjs.org/docs)
+- [Tauri Documentation](https://tauri.app/v2/guides/)
 - [React Documentation](https://react.dev/)
 - [TypeScript Handbook](https://www.typescriptlang.org/docs/)
 - [Tailwind CSS Documentation](https://tailwindcss.com/docs)

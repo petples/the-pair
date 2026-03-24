@@ -66,6 +66,16 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
       - name: Install dependencies
         run: npm ci
 
@@ -75,170 +85,27 @@ jobs:
       - name: Run type checking
         run: npm run typecheck
 
-      - name: Import Code Signing Certificate
-        uses: apple-actions/import-codesign-certs@v3
-        with:
-          p12-file-base64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          p12-password: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-
-      - name: Verify signing identity
-        id: signing_identity
+      # Tauri handles importing the cert, signing, and notarizing completely natively
+      - name: Build, sign, and notarize Tauri app
         env:
-          EXPECTED_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
-        run: |
-          security find-identity -v -p codesigning | tee identities.txt
-          RESOLVED_IDENTITY=$(awk -F '"' '/Developer ID Application/ {print $2; exit}' identities.txt)
-          RESOLVED_HASH=$(awk '/Developer ID Application/ {print $2; exit}' identities.txt)
-          if [ -z "$RESOLVED_IDENTITY" ]; then
-            echo "No Developer ID Application identity was imported."
-            exit 1
-          fi
-          if [ -z "$RESOLVED_HASH" ]; then
-            echo "No Developer ID Application identity hash was detected."
-            exit 1
-          fi
-          if ! grep -F -- "$EXPECTED_IDENTITY" identities.txt >/dev/null; then
-            echo "Expected signing identity was not imported into the runner keychain."
-            exit 1
-          fi
-          echo "resolved_identity=$RESOLVED_IDENTITY" >> "$GITHUB_OUTPUT"
-          echo "resolved_hash=$RESOLVED_HASH" >> "$GITHUB_OUTPUT"
-
-      - name: Build and sign app
-        env:
-          CSC_NAME: ${{ steps.signing_identity.outputs.resolved_hash }}
-        run: |
-          security list-keychains
-          security unlock-keychain
-          npm run build:mac -- --dir
-
-      - name: Sign all binaries recursively
-        env:
-          IDENTITY: ${{ steps.signing_identity.outputs.resolved_hash }}
-        run: |
-          APP="dist/mac-arm64/The Pair.app"
-
-          echo "=== Signing all .node files ==="
-          find "$APP" -name "*.node" -type f | while read -r f; do
-            echo "Signing: $f"
-            codesign --force --sign "$IDENTITY" --timestamp "$f"
-          done
-
-          echo "=== Signing all .dylib files ==="
-          find "$APP" -name "*.dylib" -type f | while read -r f; do
-            echo "Signing: $f"
-            codesign --force --sign "$IDENTITY" --timestamp "$f"
-          done
-
-          echo "=== Signing executables inside frameworks (ShipIt, etc) ==="
-          find "$APP/Contents/Frameworks" -name "*.framework" -type d | while read -r fw; do
-            find "$fw" -type f -perm -111 | while read -r exe; do
-              echo "Signing framework executable: $exe"
-              codesign --force --sign "$IDENTITY" --timestamp --options runtime "$exe"
-            done
-          done
-
-          echo "=== Signing all frameworks ==="
-          find "$APP/Contents/Frameworks" -name "*.framework" -type d | while read -r fw; do
-            echo "Signing framework: $fw"
-            codesign --force --sign "$IDENTITY" --timestamp --options runtime "$fw"
-          done
-
-          echo "=== Signing main app ==="
-          codesign --force --deep --sign "$IDENTITY" --timestamp --options runtime "$APP"
-
-      - name: Verify app signature
-        run: |
-          codesign --verify --deep --strict --verbose=2 "dist/mac-arm64/The Pair.app"
-
-      - name: Inspect signed binaries
-        run: |
-          APP_PATH="dist/mac-arm64/The Pair.app"
-          echo "=== Main app ==="
-          codesign -dv --verbose=4 "$APP_PATH" 2>&1 | head -20
-          echo ""
-          echo "=== Checking all Frameworks binaries ==="
-          find "$APP_PATH/Contents/Frameworks" -type f \( -perm -111 -o -name "*.dylib" -o -name "*.node" \) | while read -r file; do
-            echo "--- $file ---"
-            codesign -dv --verbose=4 "$file" 2>&1 | head -5
-          done
-
-      - name: Create and sign DMG
-        env:
-          CODESIGN_IDENTITY: ${{ steps.signing_identity.outputs.resolved_hash }}
-        run: |
-          APP_PATH="dist/mac-arm64/The Pair.app"
-          STAGING_DIR=$(mktemp -d)
-          cp -R "$APP_PATH" "$STAGING_DIR/The Pair.app"
-          ln -s /Applications "$STAGING_DIR/Applications"
-
-          hdiutil create \
-            -volname "The Pair" \
-            -srcfolder "$STAGING_DIR" \
-            -ov \
-            -format UDZO \
-            "dist/the-pair-${VERSION}.dmg"
-
-          codesign --force --sign "$CODESIGN_IDENTITY" "dist/the-pair-${VERSION}.dmg"
-
-      - name: Notarize DMG
-        id: notarize
-        env:
+          APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build -- --target universal-apple-darwin
+
+      - name: Package artifacts for release
         run: |
-          SUBMISSION_OUTPUT=$(xcrun notarytool submit "dist/the-pair-${VERSION}.dmg" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$TEAM_ID" \
-            --wait 2>&1)
-
-          echo "$SUBMISSION_OUTPUT"
-          SUBMISSION_ID=$(echo "$SUBMISSION_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
-          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
-
-          if echo "$SUBMISSION_OUTPUT" | grep -q "status: Invalid"; then
-            echo "❌ Notarization failed. Fetching log..."
-            xcrun notarytool log "$SUBMISSION_ID" \
-              --apple-id "$APPLE_ID" \
-              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$TEAM_ID"
-            exit 1
-          fi
-
-      - name: Staple notarization ticket to DMG
-        run: |
-          echo "Waiting for notarization ticket to be available..."
-          for i in {1..5}; do
-            if xcrun stapler staple "dist/the-pair-${VERSION}.dmg" 2>&1; then
-              echo "✅ Stapling succeeded"
-              xcrun stapler validate "dist/the-pair-${VERSION}.dmg"
-              exit 0
-            fi
-            echo "Stapling attempt $i failed, waiting 30s..."
-            sleep 30
-          done
-
-          echo "❌ Stapling failed after 5 attempts"
-          exit 1
-
-      - name: Create ZIP for distribution
-        run: |
-          APP_PATH="dist/mac-arm64/The Pair.app"
+          mkdir -p dist
+          
+          # Move DMG to expected location for the Homebrew script
+          mv "src-tauri/target/universal-apple-darwin/release/bundle/dmg/The Pair_${VERSION}_universal.dmg" "dist/the-pair-${VERSION}.dmg"
+          
+          # Create ZIP of the raw .app
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/The Pair.app"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
-
-      - name: Verify signature
-        run: |
-          APP_PATH=$(find dist -maxdepth 3 -name "The Pair.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "The Pair.app not found in dist"
-            exit 1
-          fi
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          echo "=== Verifying DMG ==="
-          codesign --verify --verbose=2 "dist/the-pair-${VERSION}.dmg"
 
       - name: Create or update GitHub release
         env:
@@ -277,15 +144,15 @@ jobs:
 
             app "The Pair.app"
 
-            uninstall quit: "com.electron.the-pair"
+            uninstall quit: "com.thepair.app"
 
             zap trash: [
               "~/.config/the-pair",
               "~/Library/Application Support/the-pair",
-              "~/Library/Caches/com.electron.the-pair",
+              "~/Library/Caches/com.thepair.app",
               "~/Library/Logs/the-pair",
-              "~/Library/Preferences/com.electron.the-pair.plist",
-              "~/Library/Saved Application State/com.electron.the-pair.savedState",
+              "~/Library/Preferences/com.thepair.app.plist",
+              "~/Library/Saved Application State/com.thepair.app.savedState",
             ]
           end
           EOF

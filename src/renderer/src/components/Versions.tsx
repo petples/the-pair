@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { getVersion } from '@tauri-apps/api/app'
 
 function Versions(): React.JSX.Element {
-  const [versions] = useState(window.electron.process.versions)
+  const [version, setVersion] = useState<string>('...')
+
+  useEffect(() => {
+    getVersion().then(setVersion)
+  }, [])
 
   return (
     <ul className="versions">
-      <li className="electron-version">Electron v{versions.electron}</li>
-      <li className="chrome-version">Chromium v{versions.chrome}</li>
-      <li className="node-version">Node v{versions.node}</li>
+      <li className="app-version">The Pair v{version}</li>
+      <li className="framework-version">Tauri v2.0</li>
     </ul>
   )
 }

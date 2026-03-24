@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { open } from '@tauri-apps/plugin-dialog'
 import {
   CheckCircle2,
   ChevronRight,
@@ -115,10 +116,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   }
 
   const handleSelectDirectory = async (): Promise<void> => {
-    const result = await window.electron.ipcRenderer.invoke('dialog:openDirectory')
-    if (result && !result.canceled && result.filePaths.length > 0) {
-      setDirectory(result.filePaths[0])
-      setCurrentStep(currentStep + 1)
+    console.log('[OnboardingWizard] Choosing directory...');
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+      })
+      console.log('[OnboardingWizard] Result:', selected);
+      if (selected) {
+        setDirectory(selected)
+        setCurrentStep(currentStep + 1)
+      }
+    } catch (err) {
+      console.error('[OnboardingWizard] Error choosing directory:', err);
     }
   }
 

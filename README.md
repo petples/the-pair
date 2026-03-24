@@ -11,7 +11,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
 [![Build Status](https://github.com/timwuhaotian/the-pair/actions/workflows/build.yml/badge.svg)](https://github.com/timwuhaotian/the-pair/actions)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Electron](https://img.shields.io/badge/Electron-39-47848f.svg?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Tauri](https://img.shields.io/badge/Tauri-2.0-24c8db.svg?logo=tauri&logoColor=white)](https://tauri.app/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg?logo=react&logoColor=black)](https://react.dev/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -177,13 +177,13 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 
 | Layer               | Technology            |
 | ------------------- | --------------------- |
-| **Framework**       | Electron 39           |
+| **Framework**       | Tauri 2.0             |
+| **Backend**         | Rust                  |
 | **Frontend**        | React 19 + TypeScript |
 | **Styling**         | Tailwind CSS v4       |
 | **State**           | Zustand               |
 | **Animations**      | Framer Motion         |
 | **Icons**           | Lucide React          |
-| **Process Monitor** | pidusage              |
 
 ### System Architecture
 
@@ -191,14 +191,13 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 ┌─────────────────────────────────────────────────────────┐
 │                    The Pair App                         │
 ├─────────────────────────────────────────────────────────┤
-│  Renderer Process (React UI)                            │
+│  Frontend (React UI)                                    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │  Dashboard   │ Pair Detail  │    Settings      │    │
 │  └──────────────┴──────────────┴──────────────────┘    │
-│                          ↕ IPC                          │
-│  Preload Script (contextBridge API)                    │
+│                          ↕ Tauri IPC                    │
 ├─────────────────────────────────────────────────────────┤
-│  Main Process (Node.js)                                 │
+│  Backend (Rust)                                         │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ PairManager  │MessageBroker │ ProcessSpawner  │    │
 │  │ (Lifecycle)  │ (State Machine)│ (opencode)     │    │
@@ -252,19 +251,19 @@ npm run dev
 ```
 the-pair/
 ├── src/
-│   ├── main/              # Electron main process
-│   │   ├── index.ts       # Entry point
-│   │   ├── pairManager.ts # Pair lifecycle management
-│   │   ├── messageBroker.ts # State machine & IPC
-│   │   └── ...
-│   ├── preload/           # Context bridge
 │   └── renderer/          # React frontend
 │       └── src/
 │           ├── App.tsx
 │           ├── components/
 │           └── store/
+├── src-tauri/             # Rust backend
+│   ├── src/
+│   │   ├── lib.rs
+│   │   ├── pair_manager.rs
+│   │   ├── message_broker.rs
+│   │   └── ...
+│   └── Cargo.toml
 ├── build/                 # Build resources
-├── resources/             # App icons
 └── package.json
 ```
 
@@ -279,20 +278,6 @@ the-pair/
 | `npm run build:mac`   | Build for macOS                     |
 | `npm run build:win`   | Build for Windows                   |
 | `npm run build:linux` | Build for Linux                     |
-
----
-
-## Building
-
-```bash
-npm run build            # Build for current platform
-npm run build:mac        # macOS only
-npm run build:win        # Windows only
-npm run build:linux      # Linux only
-```
-
-> [!NOTE]
-> For code signing and notarization setup, see [docs/code-signing.md](docs/code-signing.md).
 
 ---
 
