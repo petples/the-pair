@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use crate::provider_registry::{ProviderRegistry, DetectedProviderProfile, OpenCodeConfig};
@@ -45,9 +44,6 @@ pub fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
 }
 
 #[tauri::command]
-pub fn pair_assign_task() -> Result<(), String> { Ok(()) }
-
-#[tauri::command]
 pub fn pair_update_models() -> Result<(), String> { Ok(()) }
 
 #[tauri::command]
@@ -56,8 +52,17 @@ pub fn pair_retry_turn() -> Result<(), String> { Ok(()) }
 #[tauri::command]
 pub fn pair_get_messages() -> Result<Vec<()>, String> { Ok(vec![]) }
 
+use crate::message_broker::MessageBroker;
+use crate::types::PairState;
+
 #[tauri::command]
-pub fn pair_get_state() -> Result<(), String> { Ok(()) }
+pub fn pair_get_state(
+    broker: tauri::State<std::sync::Mutex<MessageBroker>>,
+    pair_id: String,
+) -> Result<Option<PairState>, String> {
+    let broker = broker.lock().unwrap();
+    Ok(broker.get_state(&pair_id))
+}
 
 #[tauri::command]
 pub fn pair_human_feedback() -> Result<(), String> { Ok(()) }

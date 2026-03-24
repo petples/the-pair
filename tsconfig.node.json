@@ -1,8 +1,20 @@
 {
-  "extends": "@vitejs/plugin-react/tsconfig-node",
-  "include": ["vite.config.ts", "src-tauri/src/**/*"],
   "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
     "composite": true,
     "types": ["node"]
-  }
+  },
+  "include": ["vite.config.ts", "src-tauri/src/**/*"]
 }

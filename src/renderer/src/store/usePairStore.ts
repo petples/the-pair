@@ -264,9 +264,11 @@ export const usePairStore = create<PairStore>((set) => ({
   },
 
   createPair: async (input) => {
+    console.log('[usePairStore] createPair called', input)
     set({ isLoading: true, error: null })
 
     try {
+      console.log('[usePairStore] Calling window.api.pair.create...')
       const pairProcess = await window.api.pair.create({
         name: input.name,
         directory: input.directory,
@@ -274,6 +276,7 @@ export const usePairStore = create<PairStore>((set) => ({
         mentor: { role: 'mentor', model: input.mentorModel },
         executor: { role: 'executor', model: input.executorModel }
       })
+      console.log('[usePairStore] Pair created:', pairProcess)
 
       const now = Date.now()
       const newPair: Pair = {
@@ -319,10 +322,13 @@ export const usePairStore = create<PairStore>((set) => ({
   },
 
   assignTask: async (pairId, spec) => {
+    console.log('[usePairStore] assignTask called', { pairId, spec })
     set({ isLoading: true, error: null })
 
     try {
+      console.log('[usePairStore] Calling window.api.pair.assignTask...')
       const result = await window.api.pair.assignTask(pairId, { spec })
+      console.log('[usePairStore] assignTask result:', result)
 
       set((state) => ({
         isLoading: false,
@@ -331,6 +337,7 @@ export const usePairStore = create<PairStore>((set) => ({
         )
       }))
     } catch (error) {
+      console.error('[usePairStore] assignTask error:', error)
       const message = error instanceof Error ? error.message : 'Failed to assign task'
       set({
         isLoading: false,

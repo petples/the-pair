@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PairStatus {
     Idle,
@@ -14,14 +13,14 @@ pub enum PairStatus {
     Finished,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentRole {
     Mentor,
     Executor,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageType {
     Plan,
@@ -127,11 +126,49 @@ pub struct AssignTaskInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct UpdatePairModelsInput {
     #[serde(rename = "mentorModel")]
     pub mentor_model: String,
     #[serde(rename = "executorModel")]
     pub executor_model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentState {
+    pub status: PairStatus,
+    pub turn: AgentRole,
+    #[serde(rename = "lastMessage")]
+    pub last_message: Option<Message>,
+    pub activity: AgentActivity,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PairState {
+    #[serde(rename = "pairId")]
+    pub pair_id: String,
+    pub directory: String,
+    pub status: PairStatus,
+    pub iteration: u32,
+    #[serde(rename = "maxIterations")]
+    pub max_iterations: u32,
+    pub turn: AgentRole,
+    pub mentor: AgentState,
+    pub executor: AgentState,
+    pub messages: Vec<Message>,
+    #[serde(rename = "mentorActivity")]
+    pub mentor_activity: AgentActivity,
+    #[serde(rename = "executorActivity")]
+    pub executor_activity: AgentActivity,
+    pub resources: PairResources,
+    #[serde(rename = "modifiedFiles")]
+    pub modified_files: Vec<ModifiedFile>,
+    #[serde(rename = "gitTracking")]
+    pub git_tracking: GitTracking,
+    #[serde(rename = "automationMode")]
+    pub automation_mode: String,
+    #[serde(rename = "gitReviewAvailable")]
+    pub git_review_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

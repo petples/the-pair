@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::path::PathBuf;
 use std::fs;
+use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -113,6 +114,31 @@ fn safe_read_json(path: PathBuf) -> Option<serde_json::Value> {
     fs::read_to_string(path)
         .ok()
         .and_then(|content| serde_json::from_str(&content).ok())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OpenCodeConfig {
+    pub provider: Option<HashMap<String, ProviderConfig>>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProviderConfig {
+    pub options: Option<ProviderOptions>,
+    pub models: Option<HashMap<String, ModelConfig>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProviderOptions {
+    #[serde(rename = "apiKey")]
+    pub api_key: Option<String>,
+    #[serde(rename = "baseURL")]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelConfig {
+    pub name: Option<String>,
 }
 
 pub struct ProviderRegistry;

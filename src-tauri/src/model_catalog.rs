@@ -1,4 +1,4 @@
-use crate::provider_registry::{DetectedProviderProfile, ProviderKind, ProviderRegistry};
+use crate::provider_registry::{DetectedProviderProfile, ProviderKind};
 use serde::Serialize;
 
 #[derive(Serialize)]

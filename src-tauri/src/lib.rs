@@ -9,7 +9,10 @@ mod provider_registry;
 mod model_catalog;
 
 use pair_manager::PairManager;
+use message_broker::MessageBroker;
+use process_spawner::ProcessSpawner;
 use std::sync::Mutex;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -17,23 +20,19 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        /*
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-        */
-      }
+      let broker = app.state::<Mutex<MessageBroker>>();
+      let mut broker = broker.lock().unwrap();
+      broker.set_app_handle(app.handle().clone());
       Ok(())
     })
     .manage(Mutex::new(PairManager::new()))
+    .manage(Mutex::new(MessageBroker::new()))
+    .manage(ProcessSpawner::new())
     .invoke_handler(tauri::generate_handler![
       pair_manager::pair_create,
       pair_manager::pair_list,
       pair_manager::pair_delete,
-      stubs::pair_assign_task,
+      pair_manager::pair_assign_task,
       stubs::pair_update_models,
       stubs::pair_retry_turn,
       stubs::pair_get_messages,

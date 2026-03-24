@@ -8,11 +8,8 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "dialog:allow-open",
     "fs:default",
-    "fs:allow-read-recursive",
-    "fs:allow-write-recursive",
-    "fs:allow-exists",
-    "fs:allow-stat"
+    "fs:read-all",
+    "fs:write-all"
   ]
 }
