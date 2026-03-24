@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-03-25
+
+### Changed
+
+- Added a concrete release checklist for the GitHub Actions and Homebrew publish flow
+- Updated package metadata and release hygiene for public-source distribution
+- Wired the default test command to run both JavaScript and Rust unit tests
+
+### Fixed
+
+- Added real unit coverage for renderer helpers and Rust core modules
+- Improved process output collapsing so repeated final snapshots are deduplicated
+
 ## [1.0.1] - 2025-03-23
 
 ### Changed
@@ -38,4 +51,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure handling of API keys via opencode configuration
 
 [1.0.1]: https://github.com/timwuhaotian/the-pair/compare/v1.0.0...v1.0.1
+[1.1.4]: https://github.com/timwuhaotian/the-pair/compare/v1.0.1...v1.1.4
 [1.0.0]: https://github.com/timwuhaotian/the-pair/releases/tag/v1.0.0
