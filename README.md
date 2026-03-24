@@ -70,16 +70,10 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/multi-pairs-dark.png">
+    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sc1.png">
     <img src="./docs/assets/multi-pairs-light.png" alt="Dashboard View" width="600"/>
   </picture>
   <p><em>Dashboard showing active pairs with real-time resource monitoring</em></p>
-
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/processing-dark.png">
-    <img src="./docs/assets/processing-light.png" alt="Pair Detail View" width="600"/>
-  </picture>
-  <p><em>Pair detail view with live agent activity and Git change tracking</em></p>
 </div>
 
 ---
