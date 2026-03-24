@@ -787,3 +787,158 @@ pub async fn restore_session(
 
     Ok(snapshot)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn activity(label: &str) -> AgentActivity {
+        AgentActivity {
+            phase: crate::types::ActivityPhase::Idle,
+            label: label.to_string(),
+            detail: None,
+            started_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    fn message(
+        id: &str,
+        from: MessageSender,
+        msg_type: MessageType,
+        content: &str,
+        iteration: u32,
+    ) -> Message {
+        Message {
+            id: id.to_string(),
+            timestamp: 0,
+            from,
+            to: "human".to_string(),
+            msg_type,
+            content: content.to_string(),
+            iteration,
+        }
+    }
+
+    fn snapshot(turn: AgentRole, status: PairStatus, messages: Vec<Message>) -> SessionSnapshotRecord {
+        SessionSnapshotRecord {
+            snapshot_version: SNAPSHOT_VERSION,
+            saved_at: 10,
+            pair_id: "pair-1".to_string(),
+            name: "Demo".to_string(),
+            directory: "/tmp/project".to_string(),
+            spec: "Fallback task spec".to_string(),
+            status,
+            iterations: 2,
+            max_iterations: 3,
+            turn: turn.clone(),
+            mentor_model: "mentor-model".to_string(),
+            executor_model: "executor-model".to_string(),
+            pending_mentor_model: None,
+            pending_executor_model: None,
+            messages,
+            mentor_activity: activity("Mentor reviewing"),
+            executor_activity: activity("Executor working"),
+            mentor_cpu: 1.0,
+            mentor_mem_mb: 2.0,
+            executor_cpu: 3.0,
+            executor_mem_mb: 4.0,
+            cpu_usage: 4.0,
+            mem_usage: 6.0,
+            modified_files: vec![],
+            git_tracking: GitTracking {
+                available: true,
+                root_path: Some("/tmp/project".to_string()),
+                baseline: Some("abc123".to_string()),
+                git_review_available: Some(true),
+            },
+            automation_mode: "full-auto".to_string(),
+            current_turn_card: Some(SnapshotTurnCard {
+                id: "turn-1".to_string(),
+                role: turn.clone(),
+                state: "live".to_string(),
+                content: "Turn content".to_string(),
+                activity: activity("Turn activity"),
+                started_at: 0,
+                updated_at: 0,
+            }),
+            run_count: 1,
+            run_history: vec![],
+            current_run_started_at: 11,
+            current_run_finished_at: None,
+            created_at: 9,
+            provider_sessions: SnapshotProcessContext {
+                mentor_session_id: Some("ses_mentor".to_string()),
+                executor_session_id: None,
+            },
+        }
+    }
+
+    #[test]
+    fn build_resume_prompt_uses_last_mentor_plan_for_executor_turns() {
+        let snapshot = snapshot(
+            AgentRole::Executor,
+            PairStatus::Executing,
+            vec![
+                message(
+                    "msg-1",
+                    MessageSender::Mentor,
+                    MessageType::Plan,
+                    "Implement the parser",
+                    1,
+                ),
+                message(
+                    "msg-2",
+                    MessageSender::Executor,
+                    MessageType::Progress,
+                    "Working through the steps",
+                    1,
+                ),
+            ],
+        );
+
+        let prompt = build_resume_prompt(&snapshot);
+        assert!(prompt.contains("Continue the previously restored session"));
+        assert!(prompt.contains("Implement the parser"));
+        assert!(!prompt.contains("Fallback task spec"));
+    }
+
+    #[test]
+    fn build_resume_prompt_uses_last_executor_result_for_reviewing_mentor_turns() {
+        let snapshot = snapshot(
+            AgentRole::Mentor,
+            PairStatus::Reviewing,
+            vec![
+                message(
+                    "msg-1",
+                    MessageSender::Executor,
+                    MessageType::Result,
+                    "The feature is ready",
+                    1,
+                ),
+                message(
+                    "msg-2",
+                    MessageSender::Mentor,
+                    MessageType::Progress,
+                    "Reviewing now",
+                    1,
+                ),
+            ],
+        );
+
+        let prompt = build_resume_prompt(&snapshot);
+        assert!(prompt.contains("Continue the restored review session"));
+        assert!(prompt.contains("The feature is ready"));
+    }
+
+    #[test]
+    fn to_summary_preserves_session_card_and_session_presence_flags() {
+        let snapshot = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        let summary = snapshot.to_summary();
+
+        assert_eq!(summary.pair_id, "pair-1");
+        assert_eq!(summary.current_turn_card.as_ref().map(|card| card.id.as_str()), Some("turn-1"));
+        assert!(summary.has_mentor_session);
+        assert!(!summary.has_executor_session);
+    }
+}

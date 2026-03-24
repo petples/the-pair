@@ -274,6 +274,7 @@ the-pair/
 | Command               | Description                         |
 | --------------------- | ----------------------------------- |
 | `npm run dev`         | Start hot-reload development server |
+| `npm test`            | Run JavaScript and Rust unit tests   |
 | `npm run typecheck`   | Check TypeScript types              |
 | `npm run lint`        | Run ESLint                          |
 | `npm run format`      | Format with Prettier                |

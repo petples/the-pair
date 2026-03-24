@@ -308,6 +308,7 @@ captureBaseline(gitRoot: string): string {
 ### Before Submitting
 
 - [ ] Code follows the [Coding Guidelines](#coding-guidelines)
+- [ ] Unit tests pass (`npm test`)
 - [ ] Type checking passes (`npm run typecheck`)
 - [ ] Linting passes (`npm run lint`)
 - [ ] All tests pass (if applicable)
@@ -351,7 +352,7 @@ Add screenshots of UI changes
 
 ### Review Process
 
-1. **Automated checks** — CI runs type checking, linting, and tests
+1. **Automated checks** — CI runs type checking, linting, and unit tests
 2. **Maintainer review** — A maintainer reviews the code
 3. **Address feedback** — Make requested changes
 4. **Approval** — Once approved, the PR is merged

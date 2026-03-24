@@ -10,7 +10,7 @@ interface SessionRecoveryModalProps {
   sessions: RecoverableSessionSummary[]
   isOpen: boolean
   isRestoring: boolean
-  onRestore: (pairId: string) => void | Promise<void>
+  onRestore: (pairId: string, continueRun: boolean) => void | Promise<void>
   onDismiss: () => void
 }
 
@@ -24,10 +24,11 @@ function SessionCard({
   isRestoring
 }: {
   session: RecoverableSessionSummary
-  onRestore: (pairId: string) => void | Promise<void>
+  onRestore: (pairId: string, continueRun: boolean) => void | Promise<void>
   isRestoring: boolean
 }): React.ReactNode {
   const isMentor = session.turn === 'mentor'
+  const canResume = session.status !== 'Finished'
 
   return (
     <div className="rounded-2xl border border-border/70 bg-background/60 p-4 shadow-sm">
@@ -81,7 +82,7 @@ function SessionCard({
         {session.currentTurnCard?.content || session.spec}
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3">
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
           <span className="rounded-full border border-border/60 bg-muted/30 px-2 py-1">
             Runs {session.runCount}
@@ -97,15 +98,25 @@ function SessionCard({
             </span>
           )}
         </div>
-        <GlassButton
-          variant="primary"
-          size="sm"
-          onClick={() => void onRestore(session.pairId)}
-          disabled={isRestoring}
-          icon={<RotateCcw size={13} />}
-        >
-          Continue
-        </GlassButton>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <GlassButton
+            variant="ghost"
+            size="sm"
+            onClick={() => void onRestore(session.pairId, false)}
+            disabled={isRestoring}
+          >
+            Restore history
+          </GlassButton>
+          <GlassButton
+            variant="primary"
+            size="sm"
+            onClick={() => void onRestore(session.pairId, true)}
+            disabled={isRestoring || !canResume}
+            icon={<RotateCcw size={13} />}
+          >
+            Resume execution
+          </GlassButton>
+        </div>
       </div>
     </div>
   )
@@ -129,8 +140,8 @@ export function SessionRecoveryModal({
     >
       <div className="space-y-4">
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The app found unfinished pairs from a previous run. Choose one to restore the local
-          context and continue from the saved provider session when possible.
+          The app found session records from a previous run. Restore history to inspect the saved
+          messages and state, or explicitly resume execution if you want the agents to keep going.
         </p>
 
         <div className="max-h-[62vh] space-y-3 overflow-y-auto pr-1 scrollbar-thin">

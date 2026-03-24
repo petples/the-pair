@@ -112,6 +112,10 @@ fn collapse_candidates(candidates: &[String]) -> Option<String> {
         return None;
     }
 
+    if candidates.windows(2).all(|window| window[0] == window[1]) {
+        return Some(candidates[0].clone());
+    }
+
     let joined = candidates.join("\n");
     let longest = candidates
         .iter()
@@ -544,5 +548,85 @@ impl ProcessSpawner {
         guard.insert(format!("{}-{}", pair_id, role), child);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_json_event_handles_raw_and_data_prefixed_payloads() {
+        assert_eq!(
+            parse_json_event(r#"{"type":"step_start"}"#)
+                .and_then(|event| event.get("type").and_then(|value| value.as_str()).map(|value| value.to_string())),
+            Some("step_start".to_string())
+        );
+
+        assert_eq!(
+            parse_json_event(r#"data: {"type":"step_start"}"#)
+                .and_then(|event| event.get("type").and_then(|value| value.as_str()).map(|value| value.to_string())),
+            Some("step_start".to_string())
+        );
+
+        assert!(parse_json_event("plain text").is_none());
+    }
+
+    #[test]
+    fn extract_session_id_prefers_top_level_fields_before_nested_payloads() {
+        let event = json!({
+            "sessionID": "ses_top_level",
+            "part": {
+                "sessionID": "ses_nested"
+            }
+        });
+
+        assert_eq!(extract_session_id(&event).as_deref(), Some("ses_top_level"));
+    }
+
+    #[test]
+    fn extract_event_texts_collects_nested_text_like_fields() {
+        let event = json!({
+            "text": "hello",
+            "part": {
+                "content": "world"
+            },
+            "parts": [
+                { "message": "again" }
+            ]
+        });
+
+        assert_eq!(
+            extract_event_texts(&event),
+            vec!["hello".to_string(), "world".to_string(), "again".to_string()]
+        );
+    }
+
+    #[test]
+    fn collapse_candidates_prefers_deduplicated_snapshots_or_joins_distinct_fragments() {
+        assert_eq!(
+            collapse_candidates(&[
+                "full snapshot".to_string(),
+                "full snapshot".to_string(),
+                "full snapshot".to_string()
+            ]),
+            Some("full snapshot".to_string())
+        );
+
+        assert_eq!(
+            collapse_candidates(&["step one".to_string(), "step two".to_string()]),
+            Some("step one\nstep two".to_string())
+        );
+    }
+
+    #[test]
+    fn has_signal_token_on_own_line_and_noise_checks_match_the_output_filters() {
+        assert!(has_signal_token_on_own_line("`TASK_COMPLETE`", "TASK_COMPLETE"));
+        assert!(!has_signal_token_on_own_line("TASK_COMPLETE please", "TASK_COMPLETE"));
+
+        assert!(is_noise_event_type_for_final("thread.started"));
+        assert!(is_noise_text_candidate("reconnecting..."));
+        assert!(!is_noise_text_candidate("Work finished successfully"));
     }
 }

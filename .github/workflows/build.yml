@@ -31,6 +31,12 @@ jobs:
       - name: Run type checker
         run: npm run typecheck
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run unit tests
+        run: npm test
+
   build:
     needs: lint-and-typecheck
     strategy:

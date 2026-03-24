@@ -334,3 +334,164 @@ impl MessageBroker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{
+        ActivityPhase, AgentActivity, AgentConfig, AgentRole, CreatePairInput, Message,
+        MessageSender, MessageType, PairResources, PairState, PairStatus, GitTracking,
+        ResourceInfo, AgentState,
+    };
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn activity(label: &str, phase: ActivityPhase) -> AgentActivity {
+        AgentActivity {
+            phase,
+            label: label.to_string(),
+            detail: None,
+            started_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    fn pair_state(status: PairStatus, iteration: u32) -> PairState {
+        PairState {
+            pair_id: "pair-1".to_string(),
+            directory: "/tmp/project".to_string(),
+            status,
+            iteration,
+            max_iterations: 3,
+            turn: AgentRole::Mentor,
+            mentor: AgentState {
+                status: PairStatus::Idle,
+                turn: AgentRole::Mentor,
+                last_message: None,
+                activity: activity("Mentor idle", ActivityPhase::Idle),
+            },
+            executor: AgentState {
+                status: PairStatus::Idle,
+                turn: AgentRole::Executor,
+                last_message: None,
+                activity: activity("Executor idle", ActivityPhase::Idle),
+            },
+            messages: Vec::new(),
+            mentor_activity: activity("Mentor idle", ActivityPhase::Idle),
+            executor_activity: activity("Executor idle", ActivityPhase::Idle),
+            resources: PairResources {
+                mentor: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
+                executor: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
+                pair_total: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
+            },
+            modified_files: Vec::new(),
+            git_tracking: GitTracking {
+                available: false,
+                root_path: None,
+                baseline: None,
+                git_review_available: Some(false),
+            },
+            automation_mode: "full-auto".to_string(),
+            git_review_available: false,
+        }
+    }
+
+    fn sample_input() -> CreatePairInput {
+        CreatePairInput {
+            name: "Demo".to_string(),
+            directory: "/tmp/project".to_string(),
+            spec: "Build the feature".to_string(),
+            mentor: AgentConfig {
+                role: AgentRole::Mentor,
+                model: "mentor-model".to_string(),
+            },
+            executor: AgentConfig {
+                role: AgentRole::Executor,
+                model: "executor-model".to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn prepare_run_advances_idle_mentor_pairs_into_mentoring() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.restore_state(pair_state(PairStatus::Mentoring, 0)).unwrap();
+
+        broker.prepare_run(
+            "pair-1",
+            "mentor",
+            Arc::new(Mutex::new(HashMap::<String, tokio::process::Child>::new())),
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.status, PairStatus::Mentoring);
+        assert_eq!(state.iteration, 1);
+        assert_eq!(state.turn, AgentRole::Mentor);
+        assert_eq!(state.mentor.status, PairStatus::Executing);
+        assert!(matches!(state.mentor_activity.phase, ActivityPhase::Thinking));
+        assert!(matches!(state.executor_activity.phase, ActivityPhase::Waiting));
+    }
+
+    #[test]
+    fn add_message_only_persists_high_signal_messages_and_handoffs_turns() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+
+        broker.add_message(
+            "pair-1",
+            Message {
+                id: "msg-1".to_string(),
+                timestamp: 1,
+                from: MessageSender::Mentor,
+                to: "executor".to_string(),
+                msg_type: MessageType::Plan,
+                content: "Plan the work".to_string(),
+                iteration: 0,
+            },
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.iteration, 0);
+        assert_eq!(state.messages.len(), 1);
+        assert_eq!(
+            state.mentor.last_message.as_ref().map(|message| message.content.as_str()),
+            Some("Plan the work")
+        );
+
+        broker.add_message(
+            "pair-1",
+            Message {
+                id: "msg-2".to_string(),
+                timestamp: 2,
+                from: MessageSender::Executor,
+                to: "mentor".to_string(),
+                msg_type: MessageType::Progress,
+                content: "Still working".to_string(),
+                iteration: 0,
+            },
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.messages.len(), 1, "progress logs should stay out of history");
+        assert!(state.executor.last_message.is_none());
+
+        broker.add_message(
+            "pair-1",
+            Message {
+                id: "msg-3".to_string(),
+                timestamp: 3,
+                from: MessageSender::Mentor,
+                to: "executor".to_string(),
+                msg_type: MessageType::Handoff,
+                content: "Handoff to executor".to_string(),
+                iteration: 0,
+            },
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.turn, AgentRole::Executor);
+        assert_eq!(state.iteration, 1);
+        assert_eq!(state.messages.len(), 1);
+    }
+}

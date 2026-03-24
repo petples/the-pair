@@ -904,10 +904,10 @@ function App(): React.ReactNode {
     setIsPairSettingsOpen(false)
   }
 
-  const handleRestoreSession = async (pairId: string): Promise<void> => {
+  const handleRestoreSession = async (pairId: string, continueRun: boolean): Promise<void> => {
     setIsRestoringSession(true)
     try {
-      await restoreSession(pairId, true)
+      await restoreSession(pairId, continueRun)
       setSelectedPairId(pairId)
       setIsRecoveryDismissed(true)
     } catch (error) {

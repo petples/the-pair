@@ -100,3 +100,122 @@ impl ModelCatalog {
         catalog
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider_registry::{DetectedModelOption, DetectedProviderProfile, ProviderKind};
+
+    fn model(
+        model_id: &str,
+        display_name: &str,
+        source_provider: Option<&str>,
+        subscription_label: &str,
+        supports_pair_execution: bool,
+        runnable: bool,
+    ) -> DetectedModelOption {
+        DetectedModelOption {
+            model_id: model_id.to_string(),
+            display_name: display_name.to_string(),
+            source_provider: source_provider.map(|value| value.to_string()),
+            subscription_label: subscription_label.to_string(),
+            supports_pair_execution,
+            runnable,
+        }
+    }
+
+    fn profile(
+        kind: ProviderKind,
+        installed: bool,
+        authenticated: bool,
+        runnable: bool,
+        subscription_label: &str,
+        current_models: Vec<DetectedModelOption>,
+    ) -> DetectedProviderProfile {
+        DetectedProviderProfile {
+            kind,
+            installed,
+            authenticated,
+            runnable,
+            subscription_label: subscription_label.to_string(),
+            current_models,
+            detected_at: 0,
+        }
+    }
+
+    #[test]
+    fn build_catalog_marks_supported_opencode_models_ready() {
+        let catalog = ModelCatalog::build_catalog(vec![profile(
+            ProviderKind::Opencode,
+            true,
+            true,
+            true,
+            "provider-backed",
+            vec![model(
+                "openai/gpt-4o-mini",
+                "GPT-4o Mini",
+                Some("openai"),
+                "provider-backed",
+                true,
+                true,
+            )],
+        )]);
+
+        assert_eq!(catalog.len(), 1);
+        let model = &catalog[0];
+        assert!(model.available);
+        assert_eq!(model.provider_label, "OpenCode");
+        assert_eq!(model.billing_kind, "byok");
+        assert_eq!(model.billing_label, "Pay as you go");
+        assert_eq!(model.access_label, "OpenAI API key");
+        assert_eq!(model.availability_status, "ready");
+        assert_eq!(model.recommended_roles, vec!["mentor", "executor"]);
+    }
+
+    #[test]
+    fn build_catalog_keeps_unavailable_models_visible_and_sorted_after_ready_models() {
+        let catalog = ModelCatalog::build_catalog(vec![
+            profile(
+                ProviderKind::Opencode,
+                false,
+                true,
+                true,
+                "provider-backed",
+                vec![model(
+                    "openai/gpt-4o-mini",
+                    "GPT-4o Mini",
+                    Some("openai"),
+                    "provider-backed",
+                    true,
+                    true,
+                )],
+            ),
+            profile(
+                ProviderKind::Claude,
+                true,
+                true,
+                true,
+                "pro",
+                vec![model(
+                    "claude-3-5-sonnet",
+                    "Claude 3.5 Sonnet",
+                    Some("anthropic"),
+                    "pro",
+                    true,
+                    true,
+                )],
+            ),
+        ]);
+
+        assert_eq!(catalog.len(), 2);
+        assert!(catalog[0].available, "ready models should sort first");
+        assert_eq!(catalog[0].provider_label, "Claude Code");
+        assert!(!catalog[1].available);
+        assert_eq!(catalog[1].availability_status, "cli-missing");
+        assert!(catalog[1]
+            .availability_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("OpenCode CLI is not installed"));
+    }
+}

@@ -1,3 +1,4 @@
+/* global require, console */
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { default: pngToIco } = require('png-to-ico')
 const fs = require('fs')

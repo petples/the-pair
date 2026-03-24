@@ -1,10 +1,10 @@
 [package]
 name = "app"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "The Pair desktop orchestrator for dual AI agents"
+authors = ["timwuhaotian"]
+license = "Apache-2.0"
+repository = "https://github.com/timwuhaotian/the-pair"
 edition = "2021"
 rust-version = "1.77.2"
 

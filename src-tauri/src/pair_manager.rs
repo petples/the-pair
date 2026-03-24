@@ -249,3 +249,18 @@ pub fn pair_delete(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_mentor_planning_prompt_requires_actionable_steps_and_keeps_task_in_view() {
+        let prompt = build_mentor_planning_prompt("Add a dark mode toggle");
+
+        assert!(prompt.contains("ROLE: MENTOR"));
+        assert!(prompt.contains("Add a dark mode toggle"));
+        assert!(prompt.contains("numbered executable steps"));
+        assert!(prompt.contains("DO NOT execute it yourself"));
+    }
+}
