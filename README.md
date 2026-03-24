@@ -17,7 +17,7 @@
 
 **macOS** • **Windows** • **Linux**
 
-<img src="./docs/assets/pair-demo.gif" alt="The Pair Demo" width="720"/>
+![intro-0](https://github.com/user-attachments/assets/8e950301-5a2d-433a-95ee-2dc4e5d2b20f)
 
 _Watch Mentor and Executor agents collaborate in real-time_
 
