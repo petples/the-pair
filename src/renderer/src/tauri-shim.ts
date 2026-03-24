@@ -1,35 +1,53 @@
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
+import { getVersion } from '@tauri-apps/api/app'
 
 const api = {
   pair: {
-    create: (input: any) => invoke('pair_create', { input }),
-    assignTask: (pairId: string, input: any) => invoke('pair_assign_task', { pairId, input }),
-    updateModels: (pairId: string, input: any) => invoke('pair_update_models', { pairId, input }),
-    stop: (pairId: string) => invoke('pair_delete', { pairId }),
-    retryTurn: (pairId: string) => invoke('pair_retry_turn', { pairId }),
-    list: () => invoke('pair_list'),
-    getMessages: (pairId: string) => invoke('pair_get_messages', { pairId }),
-    getState: (pairId: string) => invoke('pair_get_state', { pairId }),
-    humanFeedback: (pairId: string, approved: boolean) => invoke('pair_human_feedback', { pairId, approved }),
-    onCreated: (callback: any) => listen('pair:created', (e) => callback(e.payload)),
-    onStopped: (callback: any) => listen('pair:stopped', (e) => callback(e.payload)),
-    onMessage: (callback: any) => listen('pair:message', (e) => callback(e.payload)),
-    onState: (callback: any) => listen('pair:state', (e) => callback(e.payload)),
+    create: (input: unknown) => invoke('pair_create', { input }) as Promise<unknown>,
+    assignTask: (pairId: string, input: unknown) =>
+      invoke('pair_assign_task', { pairId, input }) as Promise<unknown>,
+    updateModels: (pairId: string, input: unknown) =>
+      invoke('pair_update_models', { pairId, input }) as Promise<unknown>,
+    stop: (pairId: string) => invoke('pair_delete', { pairId }) as Promise<unknown>,
+    retryTurn: (pairId: string) => invoke('pair_retry_turn', { pairId }) as Promise<unknown>,
+    list: () => invoke('pair_list') as Promise<unknown>,
+    getMessages: (pairId: string) => invoke('pair_get_messages', { pairId }) as Promise<unknown>,
+    getState: (pairId: string) => invoke('pair_get_state', { pairId }) as Promise<unknown>,
+    humanFeedback: (pairId: string, approved: boolean) =>
+      invoke('pair_human_feedback', { pairId, approved }) as Promise<unknown>,
+    onCreated: (callback: (data: unknown) => void) =>
+      listen('pair:created', (e) => callback(e.payload)) as Promise<unknown>,
+    onStopped: (callback: (data: unknown) => void) =>
+      listen('pair:stopped', (e) => callback(e.payload)) as Promise<unknown>,
+    onMessage: (callback: (data: unknown) => void) =>
+      listen('pair:message', (e) => callback(e.payload)) as Promise<unknown>,
+    onState: (callback: (data: unknown) => void) =>
+      listen('pair:state', (e) => callback(e.payload)) as Promise<unknown>,
+    onHandoff: (callback: (data: unknown) => void) =>
+      listen('pair:handoff', (e) => callback(e.payload)) as Promise<unknown>
+  },
+  session: {
+    saveSnapshot: (input: unknown) => invoke('session_save_snapshot', { input }) as Promise<unknown>,
+    listRecoverable: () => invoke('list_recoverable_sessions') as Promise<unknown>,
+    restore: (pairId: string, continueRun = true) =>
+      invoke('restore_session', { input: { pairId, continueRun } }) as Promise<unknown>
   },
   config: {
-    getModels: () => invoke('config_get_models'),
-    getProviders: () => invoke('config_get_providers'),
-    read: () => invoke('config_read'),
-    openFile: () => invoke('config_open_file'),
-    getVersion: () => getVersion(),
+    getModels: () => invoke('config_get_models') as Promise<unknown>,
+    getProviders: () => invoke('config_get_providers') as Promise<unknown>,
+    read: () => invoke('config_read') as Promise<unknown>,
+    openFile: () => invoke('config_open_file') as Promise<unknown>,
+    getVersion: () => getVersion() as Promise<string>
   },
   file: {
-    listFiles: (options: any) => invoke('file_list_files', { options }),
-    parseMentions: (pairId: string, spec: string) => invoke('file_parse_mentions', { pairId, spec }),
+    listFiles: (options: { pairId?: string; directory?: string }) =>
+      invoke('file_list_files', { options }) as Promise<
+        Array<{ path: string; type: 'file' | 'directory' }>
+      >,
+    parseMentions: (pairId: string, spec: string) =>
+      invoke('file_parse_mentions', { pairId, spec }) as Promise<string>
   }
-};
+}
 
-// @ts-ignore
-window.api = api;
+window.api = api

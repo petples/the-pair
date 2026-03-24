@@ -8,7 +8,6 @@ import {
   ExternalLink,
   Zap,
   Brain,
-  Terminal,
   Rocket,
   Sparkles,
   Sun,
@@ -21,17 +20,16 @@ import type { AvailableModel, OpenCodeConfig } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
+import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 
 interface OnboardingWizardProps {
   onComplete: () => void
 }
 
 const STEPS = [
-  { id: 'welcome', label: 'Welcome' },
-  { id: 'config', label: 'OpenCode Config' },
-  { id: 'directory', label: 'Project Directory' },
-  { id: 'models', label: 'Model Selection' },
-  { id: 'launch', label: 'Task & Launch' }
+  { id: 'setup', label: 'Setup' },
+  { id: 'models', label: 'Models' },
+  { id: 'review', label: 'Review & Launch' }
 ]
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.ReactNode {
@@ -64,20 +62,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   }, [loadAvailableModels])
 
   useEffect(() => {
-    if (currentStep === 1) {
+    if (currentStep === 0) {
       loadConfig()
     }
   }, [currentStep])
 
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
-      const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
-      const defaultModel =
-        defaultEntry.provider === 'opencode'
-          ? defaultEntry.modelId
-          : `${defaultEntry.provider}/${defaultEntry.modelId}`
-      setMentorModel(defaultModel)
-      setExecutorModel(defaultModel)
+      setMentorModel(getPreferredQualifiedModel('mentor', availableModels))
+      setExecutorModel(getPreferredQualifiedModel('executor', availableModels))
     }
   }, [availableModels, mentorModel])
 
@@ -125,7 +118,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       console.log('[OnboardingWizard] Result:', selected);
       if (selected) {
         setDirectory(selected)
-        setCurrentStep(currentStep + 1)
       }
     } catch (err) {
       console.error('[OnboardingWizard] Error choosing directory:', err);
@@ -153,14 +145,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
 
   const canNext = (): boolean => {
     switch (currentStep) {
+      case 0:
+        return (
+          configStatus === 'ok' &&
+          directory.trim().length > 0 &&
+          name.trim().length > 0 &&
+          spec.trim().length > 0
+        )
       case 1:
-        return configStatus === 'ok'
-      case 2:
-        return directory.trim().length > 0
-      case 3:
         return mentorModel.length > 0 && executorModel.length > 0
-      case 4:
-        return name.trim().length > 0 && spec.trim().length > 0
       default:
         return true
     }
@@ -169,19 +162,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const renderStep = (): React.ReactNode => {
     switch (currentStep) {
       case 0:
-        return <WelcomeStep />
-      case 1:
         return (
-          <ConfigStep
+          <SetupStep
             status={configStatus}
             loading={configLoading}
             onOpenConfig={handleOpenConfig}
             isOpening={isOpeningFile}
+            directory={directory}
+            onSelectDirectory={handleSelectDirectory}
+            name={name}
+            spec={spec}
+            onNameChange={setName}
+            onSpecChange={setSpec}
           />
         )
-      case 2:
-        return <DirectoryStep directory={directory} onSelectDirectory={handleSelectDirectory} />
-      case 3:
+      case 1:
         return (
           <ModelStep
             availableModels={availableModels}
@@ -191,17 +186,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
             onExecutorChange={setExecutorModel}
           />
         )
-      case 4:
+      case 2:
         return (
-          <LaunchStep
+          <ReviewStep
             name={name}
             spec={spec}
             directory={directory}
             mentorModel={mentorModel}
             executorModel={executorModel}
             error={error}
-            onNameChange={setName}
-            onSpecChange={setSpec}
           />
         )
       default:
@@ -320,9 +313,31 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   )
 }
 
-function WelcomeStep(): React.ReactNode {
+function SetupStep({
+  status,
+  loading,
+  onOpenConfig,
+  isOpening,
+  directory,
+  onSelectDirectory,
+  name,
+  spec,
+  onNameChange,
+  onSpecChange
+}: {
+  status: 'checking' | 'ok' | 'missing-keys' | 'missing-file'
+  loading: boolean
+  onOpenConfig: () => void
+  isOpening: boolean
+  directory: string
+  onSelectDirectory: () => void
+  name: string
+  spec: string
+  onNameChange: (v: string) => void
+  onSpecChange: (v: string) => void
+}): React.ReactNode {
   return (
-    <div className="space-y-5 py-1">
+    <div className="space-y-6 py-1">
       <div className="text-center space-y-4">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted to-muted/50 border border-border flex items-center justify-center mx-auto">
           <Sparkles size={28} className="text-foreground/60" />
@@ -331,63 +346,58 @@ function WelcomeStep(): React.ReactNode {
           Welcome to <span className="text-foreground/70">The Pair</span>
         </h1>
         <p className="text-muted-foreground text-base max-w-md mx-auto leading-relaxed">
-          A dual-agent orchestrator that pairs a{' '}
-          <span className="text-blue-600 font-medium dark:text-blue-400">Mentor</span> and an{' '}
-          <span className="text-purple-600 font-medium dark:text-purple-400">Executor</span> to
-          tackle coding tasks together — with you in control.
+          Set up the workspace once, then let the Mentor plan and the Executor build. We keep the
+          first pass short so you can launch faster.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto">
-        <GlassCard className="p-5 flex flex-col gap-2.5 text-center">
-          <div className="w-9 h-9 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 flex items-center justify-center mx-auto">
-            <Brain size={17} className="text-blue-600 dark:text-blue-400" />
-          </div>
-          <h3 className="font-semibold text-sm text-foreground">Mentor</h3>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Analyzes tasks, drafts plans, reviews changes
-          </p>
-        </GlassCard>
-        <GlassCard className="p-5 flex flex-col gap-2.5 text-center relative">
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-muted border border-border text-[9px] text-muted-foreground px-2 py-0.5 rounded-full font-medium uppercase tracking-wider">
-            Duo
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-muted border border-border flex items-center justify-center mx-auto mt-1">
-            <Zap size={17} className="text-foreground/50" />
-          </div>
-          <h3 className="font-semibold text-sm text-foreground">Synced</h3>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Two minds, one goal, seamless handoff
-          </p>
-        </GlassCard>
-        <GlassCard className="p-5 flex flex-col gap-2.5 text-center">
-          <div className="w-9 h-9 rounded-lg bg-green-500/10 dark:bg-green-500/20 border border-green-500/20 flex items-center justify-center mx-auto">
-            <Terminal size={17} className="text-green-600 dark:text-green-400" />
-          </div>
-          <h3 className="font-semibold text-sm text-foreground">You Control</h3>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Review and approve every change before it lands
-          </p>
-        </GlassCard>
-      </div>
+      <ConfigStep
+        status={status}
+        loading={loading}
+        onOpenConfig={onOpenConfig}
+        isOpening={isOpening}
+      />
 
-      <GlassCard className="p-5 max-w-md mx-auto">
-        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest mb-3">
-          What you will configure
-        </p>
-        <ul className="space-y-2">
-          {[
-            'Your OpenCode config (API keys & models)',
-            'Project directory to work on',
-            'Mentor and Executor model selection',
-            'Your first task specification'
-          ].map((item) => (
-            <li key={item} className="flex items-center gap-2.5 text-sm text-foreground/70">
-              <div className="w-1.5 h-1.5 rounded-full bg-foreground/20 shrink-0" />
-              {item}
-            </li>
-          ))}
-        </ul>
+      <DirectoryStep directory={directory} onSelectDirectory={onSelectDirectory} />
+
+      <GlassCard className="p-5 space-y-4">
+        <div>
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
+            Task
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Give this pair a name and one clear task. Model selection comes next.
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-sm font-medium text-foreground">Pair Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder="e.g., Add user authentication"
+              className="w-full rounded-xl glass-card px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-foreground">
+              Task Specification
+            </label>
+            <textarea
+              value={spec}
+              onChange={(e) => onSpecChange(e.target.value)}
+              placeholder="Describe the desired outcome as directly as possible..."
+              rows={5}
+              className="w-full resize-none rounded-xl glass-card px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {spec.length} characters · a concrete target works better than a vague intention
+            </p>
+          </div>
+        </div>
       </GlassCard>
     </div>
   )
@@ -582,52 +592,98 @@ function ModelStep({
   onMentorChange: (m: string) => void
   onExecutorChange: (m: string) => void
 }): React.ReactNode {
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">Select Your Models</h2>
         <p className="text-muted-foreground">
-          Choose the AI models for the Mentor and Executor. They can be the same or different.
+          The recommended defaults are already filled in. Expand the selector only if you want to
+          change them.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <GlassCard className="p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 border border-blue-500/20 flex items-center justify-center">
-              <Brain size={15} className="text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm text-foreground">Mentor</h3>
-              <p className="text-xs text-muted-foreground">Analyzes & plans</p>
-            </div>
+      <GlassCard className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
+              Recommended setup
+            </p>
+            <p className="mt-1 text-sm text-foreground/80">
+              Mentor and Executor are prefilled from your detected models.
+            </p>
           </div>
-          <ModelPicker
-            value={mentorModel}
-            models={availableModels}
-            onChange={onMentorChange}
-            role="mentor"
-          />
-        </GlassCard>
+          <GlassButton
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAdvanced((s) => !s)}
+            icon={showAdvanced ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+          >
+            {showAdvanced ? 'Hide advanced' : 'Customize'}
+          </GlassButton>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-blue-500/15 bg-blue-500/5 p-3">
+            <div className="mb-1 flex items-center gap-2">
+              <Brain size={14} className="text-blue-600 dark:text-blue-400" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                Mentor
+              </span>
+            </div>
+            <p className="truncate font-mono text-xs text-foreground">{mentorModel}</p>
+          </div>
+          <div className="rounded-2xl border border-purple-500/15 bg-purple-500/5 p-3">
+            <div className="mb-1 flex items-center gap-2">
+              <Zap size={14} className="text-purple-600 dark:text-purple-400" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                Executor
+              </span>
+            </div>
+            <p className="truncate font-mono text-xs text-foreground">{executorModel}</p>
+          </div>
+        </div>
+      </GlassCard>
 
-        <GlassCard className="p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-purple-500/10 dark:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center">
-              <Zap size={15} className="text-purple-600 dark:text-purple-400" />
+      {showAdvanced && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <GlassCard className="space-y-3 p-5">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10">
+                <Brain size={15} className="text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Mentor</h3>
+                <p className="text-xs text-muted-foreground">Analyzes & plans</p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-sm text-foreground">Executor</h3>
-              <p className="text-xs text-muted-foreground">Writes & executes</p>
+            <ModelPicker
+              value={mentorModel}
+              models={availableModels}
+              onChange={onMentorChange}
+              role="mentor"
+            />
+          </GlassCard>
+
+          <GlassCard className="space-y-3 p-5">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500/20 bg-purple-500/10">
+                <Zap size={15} className="text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Executor</h3>
+                <p className="text-xs text-muted-foreground">Writes & executes</p>
+              </div>
             </div>
-          </div>
-          <ModelPicker
-            value={executorModel}
-            models={availableModels}
-            onChange={onExecutorChange}
-            role="executor"
-          />
-        </GlassCard>
-      </div>
+            <ModelPicker
+              value={executorModel}
+              models={availableModels}
+              onChange={onExecutorChange}
+              role="executor"
+            />
+          </GlassCard>
+        </div>
+      )}
 
       <GlassCard className="p-4 space-y-2">
         <p className="text-xs font-medium text-muted-foreground mb-1">Model recommendations:</p>
@@ -648,15 +704,13 @@ function ModelStep({
   )
 }
 
-function LaunchStep({
+function ReviewStep({
   name,
   spec,
   directory,
   mentorModel,
   executorModel,
-  error,
-  onNameChange,
-  onSpecChange
+  error
 }: {
   name: string
   spec: string
@@ -664,45 +718,14 @@ function LaunchStep({
   mentorModel: string
   executorModel: string
   error: string | null
-  onNameChange: (v: string) => void
-  onSpecChange: (v: string) => void
 }): React.ReactNode {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Define Your Task</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">Review & Launch</h2>
         <p className="text-muted-foreground">
-          Give your pair a name and describe what you want them to accomplish.
+          One last check before starting the pair.
         </p>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">Pair Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            placeholder="e.g., Add user authentication, Refactor API layer"
-            className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            Task Specification
-          </label>
-          <textarea
-            value={spec}
-            onChange={(e) => onSpecChange(e.target.value)}
-            placeholder="Describe what you want this pair of agents to do. Be specific about the desired outcome..."
-            rows={5}
-            className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
-          />
-          <p className="text-xs text-muted-foreground mt-1.5">
-            {spec.length} characters · The more specific, the better the results
-          </p>
-        </div>
       </div>
 
       <GlassCard className="p-4 space-y-2">
@@ -710,9 +733,17 @@ function LaunchStep({
           Summary
         </p>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+          <span className="text-muted-foreground">Pair Name</span>
+          <span className="font-mono text-foreground truncate" title={name}>
+            {name}
+          </span>
           <span className="text-muted-foreground">Project</span>
           <span className="font-mono text-foreground truncate" title={directory}>
             {directory.split('/').pop()}
+          </span>
+          <span className="text-muted-foreground">Task</span>
+          <span className="font-mono text-foreground truncate" title={spec}>
+            {spec}
           </span>
           <span className="text-blue-600 dark:text-blue-400">Mentor</span>
           <span className="font-mono text-foreground">{mentorModel}</span>

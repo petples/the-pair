@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useMemo } from 'react'
 import { Terminal, RefreshCw, Square, RotateCcw, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn } from './lib/utils'
-import { usePairStore, Pair, Message } from './store/usePairStore'
+import { usePairStore, Pair, Message, TurnCard } from './store/usePairStore'
 import { useThemeStore } from './store/useThemeStore'
 import { CreatePairModal } from './components/CreatePairModal'
 import { StatusBadge } from './components/StatusBadge'
 import { OnboardingWizard } from './components/OnboardingWizard'
+import { SessionRecoveryModal } from './components/SessionRecoveryModal'
 import { GlassCard } from './components/ui/GlassCard'
 import { GlassButton } from './components/ui/GlassButton'
 import { ResourceMeter } from './components/ui/ResourceMeter'
@@ -16,7 +19,77 @@ import { AssignTaskModal } from './components/AssignTaskModal'
 import { PairSettingsModal } from './components/PairSettingsModal'
 
 function isPairRunning(status: Pair['status']): boolean {
-  return status === 'Mentoring' || status === 'Executing' || status === 'Reviewing'
+  const normalized = String(status).toLowerCase()
+  return normalized === 'mentoring' || normalized === 'executing' || normalized === 'reviewing'
+}
+
+function isAgentExecuting(phase: string): boolean {
+  return phase === 'thinking' || phase === 'using_tools' || phase === 'responding'
+}
+
+function buildConsoleMessages(messages: Message[]): Message[] {
+  return messages
+}
+
+function MarkdownContent({ content }: { content: string }): React.ReactNode {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h1 className="text-lg font-bold">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-base font-semibold">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold">{children}</h3>,
+        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+        ul: ({ children }) => <ul className="mb-2 list-disc pl-5">{children}</ul>,
+        ol: ({ children }) => <ol className="mb-2 list-decimal pl-5">{children}</ol>,
+        li: ({ children }) => <li className="mb-1">{children}</li>,
+        blockquote: ({ children }) => (
+          <blockquote className="my-2 border-l-2 border-border/70 pl-3 italic text-foreground/80">
+            {children}
+          </blockquote>
+        ),
+        code: ({ className, children }) => {
+          const isBlock = className?.includes('language-')
+          if (isBlock) {
+            return (
+              <code className="block overflow-x-auto rounded-lg border border-border/60 bg-background/70 p-3 font-mono text-[12px] leading-relaxed">
+                {children}
+              </code>
+            )
+          }
+          return (
+            <code className="rounded bg-muted/70 px-1.5 py-0.5 font-mono text-[12px]">
+              {children}
+            </code>
+          )
+        },
+        pre: ({ children }) => <pre className="my-2 overflow-x-auto">{children}</pre>,
+        a: ({ href, children }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary underline decoration-primary/50 underline-offset-2"
+          >
+            {children}
+          </a>
+        ),
+        table: ({ children }) => (
+          <table className="my-2 w-full border-collapse overflow-hidden rounded-lg text-[12px]">
+            {children}
+          </table>
+        ),
+        th: ({ children }) => (
+          <th className="border border-border/60 bg-muted/50 px-2 py-1 text-left font-semibold">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => <td className="border border-border/50 px-2 py-1">{children}</td>
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  )
 }
 
 function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React.ReactNode {
@@ -112,7 +185,7 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
                     )}
                   </div>
 
-                  <div className="flex-1 text-sm leading-relaxed text-muted-foreground">
+                  <div className="flex-1 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {pair.spec}
                   </div>
 
@@ -128,9 +201,7 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
                               : 'text-muted-foreground/50'
                           )}
                         />
-                        <span>
-                          iter {pair.iterations}/{pair.maxIterations}
-                        </span>
+                        <span>{pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'turn idle'}</span>
                       </div>
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="text-[10px] font-medium text-blue-600">MENTOR</span>
@@ -154,40 +225,166 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
   )
 }
 
-function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React.ReactNode {
-  const retryTurn = usePairStore((s) => s.retryTurn)
+function MessageCard({ msg }: { msg: Message }): React.ReactNode {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const isSystem = msg.type === 'handoff'
+  const isHuman = msg.from === 'human'
 
-  const handleRetryTurn = (): void => {
-    retryTurn(pair.id)
-  }
+  const displayContent = msg.content.trim()
+
+  // Filter out technical handoff messages
+  if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
+  
+  const isTechnicalHandoff = 
+    displayContent.includes('### ROLE:') || 
+    displayContent.includes('--- COMMAND TO EXECUTE ---') ||
+    displayContent.includes('--- REVIEW REQUEST ---')
+
+  if (isTechnicalHandoff && !isHuman) return null
 
   const formatTime = (ts: number): string => {
     const d = new Date(ts)
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
   }
 
+  const getRoleColors = (): string => {
+    if (isHuman) return 'bg-green-500/10 border-green-500/20 shadow-sm'
+    if (msg.from === 'mentor') return 'bg-blue-500/10 border-blue-500/20 shadow-[0_4px_12px_rgba(59,130,246,0.06)]'
+    return 'bg-purple-500/10 border-purple-500/20 shadow-[0_4px_12px_rgba(168,85,247,0.06)]'
+  }
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      className={cn(
+        'group flex flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 hover:shadow-xl',
+        getRoleColors(),
+        isSystem && 'opacity-60 grayscale border-transparent bg-transparent py-2 px-0 shadow-none'
+      )}
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          {!isSystem && (
+            <div className={cn(
+              "flex items-center justify-center h-7 w-7 rounded-xl text-[11px] font-black text-white shadow-md",
+              msg.from === 'mentor' ? "bg-blue-600" : msg.from === 'executor' ? "bg-purple-600" : "bg-green-600"
+            )}>
+              {msg.from[0].toUpperCase()}
+            </div>
+          )}
+          <div className="flex flex-col -space-y-0.5">
+            <span className={cn(
+              "text-[11px] font-black uppercase tracking-[0.1em]",
+              msg.from === 'mentor' ? "text-blue-600" : msg.from === 'executor' ? "text-purple-600" : "text-green-600"
+            )}>
+              {msg.from === 'human' ? 'MISSION SPECS' : msg.from}
+            </span>
+            <span className={cn(
+              "text-[9px] font-bold tracking-tight opacity-60",
+              msg.from === 'mentor' ? "text-blue-500" : msg.from === 'executor' ? "text-purple-500" : "text-green-500"
+            )}>
+              {msg.type.toUpperCase()}
+            </span>
+          </div>
+        </div>
+        <span className="text-[10px] font-mono text-muted-foreground/30 tabular-nums">
+          {formatTime(msg.timestamp)}
+        </span>
+      </div>
+
+      <div className={cn(
+        "relative flex flex-col gap-2 overflow-hidden transition-all duration-300",
+        !isExpanded && displayContent.length > 600 && "max-h-[250px]"
+      )}>
+        <div className={cn(
+          "break-words leading-relaxed selection:bg-primary/20 [overflow-wrap:anywhere]",
+          isSystem ? "text-[12px] italic text-muted-foreground" : "text-[14px] text-foreground/90 font-sans",
+        )}>
+          <MarkdownContent content={displayContent} />
+        </div>
+        
+        {!isExpanded && displayContent.length > 600 && (
+          <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background/90 to-transparent pointer-events-none" />
+        )}
+      </div>
+
+      {displayContent.length > 600 && (
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-fit text-[10px] font-bold uppercase tracking-widest text-primary hover:underline transition-all"
+        >
+          {isExpanded ? 'Collapse' : 'Expand full report'}
+        </button>
+      )}
+    </motion.div>
+  )
+}
+
+function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
+  const isMentor = card.role === 'mentor'
+  const isLive = card.state === 'live'
+  const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
+  const border = isMentor ? 'border-blue-500/25' : 'border-purple-500/25'
+  const bg = isMentor ? 'bg-blue-500/8' : 'bg-purple-500/8'
+  const currentAction = (card.content || card.activity.detail || card.activity.label || 'Working...').trim()
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        'relative overflow-hidden rounded-2xl border p-5 shadow-lg',
+        border,
+        bg,
+        'metal-sheen-surface'
+      )}
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <Zap size={14} className={accent} fill="currentColor" />
+        <span className={cn('text-[10px] font-black uppercase tracking-[0.16em]', accent)}>
+          {card.role.toUpperCase()}
+        </span>
+        <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70">
+          {isLive ? 'working' : 'result'}
+        </span>
+      </div>
+      <div className={cn('text-sm leading-relaxed [overflow-wrap:anywhere]', isLive ? 'text-foreground/90' : 'text-foreground')}>
+        <MarkdownContent content={currentAction} />
+      </div>
+    </motion.div>
+  )
+}
+
+function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React.ReactNode {
+  const retryTurn = usePairStore((s) => s.retryTurn)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const handleRetryTurn = (): void => {
+    retryTurn(pair.id)
+  }
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [pair.messages.length])
+
+  useEffect(() => {
+    if (!isPairRunning(pair.status)) return
+    const el = scrollRef.current
+    if (!el) return
+
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceToBottom < 160) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+
   const formatRunStamp = (ts?: number): string => {
     if (!ts) return 'still active'
     const d = new Date(ts)
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-  }
-
-  const getMessageColor = (msg: Message): string => {
-    if (msg.from === 'human') return 'text-green-600 dark:text-green-400'
-    if (msg.from === 'mentor') return 'text-blue-600 dark:text-blue-400'
-    return 'text-purple-600 dark:text-purple-400'
-  }
-
-  const getTypeLabel = (msg: Message): string => {
-    const labels: Record<string, string> = {
-      plan: '[PLAN]',
-      feedback: '[FEEDBACK]',
-      progress: '[PROGRESS]',
-      result: '[RESULT]',
-      question: '[QUESTION]',
-      handoff: '[HANDOFF]'
-    }
-    return labels[msg.type] || `[${msg.type.toUpperCase()}]`
   }
 
   const getActivityIcon = (phase: string): string => {
@@ -214,12 +411,15 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
     return `${minutes}m ${seconds % 60}s`
   }
 
-  const activeRole = pair.turn
-  const isRunning = isPairRunning(pair.status)
+  const activeRole = pair.currentTurnCard?.role ?? pair.turn
+  const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
+  const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
+  const isRunning = isPairRunning(pair.status) || mentorIsExecuting || executorIsExecuting
+  const consoleMessages = useMemo(() => buildConsoleMessages(pair.messages), [pair.messages])
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-1 overflow-hidden bg-background">
+      <div className="flex flex-1 min-h-0 overflow-hidden bg-background">
         <div className="glass-panel flex w-[28%] flex-col gap-5 overflow-y-auto border-r border-border/50 p-5 scrollbar-thin">
           <div className="flex flex-wrap items-center gap-2">
             <GlassButton variant="secondary" size="sm" icon={<Square size={12} />} onClick={onStop}>
@@ -245,10 +445,40 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Current Task
+              Task Context
             </h3>
-            <div className="glass-card rounded-2xl p-4">
-              <p className="text-sm leading-relaxed text-foreground">{pair.spec}</p>
+            <div className="glass-card rounded-2xl p-4 space-y-4">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Mission Spec</span>
+                <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {pair.spec}
+                </p>
+              </div>
+
+              {pair.runHistory.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-border/40">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Previous Runs</span>
+                  <div className="space-y-2">
+                    {pair.runHistory
+                      .slice()
+                      .reverse()
+                      .slice(0, 3)
+                      .map((run) => (
+                        <div
+                          key={run.id}
+                          className="rounded-xl border border-border/40 bg-background/30 px-2.5 py-2 group hover:bg-background/50 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-medium text-foreground/80">{run.status}</span>
+                          </div>
+                          <p className="mt-1 line-clamp-1 text-[10px] text-muted-foreground/80 group-hover:line-clamp-none transition-all">
+                            {run.spec}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -258,9 +488,14 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
             </h3>
             <div className="glass-card rounded-2xl p-4 space-y-3">
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  <span className="text-[10px] font-medium uppercase text-blue-600">Mentor</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={cn("h-1.5 w-1.5 rounded-full bg-blue-500", mentorIsExecuting && "metal-sheen-mark")} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Mentor</span>
+                  </div>
+                  {mentorIsExecuting && (
+                    <span className="text-[10px] font-mono text-blue-500 metal-sheen-text">ACTIVE</span>
+                  )}
                 </div>
                 <p className="pl-4 font-mono text-xs text-muted-foreground">{pair.mentorModel}</p>
                 {pair.pendingMentorModel && (
@@ -270,11 +505,16 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 )}
               </div>
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-purple-500" />
-                  <span className="text-[10px] font-medium uppercase text-purple-600">
-                    Executor
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={cn("h-1.5 w-1.5 rounded-full bg-purple-500", executorIsExecuting && "metal-sheen-mark")} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">
+                      Executor
+                    </span>
+                  </div>
+                  {executorIsExecuting && (
+                    <span className="text-[10px] font-mono text-purple-500 metal-sheen-text">ACTIVE</span>
+                  )}
                 </div>
                 <p className="pl-4 font-mono text-xs text-muted-foreground">{pair.executorModel}</p>
                 {pair.pendingExecutorModel && (
@@ -283,30 +523,19 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                   </p>
                 )}
               </div>
-              {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
-                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
-                  Saved model changes are queued and will apply when you start the next task run.
-                </div>
-              )}
             </div>
           </div>
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Run Progress
+              Run State
             </h3>
             <div className="glass-card rounded-2xl p-4">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">Run {pair.runCount}</span>
-                <span className="font-mono text-xs text-foreground">
-                  {pair.iterations}/{pair.maxIterations}
+                <span className="rounded-full border border-border/50 bg-background/40 px-2 py-1 text-[10px] font-medium text-foreground">
+                  {pair.status}
                 </span>
-              </div>
-              <div className="h-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500"
-                  style={{ width: `${(pair.iterations / pair.maxIterations) * 100}%` }}
-                />
               </div>
               <div className="mt-3 text-[11px] text-muted-foreground">
                 Started {formatRunStamp(pair.currentRunStartedAt)} ·{' '}
@@ -316,204 +545,119 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
               </div>
             </div>
           </div>
-
-          <div>
-            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Task Runs
-            </h3>
-            <div className="glass-card rounded-2xl p-4 space-y-3">
-              <div className="rounded-2xl border border-border/60 bg-background/40 px-3 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-medium text-foreground">Current Run</span>
-                  <StatusBadge status={pair.status} />
-                </div>
-                <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                  {pair.spec}
-                </p>
-              </div>
-
-              {pair.runHistory.length === 0 ? (
-                <div className="text-xs text-muted-foreground/70">
-                  No archived runs yet. When you assign the next task, the current run will be saved
-                  here.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {pair.runHistory
-                    .slice()
-                    .reverse()
-                    .map((run) => (
-                      <div
-                        key={run.id}
-                        className="rounded-2xl border border-border/60 bg-background/30 px-3 py-3"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-medium text-foreground">{run.status}</span>
-                          <span className="font-mono text-[11px] text-muted-foreground">
-                            iter {run.iterations}
-                          </span>
-                        </div>
-                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                          {run.spec}
-                        </p>
-                        <div className="mt-2 text-[11px] text-muted-foreground">
-                          {formatRunStamp(run.startedAt)} → {formatRunStamp(run.finishedAt)}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         <div className="flex w-[46%] flex-col bg-muted/10">
-          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/50 px-4 font-mono text-[11px] text-muted-foreground">
+          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/50 px-4 font-mono text-[11px] text-muted-foreground bg-background/50">
             <Terminal size={13} />
-            <span>Console</span>
+            <span className="uppercase tracking-widest font-bold">Session Console</span>
             <div className="ml-auto flex items-center gap-3">
-              <span className="text-muted-foreground/50">
-                iter {pair.iterations}/{pair.maxIterations}
-              </span>
+              <div className="flex items-center gap-1.5">
+                 <div className={cn("h-2 w-2 rounded-full", isRunning ? "bg-green-500 animate-pulse" : "bg-muted-foreground/30")} />
+                 <span className="text-[10px]">{isRunning ? 'SYSTEM ONLINE' : 'SYSTEM IDLE'}</span>
+              </div>
             </div>
           </div>
-          <div className="flex h-12 shrink-0 items-center gap-4 border-b border-border/30 bg-muted/5 px-4">
+
+          {/* Active Status Bar */}
+          <div className="flex h-14 shrink-0 items-center gap-6 border-b border-border/30 bg-muted/5 px-6">
             <div
               className={cn(
-                'flex items-center gap-2 text-xs transition-all',
+                'flex flex-col gap-0.5 transition-all duration-300',
                 activeRole === 'mentor'
-                  ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-muted-foreground/50'
+                  ? 'opacity-100 scale-100'
+                  : 'opacity-40 scale-95 grayscale'
               )}
             >
-              <div
-                className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  pair.mentorActivity.phase === 'thinking' ||
-                    pair.mentorActivity.phase === 'using_tools' ||
-                    pair.mentorActivity.phase === 'responding'
-                    ? 'animate-pulse bg-blue-500'
-                    : pair.mentorActivity.phase === 'error'
-                      ? 'bg-red-500'
-                      : 'bg-blue-500/50'
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-tighter">MENTOR</span>
+                <span className={cn("text-xs", mentorIsExecuting && "metal-sheen-text")}>
+                  {getActivityIcon(pair.mentorActivity.phase)}
+                </span>
+                {mentorIsExecuting && (
+                  <span className="text-[9px] font-mono text-muted-foreground/70">
+                    {getDuration(pair.mentorActivity.startedAt, pair.mentorActivity.updatedAt)}
+                  </span>
                 )}
-              />
-              <span className="font-medium">MENTOR</span>
-              <span className="text-[10px]">{getActivityIcon(pair.mentorActivity.phase)}</span>
-              <span className="max-w-[120px] truncate text-[10px]">
+              </div>
+              <span className={cn(
+                "max-w-[140px] truncate text-[11px] font-medium text-foreground",
+                mentorIsExecuting && "metal-sheen-text"
+              )}>
                 {pair.mentorActivity.label}
               </span>
-              {isRunning && activeRole === 'mentor' && (
-                <span className="text-[9px] text-muted-foreground/50">
-                  {getDuration(pair.mentorActivity.startedAt, pair.mentorActivity.updatedAt)}
-                </span>
-              )}
             </div>
-            <div className="h-4 w-px bg-border/50" />
+
+            <div className="h-6 w-px bg-border/50" />
+
             <div
               className={cn(
-                'flex items-center gap-2 text-xs transition-all',
+                'flex flex-col gap-0.5 transition-all duration-300',
                 activeRole === 'executor'
-                  ? 'text-purple-600 dark:text-purple-400'
-                  : 'text-muted-foreground/50'
+                  ? 'opacity-100 scale-100'
+                  : 'opacity-40 scale-95 grayscale'
               )}
             >
-              <div
-                className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  pair.executorActivity.phase === 'thinking' ||
-                    pair.executorActivity.phase === 'using_tools' ||
-                    pair.executorActivity.phase === 'responding'
-                    ? 'animate-pulse bg-purple-500'
-                    : pair.executorActivity.phase === 'error'
-                      ? 'bg-red-500'
-                      : 'bg-purple-500/50'
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 tracking-tighter">EXECUTOR</span>
+                <span className={cn("text-xs", executorIsExecuting && "metal-sheen-text")}>
+                  {getActivityIcon(pair.executorActivity.phase)}
+                </span>
+                {executorIsExecuting && (
+                  <span className="text-[9px] font-mono text-muted-foreground/70">
+                    {getDuration(pair.executorActivity.startedAt, pair.executorActivity.updatedAt)}
+                  </span>
                 )}
-              />
-              <span className="font-medium">EXECUTOR</span>
-              <span className="text-[10px]">{getActivityIcon(pair.executorActivity.phase)}</span>
-              <span className="max-w-[120px] truncate text-[10px]">
+              </div>
+              <span className={cn(
+                "max-w-[140px] truncate text-[11px] font-medium text-foreground",
+                executorIsExecuting && "metal-sheen-text"
+              )}>
                 {pair.executorActivity.label}
               </span>
-              {isRunning && activeRole === 'executor' && (
-                <span className="text-[9px] text-muted-foreground/50">
-                  {getDuration(pair.executorActivity.startedAt, pair.executorActivity.updatedAt)}
-                </span>
+            </div>
+
+            <div className="ml-auto flex items-center gap-3">
+              {isRunning && (
+                 <div className="flex items-center gap-2 rounded-full border border-border/50 bg-background/50 px-3 py-1.5 shadow-sm animate-in fade-in slide-in-from-right-2">
+                    <RefreshCw size={12} className="animate-spin text-primary/60" />
+                    <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[150px]">
+                      {pair.currentTurnCard?.content ||
+                        (activeRole === 'mentor' ? pair.mentorActivity.detail || 'Thinking...' : pair.executorActivity.detail || 'Working...')}
+                    </span>
+                 </div>
               )}
             </div>
           </div>
-          <div className="flex-1 space-y-1 overflow-y-auto p-4 font-mono text-[13px] scrollbar-thin">
-            {pair.messages.length === 0 ? (
-              <>
-                <div className="mb-3 text-muted-foreground/60">
-                  <span className="text-muted-foreground/30">$</span> Fresh run initialized —
-                  awaiting agent handoff
-                </div>
-                <div className="text-blue-600 dark:text-blue-400">
-                  <span className="mr-2 text-muted-foreground/30">→</span>
-                  <span>[Mentor]</span>
-                  <span className="ml-2 text-muted-foreground">Preparing first instruction...</span>
-                </div>
-                <div className="text-purple-600 dark:text-purple-400">
-                  <span className="mr-2 text-muted-foreground/30">→</span>
-                  <span>[Executor]</span>
-                  <span className="ml-2 text-muted-foreground">
-                    Standing by for mentor output...
-                  </span>
-                </div>
-              </>
-            ) : (
-              pair.messages.map((msg) => (
-                <div key={msg.id} className={cn('flex items-start gap-2', getMessageColor(msg))}>
-                  <span className="mt-0.5 shrink-0 text-muted-foreground/50">
-                    {formatTime(msg.timestamp)}
-                  </span>
-                  <span className="shrink-0">{getTypeLabel(msg)}</span>
-                  <span className="shrink-0 text-muted-foreground">[{msg.from.toUpperCase()}]</span>
-                  <span className="flex-1 break-words text-foreground">{msg.content}</span>
-                </div>
-              ))
-            )}
-            {isRunning && (
-              <div
-                className={cn(
-                  'flex items-start gap-2 animate-pulse',
-                  activeRole === 'mentor'
-                    ? 'text-blue-600/70 dark:text-blue-400/70'
-                    : 'text-purple-600/70 dark:text-purple-400/70'
+
+          <div className="relative flex min-h-0 flex-1 flex-col bg-background/20">
+            <div
+              ref={scrollRef}
+              className="flex-1 min-h-0 overflow-y-auto scrollbar-thin"
+            >
+              <div className="flex flex-col gap-4 p-6 pb-36">
+                {consoleMessages.length === 0 && !pair.currentTurnCard ? (
+                  <div className="flex h-[400px] flex-col items-center justify-center space-y-4 opacity-40">
+                    <div className="h-12 w-12 rounded-full border-2 border-dashed border-muted-foreground/30 animate-[spin_10s_linear_infinite]" />
+                    <div className="text-center space-y-1">
+                      <p className="text-xs font-bold uppercase tracking-[0.2em]">Fresh Session</p>
+                      <p className="text-[10px]">Awaiting first agent instruction</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {consoleMessages.map((msg) => (
+                      <MessageCard msg={msg} key={msg.id} />
+                    ))}
+                  </div>
                 )}
-              >
-                <span className="mt-0.5 shrink-0 text-muted-foreground/50">
-                  {formatTime(
-                    activeRole === 'mentor'
-                      ? pair.mentorActivity.updatedAt
-                      : pair.executorActivity.updatedAt
-                  )}
-                </span>
-                <span>[{activeRole === 'mentor' ? 'MENTOR' : 'EXECUTOR'}]</span>
-                <span>
-                  {getActivityIcon(
-                    activeRole === 'mentor'
-                      ? pair.mentorActivity.phase
-                      : pair.executorActivity.phase
-                  )}
-                </span>
-                <span className="text-muted-foreground/70">
-                  {activeRole === 'mentor'
-                    ? pair.mentorActivity.label
-                    : pair.executorActivity.label}
-                  {(() => {
-                    const detail =
-                      activeRole === 'mentor'
-                        ? pair.mentorActivity.detail
-                        : pair.executorActivity.detail
-                    return (
-                      detail && <span className="ml-1 text-muted-foreground/50">({detail})</span>
-                    )
-                  })()}
-                </span>
+                {pair.currentTurnCard && (
+                  <div className="pt-1">
+                    <TurnCardView card={pair.currentTurnCard} />
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
 
@@ -525,7 +669,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
             <div className="space-y-3">
               <div className="glass-card rounded-2xl p-3">
                 <div className="mb-2 text-[10px] text-muted-foreground">Pair Total</div>
-                <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
+                <ResourceMeter cpu={pair.cpuUsage} mem={Math.round(pair.memUsage)} />
               </div>
               <div className="glass-card rounded-2xl p-3">
                 <div className="mb-2 flex items-center gap-2">
@@ -542,7 +686,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>CPU: {pair.mentorCpu.toFixed(1)}%</span>
-                  <span>MEM: {pair.mentorMemMb}MB</span>
+                  <span>MEM: {Math.round(pair.mentorMemMb)}MB</span>
                 </div>
               </div>
               <div className="glass-card rounded-2xl p-3">
@@ -560,7 +704,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>CPU: {pair.executorCpu.toFixed(1)}%</span>
-                  <span>MEM: {pair.executorMemMb}MB</span>
+                  <span>MEM: {Math.round(pair.executorMemMb)}MB</span>
                 </div>
               </div>
             </div>
@@ -644,33 +788,113 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
   )
 }
 
+function AppSkeleton(): React.ReactNode {
+  return (
+    <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
+      <div className="flex h-full flex-col">
+        {/* Chrome Skeleton */}
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md">
+          <div className="flex items-center gap-4">
+            <div className="flex h-6 w-6 items-center justify-center text-blue-500">
+              <span className="metal-sheen-emblem">
+                <Zap size={16} fill="currentColor" />
+              </span>
+            </div>
+            <div className="h-4 w-32 animate-pulse rounded-md bg-muted/20" />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 animate-pulse rounded-full bg-muted/30" />
+            <div className="h-8 w-24 animate-pulse rounded-full bg-muted/30" />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-hidden p-8">
+          <div className="mx-auto flex h-full max-w-4xl flex-col justify-center gap-6">
+            <div className="space-y-4">
+              <div className="h-10 w-64 animate-pulse rounded-lg bg-muted/40" />
+              <div className="h-4 w-full max-w-2xl animate-pulse rounded bg-muted/20" />
+            </div>
+
+            <div className="rounded-[28px] border border-border/50 bg-muted/5 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.08)]">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-blue-500/10 text-blue-500">
+                  <span className="metal-sheen-emblem">
+                    <Zap size={18} fill="currentColor" />
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-40 rounded bg-muted/40" />
+                  <div className="h-3 w-full rounded bg-muted/20" />
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-3">
+                <div className="h-3 w-full rounded bg-muted/15" />
+                <div className="h-3 w-5/6 rounded bg-muted/15" />
+                <div className="h-3 w-2/3 rounded bg-muted/15" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function App(): React.ReactNode {
   const [selectedPairId, setSelectedPairId] = useState<string | null>(null)
   const [isCreatePairOpen, setIsCreatePairOpen] = useState(false)
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false)
   const [isPairSettingsOpen, setIsPairSettingsOpen] = useState(false)
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [isRecoveryDismissed, setIsRecoveryDismissed] = useState(false)
+  const [isRestoringSession, setIsRestoringSession] = useState(false)
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
+  const recoverableSessions = usePairStore((state) => state.recoverableSessions)
   const loadAvailableModels = usePairStore((state) => state.loadAvailableModels)
+  const loadRecoverableSessions = usePairStore((state) => state.loadRecoverableSessions)
+  const flushSnapshots = usePairStore((state) => state.flushSnapshots)
   const initMessageListener = usePairStore((state) => state.initMessageListener)
+  const restoreSession = usePairStore((state) => state.restoreSession)
   const removePair = usePairStore((state) => state.removePair)
 
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
 
   useEffect(() => {
-    loadAvailableModels()
-    initMessageListener()
-  }, [loadAvailableModels, initMessageListener])
+    const init = async (): Promise<void> => {
+      // Parallel execution but wait for models to finish
+      await Promise.all([
+        loadAvailableModels(),
+        initMessageListener(),
+        loadRecoverableSessions()
+      ])
+      
+      setIsInitializing(false)
+    }
+    init()
+  }, [loadAvailableModels, initMessageListener, loadRecoverableSessions])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
   }, [theme])
 
+  useEffect(() => {
+    const handleBeforeUnload = (): void => {
+      void flushSnapshots()
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [flushSnapshots])
+
   const selectedPair = pairs.find((p) => p.id === selectedPairId) ?? null
   const readyModelCount = availableModels.filter((model) => model.available).length
-  const showOnboarding = pairs.length === 0
+  const showOnboarding = !isInitializing && pairs.length === 0
+  const showRecoveryPrompt =
+    !isInitializing && !isRecoveryDismissed && recoverableSessions.length > 0 && pairs.length === 0
 
   const handleStopSelectedPair = (): void => {
     if (!selectedPair) return
@@ -680,55 +904,84 @@ function App(): React.ReactNode {
     setIsPairSettingsOpen(false)
   }
 
-  if (showOnboarding) {
-    return (
-      <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
-        <OnboardingWizard onComplete={() => {}} />
-      </div>
-    )
+  const handleRestoreSession = async (pairId: string): Promise<void> => {
+    setIsRestoringSession(true)
+    try {
+      await restoreSession(pairId, true)
+      setSelectedPairId(pairId)
+      setIsRecoveryDismissed(true)
+    } catch (error) {
+      console.error('[App] Failed to restore session:', error)
+    } finally {
+      setIsRestoringSession(false)
+    }
+  }
+
+  const handleDismissRecovery = (): void => {
+    setIsRecoveryDismissed(true)
+  }
+
+  if (isInitializing) {
+    return <AppSkeleton />
   }
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
-      <div className="flex h-full flex-col">
-        <AppChrome
-          selectedPair={selectedPair}
-          readyModelCount={readyModelCount}
-          totalModelCount={availableModels.length}
-          theme={theme}
-          onToggleTheme={toggleTheme}
-          onNewPair={() => setIsCreatePairOpen(true)}
-          onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
-          onAssignTask={selectedPair ? () => setIsAssignTaskOpen(true) : undefined}
-          onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
-        />
+      {showOnboarding ? (
+        <OnboardingWizard onComplete={() => {}} />
+      ) : (
+        <div className="flex h-full flex-col">
+          <AppChrome
+            selectedPair={selectedPair}
+            readyModelCount={readyModelCount}
+            totalModelCount={availableModels.length}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            onNewPair={() => setIsCreatePairOpen(true)}
+            onBack={selectedPair ? () => setSelectedPairId(null) : undefined}
+            onAssignTask={selectedPair ? () => setIsAssignTaskOpen(true) : undefined}
+            onOpenSettings={selectedPair ? () => setIsPairSettingsOpen(true) : undefined}
+          />
 
-        <div className="flex-1 overflow-hidden">
-          {selectedPair ? (
-            <PairDetail pair={selectedPair} onStop={handleStopSelectedPair} />
-          ) : (
-            <Dashboard onSelectPair={(pair) => setSelectedPairId(pair.id)} />
-          )}
+          <div className="flex-1 overflow-hidden">
+            {selectedPair ? (
+              <PairDetail pair={selectedPair} onStop={handleStopSelectedPair} />
+            ) : (
+              <Dashboard onSelectPair={(pair) => setSelectedPairId(pair.id)} />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      <CreatePairModal isOpen={isCreatePairOpen} onClose={() => setIsCreatePairOpen(false)} />
-      <AssignTaskModal
-        key={selectedPair ? `assign-${selectedPair.id}-${String(isAssignTaskOpen)}` : 'assign-none'}
-        pair={selectedPair}
-        isOpen={isAssignTaskOpen}
-        onClose={() => setIsAssignTaskOpen(false)}
+      <SessionRecoveryModal
+        sessions={recoverableSessions}
+        isOpen={showRecoveryPrompt}
+        isRestoring={isRestoringSession}
+        onRestore={handleRestoreSession}
+        onDismiss={handleDismissRecovery}
       />
-      <PairSettingsModal
-        key={
-          selectedPair
-            ? `settings-${selectedPair.id}-${String(isPairSettingsOpen)}`
-            : 'settings-none'
-        }
-        pair={selectedPair}
-        isOpen={isPairSettingsOpen}
-        onClose={() => setIsPairSettingsOpen(false)}
-      />
+
+      {!showOnboarding && (
+        <>
+          <CreatePairModal isOpen={isCreatePairOpen} onClose={() => setIsCreatePairOpen(false)} />
+          <AssignTaskModal
+            key={selectedPair ? `assign-${selectedPair.id}-${String(isAssignTaskOpen)}` : 'assign-none'}
+            pair={selectedPair}
+            isOpen={isAssignTaskOpen}
+            onClose={() => setIsAssignTaskOpen(false)}
+          />
+          <PairSettingsModal
+            key={
+              selectedPair
+                ? `settings-${selectedPair.id}-${String(isPairSettingsOpen)}`
+                : 'settings-none'
+            }
+            pair={selectedPair}
+            isOpen={isPairSettingsOpen}
+            onClose={() => setIsPairSettingsOpen(false)}
+          />
+        </>
+      )}
     </div>
   )
 }

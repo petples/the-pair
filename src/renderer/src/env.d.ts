@@ -3,30 +3,39 @@
 interface Window {
   api: {
     pair: {
-      create: (input: any) => Promise<any>
-      assignTask: (pairId: string, input: any) => Promise<any>
-      updateModels: (pairId: string, input: any) => Promise<any>
-      stop: (pairId: string) => Promise<any>
-      retryTurn: (pairId: string) => Promise<any>
-      list: () => Promise<any>
-      getMessages: (pairId: string) => Promise<any>
-      getState: (pairId: string) => Promise<any>
-      humanFeedback: (pairId: string, approved: boolean) => Promise<any>
-      onCreated: (callback: (data: any) => void) => Promise<any>
-      onStopped: (callback: (data: any) => void) => Promise<any>
-      onMessage: (callback: (data: any) => void) => Promise<any>
-      onState: (callback: (data: any) => void) => Promise<any>
+      create: (input: unknown) => Promise<unknown>
+      assignTask: (pairId: string, input: unknown) => Promise<unknown>
+      updateModels: (pairId: string, input: unknown) => Promise<unknown>
+      stop: (pairId: string) => Promise<unknown>
+      retryTurn: (pairId: string) => Promise<unknown>
+      list: () => Promise<unknown>
+      getMessages: (pairId: string) => Promise<unknown>
+      getState: (pairId: string) => Promise<unknown>
+      humanFeedback: (pairId: string, approved: boolean) => Promise<unknown>
+      onCreated: (callback: (data: unknown) => void) => Promise<unknown>
+      onStopped: (callback: (data: unknown) => void) => Promise<unknown>
+      onMessage: (callback: (data: unknown) => void) => Promise<unknown>
+      onState: (callback: (data: unknown) => void) => Promise<unknown>
+      onHandoff: (callback: (data: unknown) => void) => Promise<unknown>
+    }
+    session: {
+      saveSnapshot: (input: unknown) => Promise<unknown>
+      listRecoverable: () => Promise<unknown>
+      restore: (pairId: string, continueRun?: boolean) => Promise<unknown>
     }
     config: {
-      getModels: () => Promise<any>
-      getProviders: () => Promise<any>
-      read: () => Promise<any>
-      openFile: () => Promise<any>
+      getModels: () => Promise<unknown>
+      getProviders: () => Promise<unknown>
+      read: () => Promise<unknown>
+      openFile: () => Promise<unknown>
       getVersion: () => Promise<string>
     }
     file: {
-      listFiles: (options: any) => Promise<any>
-      parseMentions: (pairId: string, spec: string) => Promise<any>
+      listFiles: (options: {
+        pairId?: string
+        directory?: string
+      }) => Promise<Array<{ path: string; type: 'file' | 'directory' }>>
+      parseMentions: (pairId: string, spec: string) => Promise<string>
     }
   }
 }

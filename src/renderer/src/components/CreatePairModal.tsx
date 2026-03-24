@@ -5,6 +5,7 @@ import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
 import { ModelPicker } from './ModelPicker'
+import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
 
 interface CreatePairModalProps {
@@ -31,13 +32,10 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
-      const defaultEntry = availableModels.find((model) => model.available) ?? availableModels[0]
-      const defaultModel =
-        defaultEntry.provider === 'opencode'
-          ? defaultEntry.modelId
-          : `${defaultEntry.provider}/${defaultEntry.modelId}`
-      setMentorModel(defaultModel)
-      setExecutorModel(defaultModel)
+      const mentorDefault = getPreferredQualifiedModel('mentor', availableModels)
+      const executorDefault = getPreferredQualifiedModel('executor', availableModels)
+      setMentorModel(mentorDefault)
+      setExecutorModel(executorDefault)
     }
   }, [availableModels, mentorModel])
 

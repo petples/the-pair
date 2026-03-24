@@ -7,6 +7,8 @@ mod resource_monitor;
 mod stubs;
 mod provider_registry;
 mod model_catalog;
+mod file_cache;
+mod session_snapshot;
 
 use pair_manager::PairManager;
 use message_broker::MessageBroker;
@@ -42,8 +44,11 @@ pub fn run() {
       stubs::config_get_providers,
       stubs::config_read,
       stubs::config_open_file,
-      stubs::file_list_files,
-      stubs::file_parse_mentions
+      file_cache::file_list_files,
+      file_cache::file_parse_mentions,
+      session_snapshot::session_save_snapshot,
+      session_snapshot::list_recoverable_sessions,
+      session_snapshot::restore_session
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

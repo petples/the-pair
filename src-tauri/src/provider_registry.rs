@@ -155,11 +155,13 @@ impl ProviderRegistry {
 
     fn detect_opencode() -> DetectedProviderProfile {
         let installed = which_binary("opencode");
-        let config_path = homedir().join(".config/opencode/opencode.json");
-        let authenticated = config_path.exists();
-        
         let mut models = Vec::new();
-        if authenticated {
+        let mut authenticated = false;
+
+        // 1. Detect from ~/.config/opencode/opencode.json (user custom models)
+        let config_path = homedir().join(".config/opencode/opencode.json");
+        if config_path.exists() {
+            authenticated = true;
             if let Some(config) = safe_read_json(config_path) {
                 if let Some(providers) = config.get("provider").and_then(|p| p.as_object()) {
                     for (provider_id, provider_data) in providers {
@@ -173,7 +175,7 @@ impl ProviderRegistry {
                                     model_id: format!("{}/{}", provider_id, model_id),
                                     display_name,
                                     source_provider: Some(provider_id.clone()),
-                                    subscription_label: "provider-backed".into(),
+                                    subscription_label: "custom-provider".into(),
                                     supports_pair_execution: true,
                                     runnable: true,
                                 });
@@ -184,13 +186,69 @@ impl ProviderRegistry {
             }
         }
 
+        // 2. Detect from ~/.local/share/opencode/auth.json (internal providers via /connect)
+        let auth_path = homedir().join(".local/share/opencode/auth.json");
+        let mut internal_providers = Vec::new();
+        if auth_path.exists() {
+            authenticated = true;
+            if let Some(auth_data) = safe_read_json(auth_path) {
+                if let Some(obj) = auth_data.as_object() {
+                    for provider_id in obj.keys() {
+                        internal_providers.push(provider_id.clone());
+                    }
+                }
+            }
+        }
+
+        // 3. Detect from 'opencode models' command output
+        if installed {
+            let output = Command::new("opencode")
+                .arg("models")
+                .output();
+            
+            if let Ok(o) = output {
+                if o.status.success() {
+                    let content = String::from_utf8_lossy(&o.stdout);
+                    for line in content.lines() {
+                        let line = line.trim();
+                        if line.is_empty() { continue; }
+                        
+                        // Check if we already added this model from config
+                        if models.iter().any(|m| m.model_id == line) { continue; }
+
+                        let parts: Vec<&str> = line.split('/').collect();
+                        if parts.len() >= 2 {
+                            let provider_id = parts[0];
+                            let model_name = parts[1..].join("/");
+                            
+                            // Check if this model belongs to an authenticated provider (either internal or custom)
+                            let is_authenticated = internal_providers.contains(&provider_id.to_string()) || 
+                                                 models.iter().any(|m| m.source_provider.as_deref() == Some(provider_id));
+
+                            if is_authenticated {
+                                models.push(DetectedModelOption {
+                                    model_id: line.to_string(),
+                                    display_name: model_name,
+                                    source_provider: Some(provider_id.to_string()),
+                                    subscription_label: if provider_id == "opencode" { "zen-backed".into() } else { "internal-provider".into() },
+                                    supports_pair_execution: true,
+                                    runnable: true,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback defaults if still empty
         if models.is_empty() && installed {
             for m in &["claude-3-5-sonnet", "gpt-4o"] {
                 models.push(DetectedModelOption {
                     model_id: format!("opencode/{}", m),
                     display_name: m.to_string(),
                     source_provider: Some("openai".into()),
-                    subscription_label: "provider-backed".into(),
+                    subscription_label: "zen-backed".into(),
                     supports_pair_execution: true,
                     runnable: true,
                 });
@@ -202,7 +260,7 @@ impl ProviderRegistry {
             installed,
             authenticated,
             runnable: installed,
-            subscription_label: "provider-backed".into(),
+            subscription_label: "multi-provider".into(),
             current_models: models,
             detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
         }
@@ -210,17 +268,41 @@ impl ProviderRegistry {
 
     fn detect_codex() -> DetectedProviderProfile {
         let installed = which_binary("codex");
-        let auth_path = homedir().join(".codex/auth.json");
-        let authenticated = auth_path.exists();
+        let homedir = homedir();
+        let auth_path = homedir.join(".codex/auth.json");
+        let config_path = homedir.join(".codex/config.toml");
         
+        let authenticated = auth_path.exists();
         let mut models = Vec::new();
-        if authenticated {
-             for m in &["gpt-4o", "gpt-4o-mini"] {
+        let subscription_label = "subscription-backed".to_string();
+
+        if authenticated || config_path.exists() {
+            // Default common models
+            let mut model_ids = vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string(), "o1".to_string(), "o3".to_string()];
+            
+            // Try to extract current model from config.toml
+            if config_path.exists() {
+                if let Ok(content) = fs::read_to_string(&config_path) {
+                    // Primitive regex-like matching for "model = \"...\""
+                    for line in content.lines() {
+                        let line = line.trim();
+                        if line.starts_with("model =") {
+                            if let Some(m) = line.split('"').nth(1) {
+                                if !model_ids.contains(&m.to_string()) {
+                                    model_ids.push(m.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for m in model_ids {
                 models.push(DetectedModelOption {
-                    model_id: m.to_string(),
-                    display_name: m.to_string(),
+                    model_id: m.clone(),
+                    display_name: m,
                     source_provider: Some("openai".into()),
-                    subscription_label: "subscription-backed".into(),
+                    subscription_label: subscription_label.clone(),
                     supports_pair_execution: true,
                     runnable: true,
                 });
@@ -231,8 +313,8 @@ impl ProviderRegistry {
             kind: ProviderKind::Codex,
             installed,
             authenticated,
-            runnable: installed,
-            subscription_label: "subscription-backed".into(),
+            runnable: installed && (authenticated || config_path.exists()),
+            subscription_label,
             current_models: models,
             detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
         }
@@ -241,21 +323,89 @@ impl ProviderRegistry {
     fn detect_claude() -> DetectedProviderProfile {
         let installed = which_binary("claude");
         let mut authenticated = false;
+        let mut subscription_label = "api-backed".to_string();
+        let mut models = Vec::new();
+
         if installed {
-            authenticated = Command::new("claude")
-                .arg("--version")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
+            let output = Command::new("claude")
+                .arg("auth")
+                .arg("status")
+                .output();
+            
+            if let Ok(o) = output {
+                let status_str = String::from_utf8_lossy(&o.stdout);
+                if let Ok(status) = serde_json::from_str::<serde_json::Value>(&status_str) {
+                    if status.get("loggedIn").and_then(|v| v.as_bool()).unwrap_or(false) {
+                        authenticated = true;
+                        subscription_label = "subscription-backed".to_string();
+                    }
+                }
+            }
+
+            // Also check for ANTHROPIC_API_KEY env var as fallback auth
+            if !authenticated && std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                authenticated = true;
+            }
+
+            if authenticated {
+                for m in &["claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus", "claude-3-7-sonnet"] {
+                    models.push(DetectedModelOption {
+                        model_id: m.to_string(),
+                        display_name: m.to_string(),
+                        source_provider: Some("anthropic".into()),
+                        subscription_label: subscription_label.clone(),
+                        supports_pair_execution: true,
+                        runnable: true,
+                    });
+                }
+            }
         }
 
+        DetectedProviderProfile {
+            kind: ProviderKind::Claude,
+            installed,
+            authenticated,
+            runnable: installed && authenticated,
+            subscription_label,
+            current_models: models,
+            detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+        }
+    }
+
+    fn detect_gemini() -> DetectedProviderProfile {
+        let installed = which_binary("gemini");
+        let homedir = homedir();
+        let settings_path = homedir.join(".gemini/settings.json");
+        let mut authenticated = false;
         let mut models = Vec::new();
-        if authenticated {
-            for m in &["claude-3-5-sonnet", "claude-3-5-haiku"] {
+        let mut current_model = "gemini-1.5-pro".to_string();
+
+        if settings_path.exists() {
+            authenticated = true;
+            if let Some(settings) = safe_read_json(settings_path) {
+                if let Some(name) = settings.get("model").and_then(|m| m.get("name")).and_then(|n| n.as_str()) {
+                    current_model = name.to_string();
+                }
+            }
+        }
+
+        if installed {
+            let model_ids = vec![
+                "gemini-1.5-pro".to_string(), 
+                "gemini-1.5-flash".to_string(),
+                "gemini-2.0-flash".to_string(),
+                "gemini-2.0-pro-exp".to_string(),
+                "gemini-2.5-pro".to_string(),
+                "gemini-2.5-flash".to_string(),
+            ];
+
+            for m in model_ids {
+                // Check if this is the currently selected model in settings
+                let _is_current = m == current_model;
                 models.push(DetectedModelOption {
-                    model_id: m.to_string(),
-                    display_name: m.to_string(),
-                    source_provider: Some("anthropic".into()),
+                    model_id: m.clone(),
+                    display_name: m,
+                    source_provider: Some("google".into()),
                     subscription_label: "subscription-backed".into(),
                     supports_pair_execution: true,
                     runnable: true,
@@ -264,39 +414,11 @@ impl ProviderRegistry {
         }
 
         DetectedProviderProfile {
-            kind: ProviderKind::Claude,
-            installed,
-            authenticated,
-            runnable: installed,
-            subscription_label: "subscription-backed".into(),
-            current_models: models,
-            detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
-        }
-    }
-
-    fn detect_gemini() -> DetectedProviderProfile {
-        let installed = which_binary("gemini");
-        let settings_path = homedir().join(".gemini/settings.json");
-        let authenticated = settings_path.exists();
-
-        let mut models = Vec::new();
-        for m in &["gemini-1.5-pro", "gemini-1.5-flash"] {
-            models.push(DetectedModelOption {
-                model_id: m.to_string(),
-                display_name: m.to_string(),
-                source_provider: Some("google".into()),
-                subscription_label: "authenticated".into(),
-                supports_pair_execution: authenticated,
-                runnable: false,
-            });
-        }
-
-        DetectedProviderProfile {
             kind: ProviderKind::Gemini,
             installed,
             authenticated,
-            runnable: false,
-            subscription_label: "authenticated".into(),
+            runnable: installed && authenticated,
+            subscription_label: "subscription-backed".into(),
             current_models: models,
             detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
         }
@@ -339,7 +461,7 @@ impl ProviderRegistry {
         }
     }
 
-    pub fn get_arg_builder(kind: ProviderKind, model: &str, session_id: Option<&str>) -> Vec<String> {
+    pub fn get_arg_builder(kind: ProviderKind, model: &str, session_id: Option<&str>, role: &str) -> Vec<String> {
         match kind {
             ProviderKind::Opencode => {
                 let mut args = vec!["run".into(), "--model".into(), model.into()];
@@ -352,23 +474,41 @@ impl ProviderRegistry {
                 args
             }
             ProviderKind::Codex => {
-                let mut args = vec!["exec".into(), "--model".into(), model.into(), "--json".into()];
+                let mut args = vec!["exec".into(), "--model".into(), model.into()];
                 if let Some(sid) = session_id {
-                    args.push("resume".into());
+                    args.push("--session".into());
                     args.push(sid.into());
+                }
+                if role == "mentor" {
+                    args.push("--sandbox".into());
+                    args.push("read-only".into());
                 }
                 args
             }
             ProviderKind::Claude => {
-                let mut args = vec!["-p".into(), "--model".into(), model.into(), "--output-format".into(), "stream-json".into()];
+                let mut args = vec![
+                    "-p".into(),
+                    "--model".into(),
+                    model.into(),
+                    "--output-format".into(),
+                    "stream-json".into(),
+                ];
+                if role == "mentor" {
+                    args.push("--permission-mode".into());
+                    args.push("plan".into());
+                } else {
+                    args.push("--permission-mode".into());
+                    args.push("auto".into());
+                }
                 if let Some(sid) = session_id {
-                    args.push("--session-id".into());
+                    args.push("--resume".into());
                     args.push(sid.into());
                 }
                 args
             }
             ProviderKind::Gemini => {
-                vec!["--model".into(), model.into()]
+                let args = vec!["--model".into(), model.into(), "--prompt".into()];
+                args
             }
         }
     }

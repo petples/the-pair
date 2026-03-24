@@ -12,6 +12,7 @@ impl ResourceMonitor {
         sys: &mut System, 
         active_processes: Arc<Mutex<HashMap<String, Child>>>
     ) {
+        // Essential for CPU usage calculation. refresh_all handles both global and process-level metrics.
         sys.refresh_all();
         
         let mut mentor_cpu = 0.0;
@@ -25,7 +26,8 @@ impl ResourceMonitor {
         let mentor_key = format!("{}-mentor", state.pair_id);
         if let Some(child) = processes.get(&mentor_key) {
             if let Some(pid) = child.id() {
-                if let Some(process) = sys.process(Pid::from_u32(pid)) {
+                let pid_obj = Pid::from_u32(pid);
+                if let Some(process) = sys.process(pid_obj) {
                     mentor_cpu = process.cpu_usage() as f64;
                     mentor_mem = process.memory() as f64 / 1024.0 / 1024.0;
                 }
@@ -36,7 +38,8 @@ impl ResourceMonitor {
         let executor_key = format!("{}-executor", state.pair_id);
         if let Some(child) = processes.get(&executor_key) {
             if let Some(pid) = child.id() {
-                if let Some(process) = sys.process(Pid::from_u32(pid)) {
+                let pid_obj = Pid::from_u32(pid);
+                if let Some(process) = sys.process(pid_obj) {
                     executor_cpu = process.cpu_usage() as f64;
                     executor_mem = process.memory() as f64 / 1024.0 / 1024.0;
                 }

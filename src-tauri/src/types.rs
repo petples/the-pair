@@ -31,7 +31,7 @@ pub enum MessageType {
     Handoff,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageSender {
     Mentor,
@@ -123,6 +123,7 @@ pub struct CreatePairInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssignTaskInput {
     pub spec: String,
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

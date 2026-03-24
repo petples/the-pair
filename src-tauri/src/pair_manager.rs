@@ -1,8 +1,19 @@
 use crate::types::{CreatePairInput, Pair, PairStatus, AssignTaskInput};
 use crate::message_broker::MessageBroker;
 use crate::process_spawner::ProcessSpawner;
+use crate::session_snapshot::delete_pair_snapshot;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+fn build_mentor_planning_prompt(task_spec: &str) -> String {
+    format!(
+        "ROLE: MENTOR. Analyze the following task and provide a detailed PLAN for the EXECUTOR. \
+DO NOT execute it yourself. \
+DO NOT run commands or edit files. \
+Return ONLY a concrete PLAN with numbered executable steps (no intent-only preface).\n\nTASK: {}",
+        task_spec
+    )
+}
 
 pub struct PairManager {
     pairs: HashMap<String, Pair>,
@@ -51,6 +62,14 @@ impl PairManager {
         Ok(pair)
     }
 
+    pub fn get_pair(&self, pair_id: &str) -> Option<Pair> {
+        self.pairs.get(pair_id).cloned()
+    }
+
+    pub fn upsert_pair(&mut self, pair: Pair) {
+        self.pairs.insert(pair.pair_id.clone(), pair);
+    }
+
     pub fn list_pairs(&self) -> Vec<Pair> {
         self.pairs.values().cloned().collect()
     }
@@ -76,6 +95,7 @@ pub async fn pair_create(
     println!("[pair_create] Initial task spec: {}", input.spec);
     
     let task_spec = input.spec.clone();
+    let mentor_bootstrap_prompt = build_mentor_planning_prompt(&task_spec);
     
     let pair = {
         let mut manager = state.lock().unwrap();
@@ -90,7 +110,6 @@ pub async fn pair_create(
         {
             let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
             ctx_guard.insert(pair_id.clone(), crate::process_spawner::ProcessContext {
-                pair_id: pair_id.clone(),
                 directory: pair.directory.clone(),
                 mentor_model: pair.mentor_model.clone(),
                 executor_model: pair.executor_model.clone(),
@@ -100,7 +119,7 @@ pub async fn pair_create(
         }
         
         // Start watching
-        broker_guard.start_watching(&pair_id, spawner.active_processes.clone());
+        broker_guard.prepare_run(&pair_id, "mentor", spawner.active_processes.clone());
         
         pair
     };
@@ -110,7 +129,9 @@ pub async fn pair_create(
     // Trigger the initial task
     if !task_spec.trim().is_empty() {
         println!("[pair_create] Starting initial task...");
-        spawner.trigger_turn(app, pair_id, "mentor".to_string(), task_spec).await?;
+        spawner
+            .trigger_turn(app, pair_id, "mentor".to_string(), mentor_bootstrap_prompt)
+            .await?;
         println!("[pair_create] Initial task triggered successfully");
     }
     
@@ -139,24 +160,45 @@ pub async fn pair_assign_task(
     
     {
         let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
+        let existing = ctx_guard.get(&pair_id).map(|ctx| {
+            (
+                ctx.mentor_session_id.clone(),
+                ctx.executor_session_id.clone(),
+            )
+        });
+        let is_new_run = input.role.is_none();
         ctx_guard.insert(pair_id.clone(), crate::process_spawner::ProcessContext {
-            pair_id: pair_id.clone(),
             directory: pair.directory.clone(),
             mentor_model: pair.mentor_model.clone(),
             executor_model: pair.executor_model.clone(),
-            mentor_session_id: None,
-            executor_session_id: None,
+            mentor_session_id: if is_new_run {
+                None
+            } else {
+                existing.as_ref().and_then(|(mentor_sid, _)| mentor_sid.clone())
+            },
+            executor_session_id: if is_new_run {
+                None
+            } else {
+                existing.as_ref().and_then(|(_, executor_sid)| executor_sid.clone())
+            },
         });
     }
 
+    let role = input.role.clone().unwrap_or("mentor".to_string());
+    let turn_prompt = if input.role.is_none() {
+        build_mentor_planning_prompt(&input.spec)
+    } else {
+        input.spec
+    };
+
     {
         let broker_guard = broker.lock().unwrap();
-        broker_guard.start_watching(&pair_id, spawner.active_processes.clone());
+        broker_guard.prepare_run(&pair_id, &role, spawner.active_processes.clone());
     }
     
-    println!("[pair_assign_task] About to trigger mentor turn...");
-    spawner.trigger_turn(app, pair_id, "mentor".to_string(), input.spec).await?;
-    println!("[pair_assign_task] Mentor turn triggered successfully");
+    println!("[pair_assign_task] About to trigger {} turn...", role);
+    spawner.trigger_turn(app, pair_id, role.clone(), turn_prompt).await?;
+    println!("[pair_assign_task] {} turn triggered successfully", role);
     
     Ok(())
 }
@@ -169,9 +211,41 @@ pub fn pair_list(state: tauri::State<std::sync::Mutex<PairManager>>) -> Result<V
 
 #[tauri::command]
 pub fn pair_delete(
+    app: tauri::AppHandle,
     state: tauri::State<std::sync::Mutex<PairManager>>,
+    spawner: tauri::State<'_, ProcessSpawner>,
     pair_id: String,
 ) -> Result<(), String> {
+    // Terminate processes
+    {
+        let mut active_processes = spawner.active_processes.lock().unwrap();
+        
+        // Kill mentor process if active
+        let mentor_key = format!("{}-mentor", pair_id);
+        if let Some(mut child) = active_processes.remove(&mentor_key) {
+            println!("[pair_delete] Killing mentor process for {}", pair_id);
+            let _ = child.start_kill();
+        }
+        
+        // Kill executor process if active
+        let executor_key = format!("{}-executor", pair_id);
+        if let Some(mut child) = active_processes.remove(&executor_key) {
+            println!("[pair_delete] Killing executor process for {}", pair_id);
+            let _ = child.start_kill();
+        }
+    }
+
+    // Remove pair context
+    {
+        let mut pair_contexts = spawner.pair_contexts.lock().unwrap();
+        pair_contexts.remove(&pair_id);
+    }
+
+    // Remove from manager
     let mut manager = state.lock().unwrap();
-    manager.delete_pair(&pair_id)
+    manager.delete_pair(&pair_id)?;
+
+    let _ = delete_pair_snapshot(&app, &pair_id);
+
+    Ok(())
 }

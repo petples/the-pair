@@ -92,10 +92,23 @@ impl MessageBroker {
     }
 
     #[allow(dead_code)]
-    pub fn add_message(&self, pair_id: &str, message: Message) {
+    pub fn add_message(&self, pair_id: &str, mut message: Message) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
-            state.messages.push(message.clone());
+            // Assign current iteration
+            message.iteration = state.iteration;
+
+            // Update last message for the sender - only for high-signal messages
+            if message.msg_type == MessageType::Plan || message.msg_type == MessageType::Result {
+                if matches!(message.from, MessageSender::Mentor) {
+                    state.mentor.last_message = Some(message.clone());
+                } else if matches!(message.from, MessageSender::Executor) {
+                    state.executor.last_message = Some(message.clone());
+                }
+                
+                // Only add high-signal messages to the conversation history
+                state.messages.push(message.clone());
+            }
             
             if message.msg_type == MessageType::Handoff {
                 state.turn = if matches!(state.turn, AgentRole::Mentor) {
@@ -108,15 +121,19 @@ impl MessageBroker {
 
             self.notify_state_update(pair_id, state);
             
+            // Emit all message types for real-time UI updates
             if let Some(handle) = &self.app_handle {
-                let _ = handle.emit("pair:message", message);
+                let _ = handle.emit("pair:message", serde_json::json!({
+                    "pairId": pair_id,
+                    "message": message
+                }));
             }
         }
     }
 
     pub fn add_log_line(&self, pair_id: &str, role: &str, line: &str) {
-        let mut pair_states = self.pair_states.lock().unwrap();
-        if let Some(state) = pair_states.get_mut(pair_id) {
+        let pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get(pair_id) {
             let msg = Message {
                 id: uuid::Uuid::new_v4().to_string(),
                 timestamp: Self::now(),
@@ -127,69 +144,122 @@ impl MessageBroker {
                 iteration: state.iteration,
             };
             
-            state.messages.push(msg.clone());
-            
             if let Some(handle) = &self.app_handle {
-                let _ = handle.emit("pair:message", msg);
-                let _ = handle.emit("pair:state", state.clone());
+                let _ = handle.emit("pair:message", serde_json::json!({
+                    "pairId": pair_id,
+                    "message": msg
+                }));
+                // We no longer push to state.messages to keep context clean for agents
             }
         }
     }
 
-    pub fn start_watching(&self, pair_id: &str, active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>) {
+    pub fn prepare_run(&self, pair_id: &str, role: &str, active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>) {
         let mut pair_states = self.pair_states.lock().unwrap();
+        let mut should_spawn_monitor = false;
+
         if let Some(state) = pair_states.get_mut(pair_id) {
-            state.status = PairStatus::Mentoring;
-            state.turn = AgentRole::Mentor;
-            state.iteration = 1;
+            let previous_status = state.status.clone();
+
+            // Only spawn monitor if we're starting from a stopped state
+            if matches!(
+                state.status,
+                PairStatus::Idle | PairStatus::Finished | PairStatus::Error | PairStatus::AwaitingHumanReview
+            ) {
+                should_spawn_monitor = true;
+            }
+
+            // Update status based on role
+            state.status = if role == "mentor" { PairStatus::Mentoring } else { PairStatus::Executing };
+            state.turn = if role == "mentor" { AgentRole::Mentor } else { AgentRole::Executor };
             
-            state.mentor.status = PairStatus::Executing;
-            state.mentor_activity.phase = ActivityPhase::Thinking;
-            state.mentor_activity.label = "Analyzing task".to_string();
-            state.mentor_activity.detail = Some("Preparing first instruction".to_string());
-            state.mentor_activity.updated_at = Self::now();
-            
-            state.executor_activity.phase = ActivityPhase::Waiting;
-            state.executor_activity.label = "Executor standing by".to_string();
-            state.executor_activity.updated_at = Self::now();
+            if role == "mentor" {
+                if matches!(
+                    previous_status,
+                    PairStatus::Idle | PairStatus::Finished | PairStatus::Error
+                ) || state.iteration == 0 {
+                    state.iteration = 1;
+                } else {
+                    state.iteration = state.iteration.saturating_add(1);
+                }
+                state.mentor.status = PairStatus::Executing;
+                state.mentor_activity.phase = ActivityPhase::Thinking;
+                state.mentor_activity.label = "Analyzing task".to_string();
+                state.mentor_activity.detail = Some("Preparing first instruction".to_string());
+                state.mentor_activity.updated_at = Self::now();
+                
+                state.executor_activity.phase = ActivityPhase::Waiting;
+                state.executor_activity.label = "Executor standing by".to_string();
+                state.executor_activity.updated_at = Self::now();
+            } else {
+                // Increment iteration for executor turn? Or keep same? Let's keep consistent with add_message logic
+                // If it's a handoff, we might want to increment iteration count here or let it be handled elsewhere
+                // For now, let's just set the activities
+                state.executor.status = PairStatus::Executing;
+                state.executor_activity.phase = ActivityPhase::Thinking;
+                state.executor_activity.label = "Executing plan".to_string();
+                state.executor_activity.detail = Some("Processing instructions".to_string());
+                state.executor_activity.updated_at = Self::now();
+
+                state.mentor_activity.phase = ActivityPhase::Waiting;
+                state.mentor_activity.label = "Mentor observing".to_string();
+                state.mentor_activity.updated_at = Self::now();
+            }
 
             self.notify_state_update(pair_id, state);
             
-            println!("[MessageBroker] Started watching pair {}", pair_id);
+            println!("[MessageBroker] Prepared run for pair {} as {}", pair_id, role);
         }
         drop(pair_states);
 
-        let pair_states_clone = self.pair_states.clone();
-        let app_handle_clone = self.app_handle.clone();
-        let pair_id_string = pair_id.to_string();
-        let active_processes_clone = active_processes.clone();
+        if should_spawn_monitor {
+            let pair_states_clone = self.pair_states.clone();
+            let app_handle_clone = self.app_handle.clone();
+            let pair_id_string = pair_id.to_string();
+            let active_processes_clone = active_processes.clone();
 
-        tauri::async_runtime::spawn(async move {
-            let mut sys = sysinfo::System::new_all();
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                let mut guard = pair_states_clone.lock().unwrap();
-                if let Some(state) = guard.get_mut(&pair_id_string) {
-                    if matches!(state.status, PairStatus::Finished | PairStatus::Error | PairStatus::Idle) {
+            tauri::async_runtime::spawn(async move {
+                let mut sys = sysinfo::System::new_all();
+                loop {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    let mut guard = pair_states_clone.lock().unwrap();
+                    if let Some(state) = guard.get_mut(&pair_id_string) {
+                        if matches!(
+                            state.status,
+                            PairStatus::Finished
+                                | PairStatus::Error
+                                | PairStatus::Idle
+                                | PairStatus::AwaitingHumanReview
+                        ) {
+                            break;
+                        }
+                        
+                        crate::git_tracker::GitTracker::update_state(state);
+                        crate::resource_monitor::ResourceMonitor::update_state(state, &mut sys, active_processes_clone.clone());
+                        
+                        if let Some(handle) = &app_handle_clone {
+                            let _ = handle.emit("pair:state", state.clone());
+                        }
+                    } else {
                         break;
                     }
-                    
-                    crate::git_tracker::GitTracker::update_state(state);
-                    crate::resource_monitor::ResourceMonitor::update_state(state, &mut sys, active_processes_clone.clone());
-                    
-                    if let Some(handle) = &app_handle_clone {
-                        let _ = handle.emit("pair:state", state.clone());
-                    }
-                } else {
-                    break;
                 }
-            }
-        });
+            });
+        }
     }
 
     pub fn get_state(&self, pair_id: &str) -> Option<PairState> {
         let pair_states = self.pair_states.lock().unwrap();
         pair_states.get(pair_id).cloned()
+    }
+
+    pub fn restore_state(&self, state: PairState) -> Result<(), String> {
+        let pair_id = state.pair_id.clone();
+        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
+        pair_states.insert(pair_id.clone(), state.clone());
+        drop(pair_states);
+        self.notify_state_update(&pair_id, &state);
+        Ok(())
     }
 
     pub fn update_agent_activity(&self, pair_id: &str, role: &str, phase: crate::types::ActivityPhase, label: String, detail: Option<String>) {
@@ -207,6 +277,54 @@ impl MessageBroker {
              activity.updated_at = Self::now();
              
              self.notify_state_update(pair_id, state);
+        }
+    }
+
+    pub fn set_pair_status(&self, pair_id: &str, status: PairStatus, detail: Option<String>) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.status = status.clone();
+            state.mentor.status = status.clone();
+            state.executor.status = status.clone();
+
+            match status {
+                PairStatus::Finished => {
+                    state.mentor_activity.phase = ActivityPhase::Idle;
+                    state.mentor_activity.label = "Mission finished".to_string();
+                    state.mentor_activity.detail = detail.clone();
+                    state.mentor_activity.updated_at = Self::now();
+
+                    state.executor_activity.phase = ActivityPhase::Idle;
+                    state.executor_activity.label = "Executor idle".to_string();
+                    state.executor_activity.detail = None;
+                    state.executor_activity.updated_at = Self::now();
+                }
+                PairStatus::AwaitingHumanReview => {
+                    state.mentor_activity.phase = ActivityPhase::Waiting;
+                    state.mentor_activity.label = "Awaiting human review".to_string();
+                    state.mentor_activity.detail = detail.clone();
+                    state.mentor_activity.updated_at = Self::now();
+
+                    state.executor_activity.phase = ActivityPhase::Waiting;
+                    state.executor_activity.label = "Awaiting human review".to_string();
+                    state.executor_activity.detail = None;
+                    state.executor_activity.updated_at = Self::now();
+                }
+                PairStatus::Error => {
+                    state.mentor_activity.phase = ActivityPhase::Error;
+                    state.mentor_activity.label = "Error".to_string();
+                    state.mentor_activity.detail = detail.clone();
+                    state.mentor_activity.updated_at = Self::now();
+
+                    state.executor_activity.phase = ActivityPhase::Error;
+                    state.executor_activity.label = "Error".to_string();
+                    state.executor_activity.detail = None;
+                    state.executor_activity.updated_at = Self::now();
+                }
+                _ => {}
+            }
+
+            self.notify_state_update(pair_id, state);
         }
     }
 

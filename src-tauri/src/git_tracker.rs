@@ -15,7 +15,6 @@ impl GitTracker {
             if output.status.success() {
                 state.git_tracking.available = true;
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                println!("[GitTracker] Git status output: {}", stdout);
                 let mut files = Vec::new();
                 for line in stdout.lines() {
                     if line.len() > 3 {
@@ -44,13 +43,11 @@ impl GitTracker {
                     }
                 }
                 state.modified_files = files;
-                println!("[GitTracker] Found {} modified files", state.modified_files.len());
             } else {
-                println!("[GitTracker] Git command failed: {}", String::from_utf8_lossy(&output.stderr));
+                println!("[GitTracker] Git status command failed in directory: {}", state.directory);
                 state.git_tracking.available = false;
             }
         } else {
-            println!("[GitTracker] Failed to execute git command");
             state.git_tracking.available = false;
         }
     }

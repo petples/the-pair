@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { Brain, CheckCircle2, ChevronDown, CircleAlert, Search, Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { AvailableModel } from '../types'
+import { getQualifiedModel, savePreferredModelId } from '../lib/modelPreferences'
 import { GlassModal } from './ui/GlassModal'
 
 const RECENT_MODELS_KEY = 'the-pair-recent-models'
@@ -26,15 +27,6 @@ interface ModelPickerProps {
   models: AvailableModel[]
   onChange: (value: string) => void
   role: 'mentor' | 'executor'
-}
-
-function getQualifiedModel(model: AvailableModel): string {
-  // For opencode, modelId already contains the full provider/model path (e.g. bailian-coding-plan/glm-5)
-  // For other providers, we need to prepend the provider kind
-  if (model.provider === 'opencode') {
-    return model.modelId
-  }
-  return `${model.provider}/${model.modelId}`
 }
 
 function getRoleTone(role: 'mentor' | 'executor'): {
@@ -130,6 +122,7 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
     if (!model.available) return
     const modelId = getQualifiedModel(model)
     saveRecentModelId(modelId)
+    savePreferredModelId(role, modelId)
     setRecentModelIds(getRecentModelIds())
     onChange(modelId)
     setIsOpen(false)

@@ -1,0 +1,42 @@
+import type { AvailableModel } from '../types'
+
+const PREFERRED_MODEL_KEYS = {
+  mentor: 'the-pair-preferred-mentor-model',
+  executor: 'the-pair-preferred-executor-model'
+} as const
+
+export function getQualifiedModel(model: AvailableModel): string {
+  if (model.provider === 'opencode') {
+    return model.modelId
+  }
+  return `${model.provider}/${model.modelId}`
+}
+
+export function savePreferredModelId(role: 'mentor' | 'executor', modelId: string): void {
+  try {
+    localStorage.setItem(PREFERRED_MODEL_KEYS[role], modelId)
+  } catch {
+    // Ignore storage failures in restricted environments.
+  }
+}
+
+export function getPreferredModelId(role: 'mentor' | 'executor'): string {
+  try {
+    return localStorage.getItem(PREFERRED_MODEL_KEYS[role]) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function getPreferredQualifiedModel(
+  role: 'mentor' | 'executor',
+  models: AvailableModel[]
+): string {
+  const preferred = getPreferredModelId(role)
+  if (preferred && models.some((model) => model.available && getQualifiedModel(model) === preferred)) {
+    return preferred
+  }
+
+  const defaultEntry = models.find((model) => model.available) ?? models[0]
+  return defaultEntry ? getQualifiedModel(defaultEntry) : ''
+}
