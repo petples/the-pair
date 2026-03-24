@@ -1,4 +1,4 @@
-name: Publish Signed macOS + Homebrew
+name: Release Signed macOS
 
 on:
   push:
@@ -94,15 +94,15 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run tauri build -- --target universal-apple-darwin
+        run: npm run tauri build -- --target universal-apple-darwin --ci
 
       - name: Package artifacts for release
         run: |
           mkdir -p dist
-          
-          # Move DMG to expected location for the Homebrew script
+
+          # Move DMG to the name used for GitHub Release assets
           mv "src-tauri/target/universal-apple-darwin/release/bundle/dmg/The Pair_${VERSION}_universal.dmg" "dist/the-pair-${VERSION}.dmg"
-          
+
           # Create ZIP of the raw .app
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/The Pair.app"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
@@ -116,56 +116,3 @@ jobs:
           else
             gh release create "$TAG" dist/*.dmg dist/*.zip --title "$TAG" --generate-notes
           fi
-
-      - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
-        with:
-          repository: timwuhaotian/homebrew-the-pair
-          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          path: homebrew-tap
-
-      - name: Update Homebrew cask
-        run: |
-          SHA256=$(shasum -a 256 "dist/the-pair-${VERSION}.dmg" | awk '{print $1}')
-          mkdir -p homebrew-tap/Casks
-          cat > homebrew-tap/Casks/the-pair.rb <<EOF
-          cask "the-pair" do
-            version "${VERSION}"
-            sha256 "${SHA256}"
-
-            url "https://github.com/${{ github.repository }}/releases/download/v#{version}/the-pair-#{version}.dmg",
-                verified: "github.com/${{ github.repository }}/"
-            name "The Pair"
-            desc "Desktop orchestrator for dual AI agents (Mentor + Executor) for autonomous coding tasks"
-            homepage "https://github.com/${{ github.repository }}"
-
-            auto_updates true
-            depends_on macos: ">= :monterey"
-
-            app "The Pair.app"
-
-            uninstall quit: "com.thepair.app"
-
-            zap trash: [
-              "~/.config/the-pair",
-              "~/Library/Application Support/the-pair",
-              "~/Library/Caches/com.thepair.app",
-              "~/Library/Logs/the-pair",
-              "~/Library/Preferences/com.thepair.app.plist",
-              "~/Library/Saved Application State/com.thepair.app.savedState",
-            ]
-          end
-          EOF
-
-      - name: Commit and push Homebrew cask
-        run: |
-          cd homebrew-tap
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add Casks/the-pair.rb
-          if git diff --cached --quiet; then
-            echo "Cask already up to date"
-            exit 0
-          fi
-          git commit -m "Update the-pair to v${VERSION}"
-          git push

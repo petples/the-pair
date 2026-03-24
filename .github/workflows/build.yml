@@ -1,4 +1,4 @@
-name: Build & Release
+name: CI
 
 on:
   pull_request:
@@ -6,8 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   lint-and-typecheck:
@@ -44,10 +43,13 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            rust-targets: x86_64-unknown-linux-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
           - os: macos-latest
             target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
@@ -64,7 +66,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust-targets }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -75,7 +77,7 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        run: npm run build && npx tauri build --target ${{ matrix.target }}
+        run: npx tauri build --target ${{ matrix.target }}
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -83,28 +85,3 @@ jobs:
           name: the-pair-${{ matrix.os }}
           path: src-tauri/target/${{ matrix.target }}/release/bundle/
           retention-days: 7
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: the-pair-*
-          merge-multiple: true
-          path: dist/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/**/*
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
