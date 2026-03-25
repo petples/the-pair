@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
   CheckCircle2,
@@ -20,6 +20,7 @@ import type { AvailableModel, OpenCodeConfig } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
+import { FileMention } from './FileMention'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 
 interface OnboardingWizardProps {
@@ -53,6 +54,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const [isOpeningFile, setIsOpeningFile] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { availableModels, loadAvailableModels, createPair } = usePairStore()
   const { theme, toggleTheme } = useThemeStore()
@@ -174,6 +176,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
             spec={spec}
             onNameChange={setName}
             onSpecChange={setSpec}
+            textareaRef={textareaRef}
           />
         )
       case 1:
@@ -323,7 +326,8 @@ function SetupStep({
   name,
   spec,
   onNameChange,
-  onSpecChange
+  onSpecChange,
+  textareaRef
 }: {
   status: 'checking' | 'ok' | 'missing-keys' | 'missing-file'
   loading: boolean
@@ -335,6 +339,7 @@ function SetupStep({
   spec: string
   onNameChange: (v: string) => void
   onSpecChange: (v: string) => void
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }): React.ReactNode {
   return (
     <div className="space-y-6 py-1">
@@ -387,14 +392,23 @@ function SetupStep({
               Task Specification
             </label>
             <textarea
+              ref={textareaRef}
               value={spec}
               onChange={(e) => onSpecChange(e.target.value)}
-              placeholder="Describe the desired outcome as directly as possible..."
+              placeholder="Describe the desired outcome as directly as possible... Use @filename to reference files."
               rows={5}
               className="w-full resize-none rounded-xl glass-card px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+            {directory && (
+              <FileMention
+                textareaRef={textareaRef}
+                onChange={onSpecChange}
+                directory={directory}
+              />
+            )}
             <p className="mt-1.5 text-xs text-muted-foreground">
-              {spec.length} characters · a concrete target works better than a vague intention
+              {spec.length} characters · a concrete target works better than a vague intention ·
+              Type @ to reference files
             </p>
           </div>
         </div>
