@@ -11,7 +11,7 @@ test('buildManifest produces a Tauri updater manifest with all platform entries'
   const distDir = join(root, 'dist')
   await mkdir(distDir, { recursive: true })
   await writeFile(join(distDir, 'the-pair-1.1.12.app.tar.gz.sig'), 'mac-sig')
-  await writeFile(join(distDir, 'the-pair-1.1.12-setup.nsis.zip.sig'), 'win-sig')
+  await writeFile(join(distDir, 'the-pair-1.1.12-setup.exe.sig'), 'win-sig')
   await writeFile(join(distDir, 'the-pair-1.1.12.AppImage.tar.gz.sig'), 'linux-sig')
   const notesPath = join(root, 'release-notes.md')
   await writeFile(notesPath, 'Release notes go here')
@@ -32,6 +32,7 @@ test('buildManifest produces a Tauri updater manifest with all platform entries'
     'https://github.com/example/the-pair/releases/download/v1.1.12/the-pair-1.1.12.app.tar.gz'
   )
   assert.equal(manifest.platforms['darwin-aarch64'].signature, 'mac-sig')
+  assert.equal(manifest.platforms['windows-x86_64'].url, 'https://github.com/example/the-pair/releases/download/v1.1.12/the-pair-1.1.12-setup.exe')
   assert.equal(manifest.platforms['windows-x86_64'].signature, 'win-sig')
   assert.equal(manifest.platforms['linux-x86_64'].signature, 'linux-sig')
 })

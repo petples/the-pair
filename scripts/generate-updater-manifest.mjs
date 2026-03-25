@@ -11,8 +11,8 @@ const platformTargets = {
   },
   windows: {
     target: 'windows-x86_64',
-    assetName: (version) => `the-pair-${version}-setup.nsis.zip`,
-    signatureName: (version) => `the-pair-${version}-setup.nsis.zip.sig`
+    assetName: (version) => `the-pair-${version}-setup.exe`,
+    signatureName: (version) => `the-pair-${version}-setup.exe.sig`
   },
   linux: {
     target: 'linux-x86_64',

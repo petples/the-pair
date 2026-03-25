@@ -21,12 +21,12 @@ const platformConfigs = {
     subdir: 'nsis',
     assets: [
       {
-        patterns: [/-setup\.nsis\.zip$/i],
-        outputName: (version) => `the-pair-${version}-setup.nsis.zip`
+        patterns: [/-setup\.exe$/i],
+        outputName: (version) => `the-pair-${version}-setup.exe`
       },
       {
-        patterns: [/-setup\.nsis\.zip\.sig$/i],
-        outputName: (version) => `the-pair-${version}-setup.nsis.zip.sig`
+        patterns: [/-setup\.exe\.sig$/i],
+        outputName: (version) => `the-pair-${version}-setup.exe.sig`
       }
     ]
   },

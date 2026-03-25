@@ -32,8 +32,8 @@ test('collectUpdaterAssets copies macOS updater archives and signatures', async 
 })
 
 test('collectUpdaterAssets copies Windows signatures next to the installer asset', async () => {
-  const { root } = await createTempFile('nsis/The Pair_1.1.12_x64-setup.nsis.zip', 'win-zip')
-  await writeFile(join(root, 'nsis', 'The Pair_1.1.12_x64-setup.nsis.zip.sig'), 'win-sig')
+  const { root } = await createTempFile('nsis/The Pair_1.1.12_x64-setup.exe', 'win-exe')
+  await writeFile(join(root, 'nsis', 'The Pair_1.1.12_x64-setup.exe.sig'), 'win-sig')
 
   const outDir = join(root, 'dist')
   const result = collectUpdaterAssets({
@@ -44,11 +44,8 @@ test('collectUpdaterAssets copies Windows signatures next to the installer asset
   })
 
   assert.equal(result.length, 2)
-  assert.equal(await readFile(join(outDir, 'the-pair-1.1.12-setup.nsis.zip'), 'utf8'), 'win-zip')
-  assert.equal(
-    await readFile(join(outDir, 'the-pair-1.1.12-setup.nsis.zip.sig'), 'utf8'),
-    'win-sig'
-  )
+  assert.equal(await readFile(join(outDir, 'the-pair-1.1.12-setup.exe'), 'utf8'), 'win-exe')
+  assert.equal(await readFile(join(outDir, 'the-pair-1.1.12-setup.exe.sig'), 'utf8'), 'win-sig')
 })
 
 test('collectUpdaterAssets copies Linux signatures next to the AppImage asset', async () => {
