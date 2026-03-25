@@ -71,7 +71,7 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sc1.png">
-    <img src="./docs/assets/multi-pairs-light.png" alt="Dashboard View" width="600"/>
+    <img src="./docs/assets/sc1.png" alt="Dashboard View" width="600"/>
   </picture>
   <p><em>Dashboard showing active pairs with real-time resource monitoring</em></p>
 </div>
