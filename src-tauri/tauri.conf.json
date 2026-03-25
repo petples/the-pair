@@ -31,7 +31,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFNjgwNENEREM0MTkwQjYKUldTMmtFSGN6UVJvdnBMcS8xZGpSZzVMUkxMeFVuZXYzMzVXUlZoMFZ2NmxiVXRQVmF5b1c1TzIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU0MUQzRjVCMUNCRUI0MzEKUldReHRMNGNXejhkNUdnYU1tc3g5ZXFPbGxEUDlTK3ZoNUtWV2QrdHV3NGpUN2pOaFlIajhXWkEK",
       "endpoints": [
         "https://github.com/timwuhaotian/the-pair/releases/latest/download/latest.json"
       ]
