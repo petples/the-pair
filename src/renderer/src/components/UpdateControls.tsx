@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDownToLine, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowDownToLine, Info, Loader2, RefreshCw } from 'lucide-react'
 import { listen } from '@tauri-apps/api/event'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { GlassButton } from './ui/GlassButton'
 import { cn } from '../lib/utils'
+import { ReleaseNotesModal } from './ReleaseNotesModal'
 
 type UpdatePhase = 'idle' | 'checking' | 'available' | 'installing' | 'up-to-date' | 'error'
 
@@ -12,6 +13,7 @@ export function UpdateControls(): React.ReactNode {
   const [version, setVersion] = useState<string | null>(null)
   const [progress, setProgress] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false)
   const updateRef = useRef<Update | null>(null)
   const totalBytesRef = useRef<number | null>(null)
   const downloadedBytesRef = useRef<number>(0)
@@ -26,35 +28,35 @@ export function UpdateControls(): React.ReactNode {
 
   const checkForUpdates = useCallback(
     async (showErrors: boolean) => {
-    setPhase('checking')
-    setProgress(null)
-    totalBytesRef.current = null
-    downloadedBytesRef.current = 0
+      setPhase('checking')
+      setProgress(null)
+      totalBytesRef.current = null
+      downloadedBytesRef.current = 0
 
-    try {
-      await clearUpdateResource()
-      const update = await check()
+      try {
+        await clearUpdateResource()
+        const update = await check()
 
-      if (!update) {
-        setVersion(null)
-        setMessage('You are up to date')
-        setPhase('up-to-date')
-        return
+        if (!update) {
+          setVersion(null)
+          setMessage('You are up to date')
+          setPhase('up-to-date')
+          return
+        }
+
+        updateRef.current = update
+        setVersion(update.version)
+        setMessage(update.body?.trim() || `Version ${update.version} is available`)
+        setPhase('available')
+      } catch (error) {
+        if (showErrors) {
+          const message = error instanceof Error ? error.message : 'Unable to check for updates'
+          setMessage(message)
+          setPhase('error')
+        } else {
+          setPhase('idle')
+        }
       }
-
-      updateRef.current = update
-      setVersion(update.version)
-      setMessage(update.body?.trim() || `Version ${update.version} is available`)
-      setPhase('available')
-    } catch (error) {
-      if (showErrors) {
-        const message = error instanceof Error ? error.message : 'Unable to check for updates'
-        setMessage(message)
-        setPhase('error')
-      } else {
-        setPhase('idle')
-      }
-    }
     },
     [clearUpdateResource]
   )
@@ -152,21 +154,31 @@ export function UpdateControls(): React.ReactNode {
 
   return (
     <div className="flex min-w-[170px] max-w-[280px] flex-col items-end gap-1">
-      <GlassButton
-        variant={variant}
-        size="sm"
-        onClick={phase === 'available' ? installUpdate : () => void checkForUpdates(true)}
-        disabled={isBusy}
-        icon={icon}
-        className={cn('whitespace-nowrap', phase === 'error' && 'border-red-500/30')}
-      >
-        {label}
-      </GlassButton>
-      {message ? (
+      <div className="flex items-center gap-2">
+        <GlassButton
+          variant={variant}
+          size="sm"
+          onClick={phase === 'available' ? installUpdate : () => void checkForUpdates(true)}
+          disabled={isBusy}
+          icon={icon}
+          className={cn('whitespace-nowrap', phase === 'error' && 'border-red-500/30')}
+        >
+          {label}
+        </GlassButton>
+        {phase === 'available' && version && updateRef.current?.body && (
+          <button
+            onClick={() => setShowReleaseNotes(true)}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+            title="View release notes"
+          >
+            <Info size={14} />
+          </button>
+        )}
+      </div>
+      {message && phase !== 'available' ? (
         <p
           className={cn(
             'max-w-[280px] truncate text-[10px] leading-tight text-muted-foreground',
-            phase === 'available' && 'text-amber-700 dark:text-amber-300',
             phase === 'error' && 'text-red-700 dark:text-red-300',
             phase === 'up-to-date' && 'text-green-700 dark:text-green-300'
           )}
@@ -175,6 +187,14 @@ export function UpdateControls(): React.ReactNode {
           {message}
         </p>
       ) : null}
+      {phase === 'available' && version && updateRef.current?.body && (
+        <ReleaseNotesModal
+          isOpen={showReleaseNotes}
+          onClose={() => setShowReleaseNotes(false)}
+          version={version}
+          body={updateRef.current.body}
+        />
+      )}
     </div>
   )
 }

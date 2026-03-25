@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.18] - 2026-03-26
+
+### Added
+
+- Added an in-app release notes modal so updater patch notes are readable without leaving the main window
+
+### Changed
+
+- Reworked the updater controls so the install action and release-notes affordance sit together in a compact action row
+
+### Fixed
+
+- Fixed the release notes modal so long changelogs scroll inside the dialog instead of being clipped
+- Preserved GitHub-flavored Markdown rendering in release notes, including lists and tables
+
 ## [1.1.17] - 2026-03-25
 
 ### Fixed
@@ -126,6 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.1.18]: https://github.com/timwuhaotian/the-pair/compare/v1.1.17...v1.1.18
+[1.1.17]: https://github.com/timwuhaotian/the-pair/compare/v1.1.16...v1.1.17
 [1.1.10]: https://github.com/timwuhaotian/the-pair/compare/v1.1.9...v1.1.10
 [1.1.15]: https://github.com/timwuhaotian/the-pair/compare/v1.1.14...v1.1.15
 [1.1.14]: https://github.com/timwuhaotian/the-pair/compare/v1.1.13...v1.1.14

@@ -106,12 +106,6 @@ export function AppChrome({
         </div>
 
         <div className="app-no-drag flex shrink-0 items-center gap-2">
-          {!selectedPair && (
-            <div className="hidden rounded-full border border-border bg-background/60 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground md:block">
-              Desktop orchestration cockpit
-            </div>
-          )}
-
           {!selectedPair ? <UpdateControls /> : null}
 
           {selectedPair && (
