@@ -198,9 +198,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           if [ "${{ matrix.platform }}" = "macos" ]; then
-            npm run tauri:build -- --target ${{ matrix.target }} --ci --bundles app
+            npm run tauri:build:mac -- --ci --bundles app
+          elif [ "${{ matrix.platform }}" = "windows" ]; then
+            npm run tauri:build:win -- --ci
           else
-            npm run tauri:build -- --target ${{ matrix.target }} --ci
+            npm run tauri:build:linux -- --ci
           fi
 
       - name: Collect release asset

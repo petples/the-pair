@@ -114,9 +114,11 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            npx tauri build --target ${{ matrix.target }} --bundles app
+            npm run tauri:build:mac -- --bundles app
+          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
+            npm run tauri:build:win
           else
-            npx tauri build --target ${{ matrix.target }}
+            npm run tauri:build:linux
           fi
 
       - name: Upload build artifacts

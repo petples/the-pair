@@ -1,5 +1,5 @@
-import React from 'react'
-import { Clock3, FolderOpen, RotateCcw, Sparkles, Zap } from 'lucide-react'
+import React, { useState } from 'react'
+import { AlertTriangle, Clock3, FolderOpen, RotateCcw, Sparkles, Trash2, Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { RecoverableSessionSummary } from '../types'
 import { StatusBadge } from './StatusBadge'
@@ -20,20 +20,73 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleString()
 }
 
+function DeleteConfirmationModal({
+  session,
+  isOpen,
+  onConfirm,
+  onCancel
+}: {
+  session: RecoverableSessionSummary
+  isOpen: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}): React.ReactNode {
+  return (
+    <GlassModal isOpen={isOpen} onClose={onCancel} title="Confirm Deletion" className="max-w-md">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-destructive/10">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">Delete this session?</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This will permanently delete the session for{' '}
+              <span className="font-medium text-foreground">&ldquo;{session.name}&rdquo;</span> and
+              cannot be undone.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <FolderOpen size={14} className="shrink-0" />
+            <span className="truncate">{session.directory}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock3 size={14} className="shrink-0" />
+            <span>{formatTime(session.savedAt)}</span>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <GlassButton variant="ghost" onClick={onCancel}>
+            Cancel
+          </GlassButton>
+          <GlassButton variant="destructive" onClick={onConfirm}>
+            <Trash2 size={14} />
+            Delete
+          </GlassButton>
+        </div>
+      </div>
+    </GlassModal>
+  )
+}
+
 function SessionCard({
   session,
   onRestore,
-  onDelete,
   isRestoring,
   isDeleting,
-  isDeletionLocked
+  isDeletionLocked,
+  onRequestDelete
 }: {
   session: RecoverableSessionSummary
   onRestore: (pairId: string, continueRun: boolean) => void | Promise<void>
-  onDelete: (pairId: string) => void | Promise<void>
   isRestoring: boolean
   isDeleting: boolean
   isDeletionLocked: boolean
+  onRequestDelete: (session: RecoverableSessionSummary) => void
 }): React.ReactNode {
   const isMentor = session.turn === 'mentor'
   const canResume = session.status !== 'Finished'
@@ -156,17 +209,10 @@ function SessionCard({
           <GlassButton
             variant="destructive"
             size="sm"
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Delete the unfinished session for ${session.name}? This cannot be undone.`
-                )
-              ) {
-                void onDelete(session.pairId)
-              }
-            }}
+            onClick={() => onRequestDelete(session)}
             disabled={isRestoring || isDeletionLocked}
           >
+            <Trash2 size={14} />
             Delete
           </GlassButton>
           <GlassButton
@@ -201,45 +247,64 @@ export function SessionRecoveryModal({
   onDelete,
   onDismiss
 }: SessionRecoveryModalProps): React.ReactNode {
+  const [pendingDeleteSession, setPendingDeleteSession] =
+    useState<RecoverableSessionSummary | null>(null)
+
   if (!isOpen || sessions.length === 0) return null
 
   return (
-    <GlassModal
-      isOpen={isOpen}
-      onClose={onDismiss}
-      title="Recover Unfinished Sessions"
-      className="max-w-4xl"
-    >
-      <div className="space-y-4">
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          The app found session records from a previous run. Restore history to inspect the saved
-          messages and state, or explicitly resume execution if you want the agents to keep going.
-        </p>
+    <>
+      <GlassModal
+        isOpen={isOpen}
+        onClose={onDismiss}
+        title="Recover Unfinished Sessions"
+        className="max-w-4xl"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            The app found session records from a previous run. Restore history to inspect the saved
+            messages and state, or explicitly resume execution if you want the agents to keep going.
+          </p>
 
-        <div className="max-h-[62vh] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
-          {sessions.map((session) => (
-            <SessionCard
-              key={session.pairId}
-              session={session}
-              onRestore={onRestore}
-              onDelete={onDelete}
-              isRestoring={isRestoring}
-              isDeleting={deletingPairId === session.pairId}
-              isDeletionLocked={deletingPairId !== null}
-            />
-          ))}
-        </div>
+          <div className="max-h-[62vh] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
+            {sessions.map((session) => (
+              <SessionCard
+                key={session.pairId}
+                session={session}
+                onRestore={onRestore}
+                isRestoring={isRestoring}
+                isDeleting={deletingPairId === session.pairId}
+                isDeletionLocked={deletingPairId !== null}
+                onRequestDelete={setPendingDeleteSession}
+              />
+            ))}
+          </div>
 
-        <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-between">
-          <GlassButton variant="ghost" onClick={onDismiss}>
-            Start fresh
-          </GlassButton>
-          <div className="text-xs leading-relaxed text-muted-foreground sm:text-right">
-            Dismissing keeps the snapshots on disk for the next launch. Delete removes them
-            permanently.
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-between">
+            <GlassButton variant="ghost" onClick={onDismiss}>
+              Start fresh
+            </GlassButton>
+            <div className="text-xs leading-relaxed text-muted-foreground sm:text-right">
+              Dismissing keeps the snapshots on disk for the next launch. Delete removes them
+              permanently.
+            </div>
           </div>
         </div>
-      </div>
-    </GlassModal>
+      </GlassModal>
+
+      {pendingDeleteSession && (
+        <DeleteConfirmationModal
+          session={pendingDeleteSession}
+          isOpen={pendingDeleteSession !== null}
+          onConfirm={() => {
+            if (pendingDeleteSession) {
+              void onDelete(pendingDeleteSession.pairId)
+              setPendingDeleteSession(null)
+            }
+          }}
+          onCancel={() => setPendingDeleteSession(null)}
+        />
+      )}
+    </>
   )
 }

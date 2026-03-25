@@ -1,6 +1,6 @@
 {
   "name": "the-pair",
-  "version": "1.1.10",
+  "version": "1.1.11",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
@@ -39,12 +39,14 @@
     "preflight:mac": "npm run preflight -- macos",
     "preflight:win": "npm run preflight -- windows",
     "preflight:linux": "npm run preflight -- linux",
-    "tauri:build": "npm run preflight && npm run ensure:mac-targets && npm run with-rustup -- tauri build",
+    "tauri:build:mac": "npm run preflight:mac && npm run ensure:mac-targets && npm run with-rustup -- tauri build --target universal-apple-darwin",
+    "tauri:build:win": "npm run preflight:win && npm run ensure:rust-targets -- x86_64-pc-windows-msvc && npm run with-rustup -- tauri build --target x86_64-pc-windows-msvc",
+    "tauri:build:linux": "npm run preflight:linux && npm run ensure:rust-targets -- x86_64-unknown-linux-gnu && npm run with-rustup -- tauri build --target x86_64-unknown-linux-gnu",
     "dev": "npm run preflight && npm run with-rustup -- tauri dev",
-    "build:mac": "npm run preflight:mac && npm run ensure:mac-targets && npm run with-rustup -- tauri build --target universal-apple-darwin",
-    "build:mac:release": "npm run preflight:mac && npm run ensure:mac-targets && npm run with-rustup -- tauri build --target universal-apple-darwin --bundles app",
-    "build:win": "npm run preflight:win && npm run ensure:rust-targets -- x86_64-pc-windows-msvc && npm run with-rustup -- tauri build --target x86_64-pc-windows-msvc",
-    "build:linux": "npm run preflight:linux && npm run ensure:rust-targets -- x86_64-unknown-linux-gnu && npm run with-rustup -- tauri build --target x86_64-unknown-linux-gnu"
+    "build:mac": "npm run tauri:build:mac",
+    "build:mac:release": "npm run tauri:build:mac -- --bundles app",
+    "build:win": "npm run tauri:build:win",
+    "build:linux": "npm run tauri:build:linux"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",

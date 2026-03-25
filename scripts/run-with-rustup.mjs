@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 
-import { getRustupBinDir } from './rustup-env.mjs'
+import { getRustupBinDir, prependPathEntry } from './rustup-env.mjs'
 
 const rustupBinDir = getRustupBinDir()
 
@@ -19,7 +19,7 @@ function main() {
 
   const env = {
     ...process.env,
-    PATH: `${rustupBinDir}:${process.env.PATH ?? ''}`
+    PATH: prependPathEntry(rustupBinDir, process.env.PATH ?? '')
   }
 
   const child = spawn(command, args, {

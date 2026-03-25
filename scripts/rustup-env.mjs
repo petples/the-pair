@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 
 export function resolveRustupHome() {
   if (process.env.CARGO_HOME) {
@@ -11,4 +11,12 @@ export function resolveRustupHome() {
 
 export function getRustupBinDir() {
   return join(resolveRustupHome(), 'bin')
+}
+
+export function prependPathEntry(entry, currentPath = '', pathDelimiter = delimiter) {
+  if (!currentPath) {
+    return entry
+  }
+
+  return `${entry}${pathDelimiter}${currentPath}`
 }

@@ -30,6 +30,9 @@ export function FileMention({
 
   const [fuse, setFuse] = useState<Fuse<FileEntry> | null>(null)
   const filesRef = useRef<FileEntry[]>([])
+  const resultsRef = useRef<FileEntry[]>([])
+  const selectedIndexRef = useRef(0)
+  const isOpenRef = useRef(false)
 
   useEffect(() => {
     if (!directory) return
@@ -110,6 +113,7 @@ export function FileMention({
       const newValue = `${textBefore}@${path}${textAfter}`
       onChange(newValue)
       setIsOpen(false)
+      isOpenRef.current = false
 
       setTimeout(() => {
         const newPos = lastAtPos + path.length + 1
@@ -133,6 +137,7 @@ export function FileMention({
 
       if (lastAtPos === -1) {
         setIsOpen(false)
+        isOpenRef.current = false
         return
       }
 
@@ -140,29 +145,38 @@ export function FileMention({
 
       if (textAfterAt.includes(' ') || textAfterAt.includes('\n')) {
         setIsOpen(false)
+        isOpenRef.current = false
         return
       }
 
       setQuery(textAfterAt)
       setPosition(getCursorPosition() ?? { top: 0, left: 0 })
       setIsOpen(true)
+      isOpenRef.current = true
       setSelectedIndex(0)
+      selectedIndexRef.current = 0
     }
 
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if (!isOpen) return
+      if (!isOpenRef.current) return
 
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSelectedIndex((i) => (i + 1) % results.length)
+        const newIndex = (selectedIndexRef.current + 1) % resultsRef.current.length
+        setSelectedIndex(newIndex)
+        selectedIndexRef.current = newIndex
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSelectedIndex((i) => (i - 1 + results.length) % results.length)
-      } else if (e.key === 'Enter' && results.length > 0) {
+        const newIndex =
+          (selectedIndexRef.current - 1 + resultsRef.current.length) % resultsRef.current.length
+        setSelectedIndex(newIndex)
+        selectedIndexRef.current = newIndex
+      } else if (e.key === 'Enter' && resultsRef.current.length > 0) {
         e.preventDefault()
-        insertMention(results[selectedIndex].path)
+        insertMention(resultsRef.current[selectedIndexRef.current].path)
       } else if (e.key === 'Escape') {
         setIsOpen(false)
+        isOpenRef.current = false
       }
     }
 
@@ -173,16 +187,24 @@ export function FileMention({
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
     }
-  }, [textareaRef, isOpen, results, selectedIndex, getCursorPosition, insertMention])
+  }, [textareaRef, getCursorPosition, insertMention])
 
   useEffect(() => {
     if (!query || !fuse) {
-      setTimeout(() => setResults(filesRef.current.slice(0, 50)), 0)
+      setTimeout(() => {
+        const initialResults = filesRef.current.slice(0, 50)
+        setResults(initialResults)
+        resultsRef.current = initialResults
+      }, 0)
       return
     }
 
     const searchResults = fuse.search(query).slice(0, 50)
-    setTimeout(() => setResults(searchResults.map((r) => r.item)), 0)
+    setTimeout(() => {
+      const mappedResults = searchResults.map((r) => r.item)
+      setResults(mappedResults)
+      resultsRef.current = mappedResults
+    }, 0)
   }, [query, fuse])
 
   if (!isOpen || results.length === 0) return null
