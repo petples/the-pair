@@ -39,13 +39,18 @@ function buildConsoleMessages(messages: Message[]): Message[] {
 function useMinimumVisibleText(text: string, resetKey: string, minimumMs = 1200): string {
   const [visibleText, setVisibleText] = useState(text)
   const visibleTextRef = useRef(text)
-  const lastChangeAtRef = useRef(Date.now())
+  const latestTextRef = useRef(text)
+  const lastChangeAtRef = useRef(0)
   const timeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
-    visibleTextRef.current = text
+    latestTextRef.current = text
+  }, [text])
+
+  useEffect(() => {
+    visibleTextRef.current = latestTextRef.current
     lastChangeAtRef.current = Date.now()
-    setVisibleText(text)
+    setVisibleText(latestTextRef.current)
 
     if (timeoutRef.current !== null) {
       window.clearTimeout(timeoutRef.current)
