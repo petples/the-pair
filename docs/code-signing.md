@@ -87,7 +87,7 @@ npm run preflight:mac
 npm run build:mac
 ```
 
-The macOS build flow will install the required Rust targets automatically when `rustup` is available. If you need to do it yourself, run:
+The local macOS build flow keeps the DMG-style installer you prefer. The release workflow still publishes ZIP assets to GitHub Releases for stability. The build flow will install the required Rust targets automatically when `rustup` is available. If you need to do it yourself, run:
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin

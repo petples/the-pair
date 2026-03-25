@@ -110,7 +110,7 @@ npm install
 npm run build:mac  # or build:win / build:linux
 ```
 
-On macOS, the build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
+On macOS, `build:mac` produces the local DMG experience you asked for, while GitHub Releases still ship ZIP assets for stability. The build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
