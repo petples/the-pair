@@ -286,11 +286,28 @@ jobs:
 
       - name: Prepare release notes
         run: |
-          awk -v version="$VERSION" '
-            $0 ~ "^## \\[" version "\\]" { capture = 1; next }
-            capture && /^## \\[/ { exit }
-            capture { print }
-          ' CHANGELOG.md > release-notes.md
+          node <<'NODE'
+          const fs = require('fs')
+
+          const version = process.env.VERSION
+          const changelog = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/)
+          const start = changelog.findIndex((line) => line.startsWith(`## [${version}]`))
+
+          if (start === -1) {
+            throw new Error(`Missing changelog entry for ${version}`)
+          }
+
+          let end = changelog.length
+          for (let index = start + 1; index < changelog.length; index += 1) {
+            if (changelog[index].startsWith('## [')) {
+              end = index
+              break
+            }
+          }
+
+          const releaseNotes = changelog.slice(start + 1, end).join('\n').trim()
+          fs.writeFileSync('release-notes.md', `${releaseNotes}\n`)
+          NODE
 
       - name: Generate updater manifest
         run: |
