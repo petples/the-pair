@@ -245,17 +245,17 @@ jobs:
 
       - name: Collect release asset
         if: matrix.platform != 'macos'
-        run: node scripts/release-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "$VERSION"
+        run: node scripts/release-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "${{ env.VERSION }}"
 
       - name: Collect updater assets
-        run: node scripts/release-updater-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "$VERSION"
+        run: node scripts/release-updater-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "${{ env.VERSION }}"
 
       - name: Package macOS zip
         if: matrix.platform == 'macos'
         run: |
           mkdir -p dist
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/The Pair.app"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${{ env.VERSION }}.zip"
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4
