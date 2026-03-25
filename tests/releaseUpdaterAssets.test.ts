@@ -23,53 +23,53 @@ test('collectUpdaterAssets copies macOS updater archives and signatures', async 
     platform: 'macos',
     bundleRoot: root,
     outDir,
-    version: '1.1.11'
+    version: '1.1.12'
   })
 
   assert.equal(result.length, 2)
-  assert.equal(await readFile(join(outDir, 'the-pair-1.1.11.app.tar.gz'), 'utf8'), 'mac-update')
-  assert.equal(await readFile(join(outDir, 'the-pair-1.1.11.app.tar.gz.sig'), 'utf8'), 'mac-sig')
+  assert.equal(await readFile(join(outDir, 'the-pair-1.1.12.app.tar.gz'), 'utf8'), 'mac-update')
+  assert.equal(await readFile(join(outDir, 'the-pair-1.1.12.app.tar.gz.sig'), 'utf8'), 'mac-sig')
 })
 
 test('collectUpdaterAssets copies Windows signatures next to the installer asset', async () => {
-  const { root } = await createTempFile('nsis/The Pair_1.1.11_x64-setup.nsis.zip', 'win-zip')
-  await writeFile(join(root, 'nsis', 'The Pair_1.1.11_x64-setup.nsis.zip.sig'), 'win-sig')
+  const { root } = await createTempFile('nsis/The Pair_1.1.12_x64-setup.nsis.zip', 'win-zip')
+  await writeFile(join(root, 'nsis', 'The Pair_1.1.12_x64-setup.nsis.zip.sig'), 'win-sig')
 
   const outDir = join(root, 'dist')
   const result = collectUpdaterAssets({
     platform: 'windows',
     bundleRoot: root,
     outDir,
-    version: '1.1.11'
+    version: '1.1.12'
   })
 
   assert.equal(result.length, 2)
-  assert.equal(await readFile(join(outDir, 'the-pair-1.1.11-setup.nsis.zip'), 'utf8'), 'win-zip')
+  assert.equal(await readFile(join(outDir, 'the-pair-1.1.12-setup.nsis.zip'), 'utf8'), 'win-zip')
   assert.equal(
-    await readFile(join(outDir, 'the-pair-1.1.11-setup.nsis.zip.sig'), 'utf8'),
+    await readFile(join(outDir, 'the-pair-1.1.12-setup.nsis.zip.sig'), 'utf8'),
     'win-sig'
   )
 })
 
 test('collectUpdaterAssets copies Linux signatures next to the AppImage asset', async () => {
-  const { root } = await createTempFile('appimage/The Pair_1.1.11_amd64.AppImage.tar.gz', 'linux-tar')
-  await writeFile(join(root, 'appimage', 'The Pair_1.1.11_amd64.AppImage.tar.gz.sig'), 'linux-sig')
+  const { root } = await createTempFile('appimage/The Pair_1.1.12_amd64.AppImage.tar.gz', 'linux-tar')
+  await writeFile(join(root, 'appimage', 'The Pair_1.1.12_amd64.AppImage.tar.gz.sig'), 'linux-sig')
 
   const outDir = join(root, 'dist')
   const result = collectUpdaterAssets({
     platform: 'linux',
     bundleRoot: root,
     outDir,
-    version: '1.1.11'
+    version: '1.1.12'
   })
 
   assert.equal(result.length, 2)
   assert.equal(
-    await readFile(join(outDir, 'the-pair-1.1.11.AppImage.tar.gz'), 'utf8'),
+    await readFile(join(outDir, 'the-pair-1.1.12.AppImage.tar.gz'), 'utf8'),
     'linux-tar'
   )
   assert.equal(
-    await readFile(join(outDir, 'the-pair-1.1.11.AppImage.tar.gz.sig'), 'utf8'),
+    await readFile(join(outDir, 'the-pair-1.1.12.AppImage.tar.gz.sig'), 'utf8'),
     'linux-sig'
   )
 })

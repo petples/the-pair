@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import Fuse from 'fuse.js'
 import { File, Folder } from 'lucide-react'
 
@@ -65,13 +66,14 @@ export function FileMention({
     const text = textarea.value
     const pos = textarea.selectionStart
     const textBeforeCursor = text.slice(0, pos)
-    const lastAtPos = textBeforeCursor.lastIndexOf('@')
 
     const mirror = document.createElement('div')
     const computed = window.getComputedStyle(textarea)
 
     mirror.style.cssText = `
-      position: absolute;
+      position: fixed;
+      top: ${rect.top - textarea.scrollTop}px;
+      left: ${rect.left - textarea.scrollLeft}px;
       visibility: hidden;
       white-space: pre-wrap;
       word-wrap: break-word;
@@ -82,7 +84,7 @@ export function FileMention({
       line-height: ${computed.lineHeight};
     `
 
-    mirror.textContent = text.slice(0, lastAtPos + 1)
+    mirror.textContent = textBeforeCursor
     document.body.appendChild(mirror)
 
     const span = document.createElement('span')
@@ -93,8 +95,8 @@ export function FileMention({
     document.body.removeChild(mirror)
 
     return {
-      top: spanRect.bottom - rect.top + textarea.scrollTop,
-      left: spanRect.left - rect.left + textarea.scrollLeft
+      top: spanRect.top - 4,
+      left: spanRect.right + 8
     }
   }, [textareaRef])
 
@@ -174,13 +176,27 @@ export function FileMention({
     const handleKeyDown = (e: KeyboardEvent): void => {
       if (!isOpenRef.current) return
 
+      const hasModifier = e.metaKey || e.ctrlKey || e.altKey || e.shiftKey
+
+      if (e.key === 'Escape') {
+        setIsOpen(false)
+        isOpenRef.current = false
+        return
+      }
+
+      if (hasModifier) {
+        return
+      }
+
       if (e.key === 'ArrowDown') {
         e.preventDefault()
+        if (resultsRef.current.length === 0) return
         const newIndex = (selectedIndexRef.current + 1) % resultsRef.current.length
         setSelectedIndex(newIndex)
         selectedIndexRef.current = newIndex
       } else if (e.key === 'ArrowUp') {
         e.preventDefault()
+        if (resultsRef.current.length === 0) return
         const newIndex =
           (selectedIndexRef.current - 1 + resultsRef.current.length) % resultsRef.current.length
         setSelectedIndex(newIndex)
@@ -188,9 +204,6 @@ export function FileMention({
       } else if (e.key === 'Enter' && resultsRef.current.length > 0) {
         e.preventDefault()
         insertMention(resultsRef.current[selectedIndexRef.current].path)
-      } else if (e.key === 'Escape') {
-        setIsOpen(false)
-        isOpenRef.current = false
       }
     }
 
@@ -231,10 +244,10 @@ export function FileMention({
 
   if (!isOpen || results.length === 0) return null
 
-  return (
+  return createPortal(
     <div
       ref={popoverRef}
-      className="absolute z-50 max-h-64 w-80 overflow-y-auto rounded-xl border border-border bg-popover shadow-lg"
+      className="fixed z-[9999] max-h-64 w-80 overflow-y-auto rounded-xl border border-border bg-popover shadow-lg"
       style={{ top: position.top, left: position.left }}
     >
       {results.map((file, index) => (
@@ -258,6 +271,7 @@ export function FileMention({
           {files.length - 50} more files...
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   )
 }

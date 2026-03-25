@@ -997,14 +997,15 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
 function AppSkeleton(): React.ReactNode {
   return (
     <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
+      {/* Post-hydration skeleton.
+          If the loading state shown after React mounts needs changing, edit this component.
+          The very first boot splash lives in src/renderer/index.html. */}
       <div className="flex h-full flex-col">
         {/* Chrome Skeleton */}
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md">
           <div className="flex items-center gap-4">
-            <div className="flex h-6 w-6 items-center justify-center text-blue-500">
-              <span className="metal-sheen-emblem">
-                <Zap size={16} fill="currentColor" />
-              </span>
+            <div className="powering-up-emblem flex h-6 w-6 items-center justify-center rounded-lg border border-border/50 bg-slate-950/5 shadow-sm">
+              <Zap size={14} fill="currentColor" className="relative z-10 drop-shadow-[0_0_4px_rgba(255,255,255,0.32)]" />
             </div>
             <div className="h-4 w-32 animate-pulse rounded-md bg-muted/20" />
           </div>
@@ -1023,10 +1024,12 @@ function AppSkeleton(): React.ReactNode {
 
             <div className="rounded-[28px] border border-border/50 bg-muted/5 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.08)]">
               <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-blue-500/10 text-blue-500">
-                  <span className="metal-sheen-emblem">
-                    <Zap size={18} fill="currentColor" />
-                  </span>
+                <div className="powering-up-emblem flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-slate-950/5">
+                  <Zap
+                    size={18}
+                    fill="currentColor"
+                    className="relative z-10 drop-shadow-[0_0_6px_rgba(255,255,255,0.4)]"
+                  />
                 </div>
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="h-4 w-40 rounded bg-muted/40" />

@@ -17,7 +17,8 @@ const variantMap = {
   primary: 'bg-primary text-primary-foreground hover:bg-primary/90 border-primary',
   secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80 border-border',
   ghost: 'text-foreground hover:bg-muted/50 border-transparent',
-  destructive: 'bg-destructive/10 text-destructive hover:bg-destructive/20 border-destructive/20',
+  destructive:
+    'bg-red-500/10 text-red-700 border-red-500/20 hover:bg-red-500/20 dark:bg-red-500/18 dark:text-red-200 dark:border-red-400/30 dark:hover:bg-red-500/28 dark:shadow-[0_0_0_1px_rgba(248,113,113,0.16)]',
   approve:
     'bg-green-500/15 dark:bg-green-500/20 text-green-700 dark:text-green-400 hover:bg-green-500/25 dark:hover:bg-green-500/30 border-green-500/20 dark:border-green-500/30',
   reject:

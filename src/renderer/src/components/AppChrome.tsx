@@ -5,7 +5,6 @@ import { cn } from '../lib/utils'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { UpdateControls } from './UpdateControls'
-import appIcon from '../assets/app-icon.png'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -76,8 +75,10 @@ export function AppChrome({
               <ChevronLeft size={18} />
             </button>
           ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-gradient-to-br from-background via-muted/70 to-background shadow-sm overflow-hidden">
-              <img src={appIcon} alt="The Pair" className="h-5 w-5 object-contain" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-gradient-to-br from-background via-muted/70 to-background shadow-sm">
+              <span className="text-[10px] font-black tracking-[0.22em] text-foreground/70">
+                TP
+              </span>
             </div>
           )}
 
