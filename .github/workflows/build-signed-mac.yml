@@ -148,6 +148,23 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            pkg-config
+
       - name: Install dependencies
         run: npm ci
 
@@ -172,6 +189,7 @@ jobs:
           echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
 
       - name: Build Tauri app
+        shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}

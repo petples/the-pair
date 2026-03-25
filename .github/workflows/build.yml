@@ -111,6 +111,7 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
             npx tauri build --target ${{ matrix.target }} --bundles app

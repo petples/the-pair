@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.10] - 2026-03-25
+
+### Fixed
+
+- Installed Linux desktop build dependencies in the release workflow before Tauri builds
+- Forced the cross-platform Tauri build step to use Bash so Windows runners can execute the release script correctly
+
 ## [1.1.9] - 2026-03-25
 
 ### Fixed
@@ -65,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.1.10]: https://github.com/timwuhaotian/the-pair/compare/v1.1.9...v1.1.10
 [1.1.9]: https://github.com/timwuhaotian/the-pair/compare/v1.1.8...v1.1.9
 [1.1.8]: https://github.com/timwuhaotian/the-pair/compare/v1.1.7...v1.1.8
 [1.1.7]: https://github.com/timwuhaotian/the-pair/compare/v1.1.6...v1.1.7
