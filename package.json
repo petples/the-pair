@@ -42,6 +42,7 @@
     "tauri:build": "npm run preflight && npm run ensure:mac-targets && npm run with-rustup -- tauri build",
     "dev": "npm run preflight && npm run with-rustup -- tauri dev",
     "build:mac": "npm run preflight:mac && npm run ensure:mac-targets && npm run with-rustup -- tauri build --target universal-apple-darwin",
+    "build:mac:release": "npm run preflight:mac && npm run ensure:mac-targets && npm run with-rustup -- tauri build --target universal-apple-darwin --bundles app",
     "build:win": "npm run preflight:win && npm run ensure:rust-targets -- x86_64-pc-windows-msvc && npm run with-rustup -- tauri build --target x86_64-pc-windows-msvc",
     "build:linux": "npm run preflight:linux && npm run ensure:rust-targets -- x86_64-unknown-linux-gnu && npm run with-rustup -- tauri build --target x86_64-unknown-linux-gnu"
   },

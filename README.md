@@ -110,7 +110,7 @@ npm install
 npm run build:mac  # or build:win / build:linux
 ```
 
-On macOS, `build:mac` produces the local DMG experience you asked for, while GitHub Releases still ship ZIP assets for stability. The build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
+On macOS, `build:mac` produces the local DMG experience you asked for, while `build:mac:release` matches the ZIP-style release bundle used in GitHub Releases. The build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -282,20 +282,21 @@ the-pair/
 
 ### Scripts
 
-| Command                   | Description                         |
-| ------------------------- | ----------------------------------- |
-| `npm run dev`             | Start hot-reload development server |
-| `npm run preflight`       | Check local build prerequisites     |
-| `npm run preflight:mac`   | Check macOS build prerequisites     |
-| `npm run preflight:win`   | Check Windows build prerequisites   |
-| `npm run preflight:linux` | Check Linux build prerequisites     |
-| `npm test`                | Run JavaScript and Rust unit tests  |
-| `npm run typecheck`       | Check TypeScript types              |
-| `npm run lint`            | Run ESLint                          |
-| `npm run format`          | Format with Prettier                |
-| `npm run build:mac`       | Build for macOS                     |
-| `npm run build:win`       | Build for Windows                   |
-| `npm run build:linux`     | Build for Linux                     |
+| Command                     | Description                         |
+| --------------------------- | ----------------------------------- |
+| `npm run dev`               | Start hot-reload development server |
+| `npm run preflight`         | Check local build prerequisites     |
+| `npm run preflight:mac`     | Check macOS build prerequisites     |
+| `npm run preflight:win`     | Check Windows build prerequisites   |
+| `npm run preflight:linux`   | Check Linux build prerequisites     |
+| `npm test`                  | Run JavaScript and Rust unit tests  |
+| `npm run typecheck`         | Check TypeScript types              |
+| `npm run lint`              | Run ESLint                          |
+| `npm run format`            | Format with Prettier                |
+| `npm run build:mac`         | Build local macOS DMG               |
+| `npm run build:mac:release` | Build macOS release ZIP bundle      |
+| `npm run build:win`         | Build for Windows                   |
+| `npm run build:linux`       | Build for Linux                     |
 
 ---
 
