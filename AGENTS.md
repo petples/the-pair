@@ -4,7 +4,7 @@ This file contains instructions and context for any AI agents (like yourself) wo
 
 ## Project Identity
 
-"The Pair" is a Desktop application built with Tauri, React, and TypeScript. It serves as an orchestrator for local AI agents. It explicitly separates AI tasks into two distinct sub-agents: a **Planner** and an **Executor**. The app manages their lifecycle, provides terminal/file-system access, monitors resources, and provides a polished UI for humans to observe and intervene.
+"The Pair" is a Desktop application built with Tauri, React, and TypeScript. It serves as an orchestrator for local AI agents. It explicitly separates AI tasks into two distinct sub-agents: a **Mentor** and an **Executor**. The app manages their lifecycle, provides terminal/file-system access, monitors resources, and provides a polished UI for humans to observe and intervene.
 
 ## Tech Stack
 

@@ -80,15 +80,6 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 
 ## Installation
 
-### Homebrew (macOS)
-
-```bash
-brew tap timwuhaotian/the-pair
-brew install --cask the-pair
-```
-
-### Manual Download
-
 Download the latest release from [GitHub Releases](https://github.com/timwuhaotian/the-pair/releases):
 
 | Platform    | File                           |
