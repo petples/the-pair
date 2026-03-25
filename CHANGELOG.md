@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Forced the updater signing key prep step to use Bash on every release runner so Windows no longer parses POSIX shell syntax as PowerShell
+- Rotated the updater signing keypair and updated the embedded updater public key so future signed releases use the new trust root
 
 ## [1.1.12] - 2026-03-25
 
