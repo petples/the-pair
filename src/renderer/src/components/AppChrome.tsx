@@ -4,6 +4,7 @@ import { Pair } from '../store/usePairStore'
 import { cn } from '../lib/utils'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
+import { UpdateControls } from './UpdateControls'
 import appIcon from '../assets/app-icon.png'
 
 interface AppChromeProps {
@@ -47,13 +48,9 @@ export function AppChrome({
   const [appVersion, setAppVersion] = useState<string | null>(null)
 
   useEffect(() => {
-    console.log('[AppChrome] api:', window.api)
-    console.log('[AppChrome] config:', window.api?.config)
-    console.log('[AppChrome] getVersion:', window.api?.config?.getVersion)
     window.api?.config
       ?.getVersion?.()
       .then((v: string) => {
-        console.log('[AppChrome] version:', v)
         setAppVersion(v)
       })
       .catch((e: Error) => {
@@ -90,7 +87,7 @@ export function AppChrome({
                 {selectedPair ? selectedPair.name : 'The Pair'}
               </h1>
               <span className="rounded bg-blue-500 px-2 py-0.5 text-xs font-bold text-white">
-                v{appVersion && appVersion !== '0.0.0' ? appVersion : '1.0.1'}
+                v{appVersion ?? '...'}
               </span>
               {selectedPair ? <StatusBadge status={selectedPair.status} /> : null}
               {selectedPair?.pendingMentorModel || selectedPair?.pendingExecutorModel ? (
@@ -113,6 +110,8 @@ export function AppChrome({
               Desktop orchestration cockpit
             </div>
           )}
+
+          {!selectedPair ? <UpdateControls /> : null}
 
           {selectedPair && (
             <>

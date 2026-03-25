@@ -3,6 +3,9 @@ import { listen } from '@tauri-apps/api/event'
 import { getVersion } from '@tauri-apps/api/app'
 
 const api = {
+  app: {
+    restart: () => invoke('app_restart') as Promise<unknown>
+  },
   pair: {
     create: (input: unknown) => invoke('pair_create', { input }) as Promise<unknown>,
     assignTask: (pairId: string, input: unknown) =>
@@ -49,7 +52,9 @@ const api = {
         Array<{ path: string; type: 'file' | 'directory' }>
       >,
     parseMentions: (pairId: string, spec: string) =>
-      invoke('file_parse_mentions', { pairId, spec }) as Promise<string>
+      invoke('file_parse_mentions', { pairId, spec }) as Promise<string>,
+    readContent: (options: { pairId?: string; directory?: string; filePath: string }) =>
+      invoke('file_read_content', { options }) as Promise<string>
   }
 }
 

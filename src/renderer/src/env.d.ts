@@ -2,6 +2,9 @@
 
 interface Window {
   api: {
+    app: {
+      restart: () => Promise<unknown>
+    }
     pair: {
       create: (input: unknown) => Promise<unknown>
       assignTask: (pairId: string, input: unknown) => Promise<unknown>
@@ -37,6 +40,11 @@ interface Window {
         directory?: string
       }) => Promise<Array<{ path: string; type: 'file' | 'directory' }>>
       parseMentions: (pairId: string, spec: string) => Promise<string>
+      readContent: (options: {
+        pairId?: string
+        directory?: string
+        filePath: string
+      }) => Promise<string>
     }
   }
 }

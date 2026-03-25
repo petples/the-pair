@@ -423,8 +423,8 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   const isMentor = card.role === 'mentor'
   const isLive = card.state === 'live'
   const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
-  const border = isMentor ? 'border-blue-500/25' : 'border-purple-500/25'
-  const bg = isMentor ? 'bg-blue-500/8' : 'bg-purple-500/8'
+  const borderAccent = isMentor ? 'border-blue-400/30' : 'border-purple-400/30'
+  const bg = isMentor ? 'bg-blue-500/6' : 'bg-purple-500/6'
   const currentAction = (
     card.content ||
     card.activity.detail ||
@@ -438,13 +438,13 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         'relative overflow-hidden rounded-2xl border p-5 shadow-lg',
-        border,
+        borderAccent,
         bg,
         'metal-sheen-surface'
       )}
     >
       <div className="mb-3 flex items-center gap-2">
-        <Zap size={14} className={accent} fill="currentColor" />
+        <Zap size={14} className={cn(accent, 'drop-shadow-sm')} fill="currentColor" />
         <span className={cn('text-[10px] font-black uppercase tracking-[0.16em]', accent)}>
           {card.role.toUpperCase()}
         </span>

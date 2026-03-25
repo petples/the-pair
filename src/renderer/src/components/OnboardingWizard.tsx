@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
   CheckCircle2,
@@ -54,7 +54,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const [isOpeningFile, setIsOpeningFile] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleFileSelect = useCallback((path: string, content: string): void => {
+    setFileContexts((prev) => {
+      const next = new Map(prev)
+      next.set(path, content)
+      return next
+    })
+  }, [])
 
   const { availableModels, loadAvailableModels, createPair } = usePairStore()
   const { theme, toggleTheme } = useThemeStore()
@@ -131,10 +140,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     setError(null)
     setIsCreating(true)
     try {
+      let finalSpec = spec.trim()
+      if (fileContexts.size > 0) {
+        const contextHeader =
+          '--- REFERENCED FILES ---\n' +
+          Array.from(fileContexts.entries())
+            .map(([path, content]) => `@${path}:\n${content}`)
+            .join('\n\n') +
+          '\n\n--- TASK ---\n'
+        finalSpec = contextHeader + finalSpec
+      }
       await createPair({
         name: name.trim(),
         directory,
-        spec: spec.trim(),
+        spec: finalSpec,
         mentorModel,
         executorModel
       })
@@ -177,6 +196,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
             onNameChange={setName}
             onSpecChange={setSpec}
             textareaRef={textareaRef}
+            onFileSelect={handleFileSelect}
           />
         )
       case 1:
@@ -327,7 +347,8 @@ function SetupStep({
   spec,
   onNameChange,
   onSpecChange,
-  textareaRef
+  textareaRef,
+  onFileSelect
 }: {
   status: 'checking' | 'ok' | 'missing-keys' | 'missing-file'
   loading: boolean
@@ -340,6 +361,7 @@ function SetupStep({
   onNameChange: (v: string) => void
   onSpecChange: (v: string) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
+  onFileSelect: (path: string, content: string) => void
 }): React.ReactNode {
   return (
     <div className="space-y-6 py-1">
@@ -404,6 +426,7 @@ function SetupStep({
                 textareaRef={textareaRef}
                 onChange={onSpecChange}
                 directory={directory}
+                onFileSelect={onFileSelect}
               />
             )}
             <p className="mt-1.5 text-xs text-muted-foreground">

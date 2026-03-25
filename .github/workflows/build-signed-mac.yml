@@ -168,6 +168,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare updater signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY secret is required for updater artifacts."
+            exit 1
+          fi
+
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > updater-private.key
+
       - name: Import signing certificate
         if: matrix.platform == 'macos'
         env:
@@ -196,18 +207,23 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY_PATH: updater-private.key
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if [ "${{ matrix.platform }}" = "macos" ]; then
-            npm run tauri:build:mac -- --ci --bundles app
+            npm run tauri:build:mac -- --ci --bundles app --config src-tauri/tauri.updater.conf.json
           elif [ "${{ matrix.platform }}" = "windows" ]; then
-            npm run tauri:build:win -- --ci
+            npm run tauri:build:win -- --ci --config src-tauri/tauri.updater.conf.json
           else
-            npm run tauri:build:linux -- --ci
+            npm run tauri:build:linux -- --ci --config src-tauri/tauri.updater.conf.json
           fi
 
       - name: Collect release asset
         if: matrix.platform != 'macos'
         run: node scripts/release-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "$VERSION"
+
+      - name: Collect updater assets
+        run: node scripts/release-updater-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "$VERSION"
 
       - name: Package macOS zip
         if: matrix.platform == 'macos'
@@ -250,6 +266,15 @@ jobs:
             capture && /^## \\[/ { exit }
             capture { print }
           ' CHANGELOG.md > release-notes.md
+
+      - name: Generate updater manifest
+        run: |
+          node scripts/generate-updater-manifest.mjs \
+            --version "$VERSION" \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            --dist-dir dist \
+            --notes-file release-notes.md \
+            --output dist/latest.json
 
       - name: Create or update GitHub release
         env:

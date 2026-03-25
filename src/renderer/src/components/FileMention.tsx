@@ -12,13 +12,15 @@ interface FileMentionProps {
   onChange: (value: string) => void
   directory: string
   pairId?: string
+  onFileSelect?: (path: string, content: string) => void
 }
 
 export function FileMention({
   textareaRef,
   onChange,
   directory,
-  pairId
+  pairId,
+  onFileSelect
 }: FileMentionProps): React.ReactNode {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -46,7 +48,6 @@ export function FileMention({
   useEffect(() => {
     if (files.length === 0) return
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFuse(
       new Fuse(files, {
         keys: ['path'],
@@ -98,9 +99,22 @@ export function FileMention({
   }, [textareaRef])
 
   const insertMention = useCallback(
-    (path: string): void => {
+    async (path: string): Promise<void> => {
       const textarea = textareaRef.current
       if (!textarea) return
+
+      if (onFileSelect) {
+        try {
+          const content = await window.api.file.readContent({
+            pairId: pairId,
+            directory: pairId ? undefined : directory,
+            filePath: path
+          })
+          onFileSelect(path, content)
+        } catch (err) {
+          console.error('Failed to read file content:', err)
+        }
+      }
 
       const text = textarea.value
       const pos = textarea.selectionStart
@@ -121,7 +135,7 @@ export function FileMention({
         textarea.setSelectionRange(newPos, newPos)
       }, 0)
     },
-    [textareaRef, onChange]
+    [textareaRef, onChange, onFileSelect, pairId, directory]
   )
 
   useEffect(() => {
@@ -182,10 +196,18 @@ export function FileMention({
 
     textarea.addEventListener('input', handleInput)
     textarea.addEventListener('keydown', handleKeyDown)
+    textarea.addEventListener('scroll', handleScroll)
 
     return () => {
       textarea.removeEventListener('input', handleInput)
       textarea.removeEventListener('keydown', handleKeyDown)
+      textarea.removeEventListener('scroll', handleScroll)
+    }
+
+    function handleScroll(): void {
+      if (isOpenRef.current) {
+        setPosition(getCursorPosition() ?? { top: 0, left: 0 })
+      }
     }
   }, [textareaRef, getCursorPosition, insertMention])
 

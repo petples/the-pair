@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { FolderOpen } from 'lucide-react'
 import { usePairStore } from '../store/usePairStore'
@@ -21,7 +21,16 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [spec, setSpec] = useState('')
   const [mentorModel, setMentorModel] = useState('')
   const [executorModel, setExecutorModel] = useState('')
+  const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleFileSelect = useCallback((path: string, content: string): void => {
+    setFileContexts((prev) => {
+      const next = new Map(prev)
+      next.set(path, content)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (isOpen && availableModels.length === 0) {
@@ -42,10 +51,24 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     try {
-      await createPair({ name, directory, spec, mentorModel, executorModel })
+      const referencedFiles = Array.from(fileContexts.entries()).filter(([path]) =>
+        spec.includes(`@${path}`)
+      )
+      let finalSpec = spec
+      if (referencedFiles.length > 0) {
+        const contextHeader =
+          '--- REFERENCED FILES ---\n' +
+          referencedFiles
+            .map(([path, content]) => `@${path}:\n${content}`)
+            .join('\n\n') +
+          '\n\n--- TASK ---\n'
+        finalSpec = contextHeader + finalSpec
+      }
+      await createPair({ name, directory, spec: finalSpec, mentorModel, executorModel })
       setName('')
       setDirectory('')
       setSpec('')
+      setFileContexts(new Map())
       onClose()
     } catch {
       // Store already exposes the error copy
@@ -144,7 +167,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             required
           />
           {directory && (
-            <FileMention textareaRef={textareaRef} onChange={setSpec} directory={directory} />
+            <FileMention
+              textareaRef={textareaRef}
+              onChange={setSpec}
+              directory={directory}
+              onFileSelect={handleFileSelect}
+            />
           )}
           <p className="mt-1.5 text-xs text-muted-foreground">
             Type @ to reference workspace files

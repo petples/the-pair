@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react'
+import React, { useMemo, useState, useRef, useCallback } from 'react'
 import { ArrowUpRight, Sparkles } from 'lucide-react'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { GlassButton } from './ui/GlassButton'
@@ -14,7 +14,16 @@ interface AssignTaskModalProps {
 export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps): React.ReactNode {
   const { assignTask, isLoading, error } = usePairStore()
   const [spec, setSpec] = useState('')
+  const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleFileSelect = useCallback((path: string, content: string): void => {
+    setFileContexts((prev) => {
+      const next = new Map(prev)
+      next.set(path, content)
+      return next
+    })
+  }, [])
 
   const effectiveMentorModel = useMemo(
     () => pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
@@ -31,9 +40,24 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     e.preventDefault()
     if (!spec.trim()) return
 
+    const referencedFiles = Array.from(fileContexts.entries()).filter(([path]) =>
+      spec.includes(`@${path}`)
+    )
+    let finalSpec = spec.trim()
+    if (referencedFiles.length > 0) {
+      const contextHeader =
+        '--- REFERENCED FILES ---\n' +
+        referencedFiles
+          .map(([path, content]) => `@${path}:\n${content}`)
+          .join('\n\n') +
+        '\n\n--- TASK ---\n'
+      finalSpec = contextHeader + finalSpec
+    }
+
     try {
-      await assignTask(pair.id, spec.trim())
+      await assignTask(pair.id, finalSpec)
       setSpec('')
+      setFileContexts(new Map())
       onClose()
     } catch {
       // Store already holds the user-facing error
@@ -120,6 +144,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             onChange={setSpec}
             directory={pair.directory}
             pairId={pair.id}
+            onFileSelect={handleFileSelect}
           />
           <p className="mt-1.5 text-xs text-muted-foreground">
             {spec.length} characters · the next run starts with a fresh planning loop · Type @ to

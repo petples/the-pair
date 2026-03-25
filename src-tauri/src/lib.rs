@@ -16,7 +16,38 @@ use message_broker::MessageBroker;
 use pair_manager::PairManager;
 use process_spawner::ProcessSpawner;
 use std::sync::Mutex;
-use tauri::Manager;
+use tauri::{
+    menu::{MenuBuilder, SubmenuBuilder},
+    AppHandle, Emitter, Manager,
+};
+
+#[tauri::command]
+fn app_restart(app: AppHandle) {
+    app.restart();
+}
+
+fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
+    let app_menu = SubmenuBuilder::new(app, "The Pair")
+        .text("check_updates", "Check for Updates...")
+        .separator()
+        .text("quit", "Quit The Pair")
+        .build()?;
+
+    let menu = MenuBuilder::new(app).items(&[&app_menu]).build()?;
+    app.set_menu(menu)?;
+
+    app.on_menu_event(move |app_handle, event| match event.id().0.as_str() {
+        "check_updates" => {
+            let _ = app_handle.emit("app:update:check", ());
+        }
+        "quit" => {
+            app_handle.exit(0);
+        }
+        _ => {}
+    });
+
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -24,7 +55,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+
             path_env::refresh_path_from_login_shell();
+            setup_menu(app.handle())?;
 
             let broker = app.state::<Mutex<MessageBroker>>();
             let mut broker = broker.lock().unwrap();
@@ -50,10 +86,12 @@ pub fn run() {
             stubs::config_open_file,
             file_cache::file_list_files,
             file_cache::file_parse_mentions,
+            file_cache::file_read_content,
             session_snapshot::session_save_snapshot,
             session_snapshot::list_recoverable_sessions,
             session_snapshot::delete_recoverable_session,
-            session_snapshot::restore_session
+            session_snapshot::restore_session,
+            app_restart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
