@@ -9,6 +9,7 @@ mod provider_registry;
 mod model_catalog;
 mod file_cache;
 mod session_snapshot;
+mod path_env;
 
 use pair_manager::PairManager;
 use message_broker::MessageBroker;
@@ -22,6 +23,8 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {
+      path_env::refresh_path_from_login_shell();
+
       let broker = app.state::<Mutex<MessageBroker>>();
       let mut broker = broker.lock().unwrap();
       broker.set_app_handle(app.handle().clone());
