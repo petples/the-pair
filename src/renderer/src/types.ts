@@ -5,6 +5,7 @@ export type PairStatus =
   | 'Mentoring'
   | 'Executing'
   | 'Reviewing'
+  | 'Paused'
   | 'Awaiting Human Review'
   | 'Error'
   | 'Finished'

@@ -274,6 +274,7 @@ impl MessageBroker {
                 PairStatus::Idle
                     | PairStatus::Finished
                     | PairStatus::Error
+                    | PairStatus::Paused
                     | PairStatus::AwaitingHumanReview
             ) {
                 should_spawn_monitor = true;
@@ -441,6 +442,17 @@ impl MessageBroker {
                     state.executor_activity.phase = ActivityPhase::Waiting;
                     state.executor_activity.label = "Awaiting human review".to_string();
                     state.executor_activity.detail = None;
+                    state.executor_activity.updated_at = Self::now();
+                }
+                PairStatus::Paused => {
+                    state.mentor_activity.phase = ActivityPhase::Idle;
+                    state.mentor_activity.label = "Paused".to_string();
+                    state.mentor_activity.detail = detail.clone();
+                    state.mentor_activity.updated_at = Self::now();
+
+                    state.executor_activity.phase = ActivityPhase::Idle;
+                    state.executor_activity.label = "Paused".to_string();
+                    state.executor_activity.detail = detail;
                     state.executor_activity.updated_at = Self::now();
                 }
                 PairStatus::Error => {
@@ -615,6 +627,32 @@ mod tests {
             state.executor_activity.phase,
             ActivityPhase::Waiting
         ));
+    }
+
+    #[test]
+    fn set_pair_status_marks_paused_pairs_as_idle_with_pause_copy() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker
+            .restore_state(pair_state(PairStatus::Paused, 4))
+            .unwrap();
+
+        broker.set_pair_status(
+            "pair-1",
+            PairStatus::Paused,
+            Some("Paused by user".to_string()),
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.status, PairStatus::Paused);
+        assert_eq!(state.mentor.status, PairStatus::Paused);
+        assert_eq!(state.executor.status, PairStatus::Paused);
+        assert_eq!(state.mentor_activity.label, "Paused");
+        assert_eq!(state.executor_activity.label, "Paused");
+        assert_eq!(state.mentor_activity.detail.as_deref(), Some("Paused by user"));
+        assert_eq!(state.executor_activity.detail.as_deref(), Some("Paused by user"));
+        assert!(matches!(state.mentor_activity.phase, ActivityPhase::Idle));
+        assert!(matches!(state.executor_activity.phase, ActivityPhase::Idle));
     }
 
     #[test]

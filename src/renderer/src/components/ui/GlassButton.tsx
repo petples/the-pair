@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 
 interface GlassButtonProps {
   children: React.ReactNode
-  onClick?: () => void
+  onClick?: React.MouseEventHandler<HTMLButtonElement>
   variant?: 'primary' | 'secondary' | 'ghost' | 'destructive' | 'approve' | 'reject'
   size?: 'sm' | 'md' | 'lg'
   className?: string

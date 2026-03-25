@@ -18,6 +18,7 @@ export type PairStatus =
   | 'Mentoring'
   | 'Executing'
   | 'Reviewing'
+  | 'Paused'
   | 'Awaiting Human Review'
   | 'Error'
   | 'Finished'
@@ -181,7 +182,8 @@ interface PairStore {
   assignTask: (pairId: string, spec: string, role?: string) => Promise<void>
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   restoreSession: (pairId: string, continueRun?: boolean) => Promise<void>
-  removePair: (id: string) => void
+  pausePair: (id: string) => Promise<void>
+  deletePair: (id: string) => Promise<void>
   updatePairStatus: (id: string, status: PairStatus) => void
   updatePairUsage: (id: string, cpu: number, mem: number) => void
   addMessage: (pairId: string, message: Message) => void
@@ -417,6 +419,8 @@ function normalizePairStatus(raw: unknown): PairStatus | undefined {
       return 'Executing'
     case 'reviewing':
       return 'Reviewing'
+    case 'paused':
+      return 'Paused'
     case 'awaiting-human-review':
       return 'Awaiting Human Review'
     case 'error':
@@ -500,9 +504,9 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
   const nextExecutorActivity = state.executorActivity ?? pair.executorActivity
   const nextActiveActivity = nextTurn === 'mentor' ? nextMentorActivity : nextExecutorActivity
   const shouldHaveCurrentCard = isRunningStatus(nextStatus)
-  const finishedNow =
+  const closedNow =
     pair.currentRunFinishedAt === undefined &&
-    (nextStatus === 'Finished' || nextStatus === 'Error') &&
+    (nextStatus === 'Finished' || nextStatus === 'Error' || nextStatus === 'Paused') &&
     pair.status !== nextStatus
 
   let messages = pair.messages
@@ -556,7 +560,7 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
-    currentRunFinishedAt: finishedNow ? Date.now() : pair.currentRunFinishedAt
+    currentRunFinishedAt: closedNow ? Date.now() : pair.currentRunFinishedAt
   }
 }
 
@@ -1211,12 +1215,40 @@ export const usePairStore = create<PairStore>((set) => ({
     }
   },
 
-  removePair: (id) => {
-    window.api.pair.stop(id)
-    set((state) => ({
-      pairs: state.pairs.filter((p) => p.id !== id),
-      recoverableSessions: state.recoverableSessions.filter((session) => session.pairId !== id)
-    }))
+  pausePair: async (id) => {
+    set({ isLoading: true, error: null })
+
+    try {
+      await window.api.pair.pause(id)
+      set({ isLoading: false })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to pause pair'
+      set({
+        isLoading: false,
+        error: message
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
+  },
+
+  deletePair: async (id) => {
+    set({ isLoading: true, error: null })
+
+    try {
+      await window.api.pair.delete(id)
+      set((state) => ({
+        isLoading: false,
+        pairs: state.pairs.filter((p) => p.id !== id),
+        recoverableSessions: state.recoverableSessions.filter((session) => session.pairId !== id)
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete pair'
+      set({
+        isLoading: false,
+        error: message
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
   },
 
   retryTurn: async (id) => {

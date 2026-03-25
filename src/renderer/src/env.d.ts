@@ -9,7 +9,9 @@ interface Window {
       create: (input: unknown) => Promise<unknown>
       assignTask: (pairId: string, input: unknown) => Promise<unknown>
       updateModels: (pairId: string, input: unknown) => Promise<unknown>
+      pause: (pairId: string) => Promise<unknown>
       stop: (pairId: string) => Promise<unknown>
+      delete: (pairId: string) => Promise<unknown>
       retryTurn: (pairId: string) => Promise<unknown>
       list: () => Promise<unknown>
       getMessages: (pairId: string) => Promise<unknown>

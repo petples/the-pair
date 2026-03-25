@@ -29,6 +29,10 @@ export const tauriApi = {
     delete: async (pairId: string): Promise<void> => {
       if (!isTauri) throw new Error('Not running in Tauri')
       return await invoke('pair_delete', { pairId })
+    },
+    pause: async (pairId: string): Promise<void> => {
+      if (!isTauri) throw new Error('Not running in Tauri')
+      return await invoke('pair_pause', { pairId })
     }
   }
 }

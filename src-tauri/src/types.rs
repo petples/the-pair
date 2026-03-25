@@ -8,6 +8,7 @@ pub enum PairStatus {
     Mentoring,
     Executing,
     Reviewing,
+    Paused,
     #[serde(rename = "Awaiting Human Review")]
     AwaitingHumanReview,
     Error,

@@ -1,6 +1,7 @@
 use crate::message_broker::MessageBroker;
 use crate::process_spawner::ProcessSpawner;
 use crate::session_snapshot::delete_pair_snapshot;
+use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{AssignTaskInput, CreatePairInput, Pair, PairStatus};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,6 +82,29 @@ impl PairManager {
             .remove(pair_id)
             .ok_or_else(|| format!("Pair {} not found", pair_id))?;
         Ok(())
+    }
+}
+
+fn stop_pair_processes(spawner: &ProcessSpawner, pair_id: &str, remove_contexts: bool) {
+    {
+        let mut active_processes = spawner.active_processes.lock().unwrap();
+
+        let mentor_key = format!("{}-mentor", pair_id);
+        if let Some(mut child) = active_processes.remove(&mentor_key) {
+            println!("[pair_stop] Killing mentor process for {}", pair_id);
+            let _ = child.start_kill();
+        }
+
+        let executor_key = format!("{}-executor", pair_id);
+        if let Some(mut child) = active_processes.remove(&executor_key) {
+            println!("[pair_stop] Killing executor process for {}", pair_id);
+            let _ = child.start_kill();
+        }
+    }
+
+    if remove_contexts {
+        let mut pair_contexts = spawner.pair_contexts.lock().unwrap();
+        pair_contexts.remove(pair_id);
     }
 }
 
@@ -249,36 +273,52 @@ pub fn pair_delete(
     spawner: tauri::State<'_, ProcessSpawner>,
     pair_id: String,
 ) -> Result<(), String> {
-    // Terminate processes
-    {
-        let mut active_processes = spawner.active_processes.lock().unwrap();
+    stop_pair_processes(&spawner, &pair_id, true);
 
-        // Kill mentor process if active
-        let mentor_key = format!("{}-mentor", pair_id);
-        if let Some(mut child) = active_processes.remove(&mentor_key) {
-            println!("[pair_delete] Killing mentor process for {}", pair_id);
-            let _ = child.start_kill();
-        }
-
-        // Kill executor process if active
-        let executor_key = format!("{}-executor", pair_id);
-        if let Some(mut child) = active_processes.remove(&executor_key) {
-            println!("[pair_delete] Killing executor process for {}", pair_id);
-            let _ = child.start_kill();
-        }
-    }
-
-    // Remove pair context
-    {
-        let mut pair_contexts = spawner.pair_contexts.lock().unwrap();
-        pair_contexts.remove(&pair_id);
-    }
-
-    // Remove from manager
     let mut manager = state.lock().unwrap();
     manager.delete_pair(&pair_id)?;
 
     let _ = delete_pair_snapshot(&app, &pair_id);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn pair_pause(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Mutex<PairManager>>,
+    broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
+    spawner: tauri::State<'_, ProcessSpawner>,
+    pair_id: String,
+) -> Result<(), String> {
+    {
+        let manager = state.lock().unwrap();
+        if !manager.pairs.contains_key(&pair_id) {
+            return Err(format!("Pair {} not found", pair_id));
+        }
+    }
+
+    stop_pair_processes(&spawner, &pair_id, false);
+
+    {
+        let mut manager = state.lock().unwrap();
+        let pair = manager
+            .pairs
+            .get_mut(&pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+        pair.status = PairStatus::Paused;
+    }
+
+    {
+        let broker = broker.lock().unwrap();
+        broker.set_pair_status(
+            &pair_id,
+            PairStatus::Paused,
+            Some("Paused by user".to_string()),
+        );
+    }
+
+    let _ = persist_current_pair_snapshot(&app, &pair_id);
 
     Ok(())
 }

@@ -12,7 +12,9 @@ const api = {
       invoke('pair_assign_task', { pairId, input }) as Promise<unknown>,
     updateModels: (pairId: string, input: unknown) =>
       invoke('pair_update_models', { pairId, input }) as Promise<unknown>,
-    stop: (pairId: string) => invoke('pair_delete', { pairId }) as Promise<unknown>,
+    pause: (pairId: string) => invoke('pair_pause', { pairId }) as Promise<unknown>,
+    stop: (pairId: string) => invoke('pair_pause', { pairId }) as Promise<unknown>,
+    delete: (pairId: string) => invoke('pair_delete', { pairId }) as Promise<unknown>,
     retryTurn: (pairId: string) => invoke('pair_retry_turn', { pairId }) as Promise<unknown>,
     list: () => invoke('pair_list') as Promise<unknown>,
     getMessages: (pairId: string) => invoke('pair_get_messages', { pairId }) as Promise<unknown>,

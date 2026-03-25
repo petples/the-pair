@@ -615,7 +615,8 @@ fn build_snapshot_from_state(
         run_count: 1,
         run_history: Vec::new(),
         current_run_started_at: now(),
-        current_run_finished_at: None,
+        current_run_finished_at: matches!(state.status, PairStatus::Paused | PairStatus::Error | PairStatus::Finished)
+            .then(now),
         created_at: pair.created_at,
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
@@ -728,6 +729,14 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.modified_files = state.modified_files.clone();
     snapshot.git_tracking = state.git_tracking.clone();
     snapshot.automation_mode = state.automation_mode.clone();
+    if snapshot.current_run_finished_at.is_none()
+        && matches!(
+            state.status,
+            PairStatus::Paused | PairStatus::Error | PairStatus::Finished
+        )
+    {
+        snapshot.current_run_finished_at = Some(now());
+    }
     snapshot.provider_sessions = SnapshotProcessContext {
         mentor_session_id: context
             .as_ref()

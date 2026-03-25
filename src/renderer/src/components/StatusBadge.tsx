@@ -27,6 +27,12 @@ export function StatusBadge({ status }: { status: string }): React.ReactNode {
       border: 'border-amber-500/30 dark:border-amber-500/35',
       glow: 'shadow-amber-500/25 dark:shadow-amber-500/30 shadow-[0_0_14px_rgba(245,158,11,0.25)]'
     },
+    Paused: {
+      bg: 'bg-slate-500/15 dark:bg-slate-400/15',
+      text: 'text-slate-700 dark:text-slate-200',
+      border: 'border-slate-500/25 dark:border-slate-400/25',
+      glow: 'shadow-slate-500/15 dark:shadow-slate-400/15 shadow-[0_0_12px_rgba(100,116,139,0.15)]'
+    },
     'Awaiting Human Review': {
       bg: 'bg-orange-500/20 dark:bg-orange-500/25',
       text: 'text-orange-700 dark:text-orange-300',

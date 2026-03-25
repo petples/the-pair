@@ -33,7 +33,20 @@ fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
         .text("quit", "Quit The Pair")
         .build()?;
 
-    let menu = MenuBuilder::new(app).items(&[&app_menu]).build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .separator()
+        .select_all()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu])
+        .build()?;
     app.set_menu(menu)?;
 
     app.on_menu_event(move |app_handle, event| match event.id().0.as_str() {
@@ -74,6 +87,7 @@ pub fn run() {
             pair_manager::pair_create,
             pair_manager::pair_list,
             pair_manager::pair_delete,
+            pair_manager::pair_pause,
             pair_manager::pair_assign_task,
             stubs::pair_update_models,
             stubs::pair_retry_turn,

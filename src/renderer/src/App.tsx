@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react'
-import { Terminal, RefreshCw, Square, RotateCcw, Zap } from 'lucide-react'
+import { Pause, RefreshCw, RotateCcw, Terminal, Trash2, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -163,7 +163,15 @@ function MarkdownContent({ content }: { content: string }): React.ReactNode {
   )
 }
 
-function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React.ReactNode {
+function Dashboard({
+  onSelectPair,
+  onDeletePair,
+  deletingPairId
+}: {
+  onSelectPair: (p: Pair) => void
+  onDeletePair: (pair: Pair) => void
+  deletingPairId: string | null
+}): React.ReactNode {
   const pairs = usePairStore((state) => state.pairs)
 
   const getPairGlow = (status: string): 'blue' | 'purple' | 'green' | 'amber' | 'none' => {
@@ -171,6 +179,7 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
     if (status === 'Executing') return 'purple'
     if (status === 'Reviewing') return 'amber'
     if (status === 'Awaiting Human Review') return 'amber'
+    if (status === 'Paused') return 'amber'
     if (status === 'Finished') return 'green'
     return 'none'
   }
@@ -213,6 +222,7 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
                 animate="visible"
                 exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
                 layout
+                className="group"
               >
                 <GlassCard
                   hoverable
@@ -232,8 +242,21 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
                         {pair.directory}
                       </p>
                     </div>
-                    <div className="shrink-0">
+                    <div className="flex shrink-0 items-center gap-2">
                       <StatusBadge status={pair.status} />
+                      <GlassButton
+                        variant="destructive"
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onDeletePair(pair)
+                        }}
+                        disabled={deletingPairId === pair.id}
+                        icon={<Trash2 size={12} />}
+                        className="opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                      >
+                        {deletingPairId === pair.id ? 'Deleting...' : 'Delete'}
+                      </GlassButton>
                     </div>
                   </div>
 
@@ -244,7 +267,11 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
                     <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       {pair.runHistory.length} archived
                     </span>
-                    {!isPairRunning(pair.status) && (
+                    {pair.status === 'Paused' ? (
+                      <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
+                        Paused
+                      </span>
+                    ) : !isPairRunning(pair.status) && (
                       <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
                         Ready for new task
                       </span>
@@ -464,12 +491,19 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   )
 }
 
-function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React.ReactNode {
+function PairDetail({
+  pair,
+  onPause
+}: {
+  pair: Pair
+  onPause: () => Promise<void>
+}): React.ReactNode {
   const retryTurn = usePairStore((s) => s.retryTurn)
   const humanFeedback = usePairStore((s) => s.humanFeedback)
   const isStoreBusy = usePairStore((s) => s.isLoading)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+  const canPause = isPairRunning(pair.status)
 
   const handleRetryTurn = (): void => {
     retryTurn(pair.id)
@@ -506,6 +540,13 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
     const d = new Date(ts)
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
   }
+
+  const runStateText =
+    pair.status === 'Paused'
+      ? `Paused ${formatRunStamp(pair.currentRunFinishedAt)}`
+      : pair.currentRunFinishedAt
+        ? `Finished ${formatRunStamp(pair.currentRunFinishedAt)}`
+        : 'Still running'
 
   const getActivityIcon = (phase: string): string => {
     switch (phase) {
@@ -557,8 +598,16 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
       <div className="flex flex-1 min-h-0 overflow-hidden bg-background">
         <div className="glass-panel flex w-[28%] flex-col gap-5 overflow-y-auto border-r border-border/50 p-5 scrollbar-thin">
           <div className="flex flex-wrap items-center gap-2">
-            <GlassButton variant="secondary" size="sm" icon={<Square size={12} />} onClick={onStop}>
-              Stop Pair
+            <GlassButton
+              variant="secondary"
+              size="sm"
+              icon={<Pause size={12} />}
+              onClick={() => {
+                void onPause()
+              }}
+              disabled={!canPause || isStoreBusy}
+            >
+              {pair.status === 'Paused' ? 'Paused' : 'Pause Pair'}
             </GlassButton>
             {pair.status === 'Error' && (
               <GlassButton
@@ -729,10 +778,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 </span>
               </div>
               <div className="mt-3 text-[11px] text-muted-foreground">
-                Started {formatRunStamp(pair.currentRunStartedAt)} ·{' '}
-                {pair.currentRunFinishedAt
-                  ? `Finished ${formatRunStamp(pair.currentRunFinishedAt)}`
-                  : 'Still running'}
+                Started {formatRunStamp(pair.currentRunStartedAt)} · {runStateText}
               </div>
             </div>
           </div>
@@ -1059,6 +1105,7 @@ function App(): React.ReactNode {
   const [isRecoveryDismissed, setIsRecoveryDismissed] = useState(false)
   const [isRestoringSession, setIsRestoringSession] = useState(false)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
+  const [deletingPairId, setDeletingPairId] = useState<string | null>(null)
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
@@ -1070,7 +1117,8 @@ function App(): React.ReactNode {
   const restoreSession = usePairStore((state) => state.restoreSession)
   const deleteRecoverableSession = usePairStore((state) => state.deleteRecoverableSession)
   const removeRecoverableSession = usePairStore((state) => state.removeRecoverableSession)
-  const removePair = usePairStore((state) => state.removePair)
+  const pausePair = usePairStore((state) => state.pausePair)
+  const deletePair = usePairStore((state) => state.deletePair)
 
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
@@ -1104,12 +1152,33 @@ function App(): React.ReactNode {
   const showRecoveryPrompt =
     !isInitializing && !isRecoveryDismissed && recoverableSessions.length > 0 && pairs.length === 0
 
-  const handleStopSelectedPair = (): void => {
-    if (!selectedPair) return
-    removePair(selectedPair.id)
-    setSelectedPairId(null)
-    setIsAssignTaskOpen(false)
-    setIsPairSettingsOpen(false)
+  const handlePauseSelectedPair = async (): Promise<void> => {
+    if (!selectedPair || !isPairRunning(selectedPair.status)) return
+
+    try {
+      await pausePair(selectedPair.id)
+    } catch (error) {
+      console.error('[App] Failed to pause pair:', error)
+    }
+  }
+
+  const handleDeletePair = async (pair: Pair): Promise<void> => {
+    const confirmed = window.confirm(
+      `Delete pair "${pair.name}"? This will permanently remove the pair, its snapshot, and its recoverable session.`
+    )
+    if (!confirmed) return
+
+    setDeletingPairId(pair.id)
+    try {
+      await deletePair(pair.id)
+      if (selectedPairId === pair.id) {
+        setSelectedPairId(null)
+      }
+    } catch (error) {
+      console.error('[App] Failed to delete pair:', error)
+    } finally {
+      setDeletingPairId(null)
+    }
   }
 
   const handleRestoreSession = async (pairId: string, continueRun: boolean): Promise<void> => {
@@ -1175,9 +1244,15 @@ function App(): React.ReactNode {
 
           <div className="flex-1 overflow-hidden">
             {selectedPair ? (
-              <PairDetail pair={selectedPair} onStop={handleStopSelectedPair} />
+              <PairDetail pair={selectedPair} onPause={handlePauseSelectedPair} />
             ) : (
-              <Dashboard onSelectPair={(pair) => setSelectedPairId(pair.id)} />
+              <Dashboard
+                onSelectPair={(pair) => setSelectedPairId(pair.id)}
+                onDeletePair={(pair) => {
+                  void handleDeletePair(pair)
+                }}
+                deletingPairId={deletingPairId}
+              />
             )}
           </div>
         </div>
