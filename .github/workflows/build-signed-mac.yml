@@ -180,6 +180,30 @@ jobs:
 
           printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > updater-private.key
 
+      - name: Validate updater signing key
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ ! -s updater-private.key ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY secret is missing or empty."
+            exit 1
+          fi
+
+          probe_file="$(mktemp)"
+          printf 'updater-key-validation' > "$probe_file"
+
+          sign_args=(--private-key-path updater-private.key)
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+            sign_args+=(--password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD")
+          fi
+
+          if ! npm run tauri -- signer sign "${sign_args[@]}" "$probe_file" >/dev/null; then
+            echo "Updater signing key validation failed. Recheck TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets."
+            exit 1
+          fi
+          rm -f "$probe_file" "$probe_file.sig"
+
       - name: Import signing certificate
         if: matrix.platform == 'macos'
         env:
@@ -208,7 +232,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: updater-private.key
+          TAURI_SIGNING_PRIVATE_KEY: updater-private.key
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if [ "${{ matrix.platform }}" = "macos" ]; then

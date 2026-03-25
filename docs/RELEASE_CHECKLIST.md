@@ -32,6 +32,9 @@ npm run build
 - [ ] `src-tauri/Cargo.toml` has the correct package metadata
 - [ ] `docs/RELEASE_CHECKLIST.md` was reviewed for any stale release process notes
 - [ ] Release notes mention any breaking changes or migration steps
+- [ ] `TAURI_SIGNING_PRIVATE_KEY` and optional password secrets are configured in GitHub Actions
+- [ ] The updater signing key validates in CI before the build stage
+- [ ] `src-tauri/tauri.conf.json` `plugins.updater.pubkey` matches the current updater private key
 
 ## 4. Binary Checks
 

@@ -61,6 +61,8 @@ Configure these in `Settings → Secrets and variables → Actions`:
 | `MACOS_SIGNING_IDENTITY`       | Exact signing identity string used by Tauri as `APPLE_SIGNING_IDENTITY` | Run `security find-identity -v -p codesigning` after installing the certificate, then copy the `Developer ID Application: ...` line |
 | `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded `.p12` export of your Developer ID Application cert      | `base64 -i /path/to/developer-id.p12 \| pbcopy` on macOS                                                                            |
 | `MACOS_CERTIFICATE_PASSWORD`   | Password you chose when exporting the `.p12`                            | You set this during export                                                                                                          |
+| `TAURI_SIGNING_PRIVATE_KEY`    | Tauri updater signing private key, stored as file contents or a path    | Generate it with `npm run tauri signer generate -- -w ~/.tauri/the-pair.key` and copy the private key into the secret                 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the updater private key, if you generated one         | Use the same password you passed to `tauri signer generate`                                                                          |
 | `APPLE_ID`                     | Apple Account email used for notarization                               | Your Apple Developer account email                                                                                                  |
 | `APPLE_APP_SPECIFIC_PASSWORD`  | App-specific password for notarization                                  | Go to `account.apple.com` → `Sign-In and Security` → `App-Specific Passwords`                                                       |
 | `APPLE_TEAM_ID`                | 10-character Apple team identifier                                      | `developer.apple.com` → `Membership details`                                                                                        |
@@ -70,6 +72,7 @@ Configure these in `Settings → Secrets and variables → Actions`:
 
 - GitHub's built-in `GITHUB_TOKEN` is already used for creating/updating releases in the main repo. You do **not** need to add that one manually.
 - For `HOMEBREW_TAP_GITHUB_TOKEN`, GitHub docs say a fine-grained PAT can be used when it has repository contents read/write access to the target repo.
+- The updater private key is the gatekeeper for shipping new versions to existing users. If you lose it, you can still ship a new app binary, but you must rotate the updater key pair and update `src-tauri/tauri.conf.json` with the new public key before the release can go out.
 
 ## Local Signed Build
 

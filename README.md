@@ -5,7 +5,7 @@
 
 # The Pair
 
-> Currently facing environment blockers for the releases, will patch up very soon</p>
+<p>Release builds require the updater signing secret to be configured in GitHub Actions.</p>
 
 **Automated pair programming — grab a coffee while two AI agents cross-check each other's work**
 
