@@ -16,6 +16,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24c8db.svg?logo=tauri&logoColor=white)](https://tauri.app/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg?logo=react&logoColor=black)](https://react.dev/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Changelog](https://img.shields.io/badge/Changelog-CHANGELOG.md-informational)](CHANGELOG.md)
 
 **macOS** • **Windows** • **Linux**
 
@@ -45,6 +46,9 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 - **Real-Time Monitoring** — Watch CPU/memory usage per agent with live activity tracking
 - **Git Integration** — Automatic tracking of all file changes made during a session
 - **Human Oversight** — Step in when needed with approval/rejection workflow
+- **Session Recovery** — Resume interrupted sessions with full conversation history restoration
+- **Onboarding Wizard** — Guided first-time setup with model configuration and directory selection
+- **Dark/Light Themes** — Automatic system theme detection with manual toggle
 
 ### Use Cases
 
@@ -52,6 +56,7 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 - Code refactoring — Automated analysis and implementation of improvements
 - Bug fixing — Agents collaborate to diagnose and resolve issues
 - Learning tool — Observe how AI agents break down and solve problems
+- Interrupted work recovery — Restore session state after app restart or crash
 
 ---
 
@@ -86,9 +91,15 @@ Download the latest release from [GitHub Releases](https://github.com/timwuhaoti
 
 | Platform    | File                           |
 | ----------- | ------------------------------ |
-| **macOS**   | `the-pair-{version}.dmg`       |
+| **macOS**   | `the-pair-{version}.zip`       |
 | **Windows** | `the-pair-{version}-setup.exe` |
 | **Linux**   | `the-pair-{version}.AppImage`  |
+
+### Homebrew (macOS)
+
+```bash
+brew install --cask the-pair
+```
 
 ### From Source
 
@@ -97,6 +108,12 @@ git clone https://github.com/timwuhaotian/the-pair.git
 cd the-pair
 npm install
 npm run build:mac  # or build:win / build:linux
+```
+
+On macOS, the build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ```
 
 ---
@@ -164,15 +181,15 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 
 ### Tech Stack
 
-| Layer               | Technology            |
-| ------------------- | --------------------- |
-| **Framework**       | Tauri 2.0             |
-| **Backend**         | Rust                  |
-| **Frontend**        | React 19 + TypeScript |
-| **Styling**         | Tailwind CSS v4       |
-| **State**           | Zustand               |
-| **Animations**      | Framer Motion         |
-| **Icons**           | Lucide React          |
+| Layer          | Technology            |
+| -------------- | --------------------- |
+| **Framework**  | Tauri 2.x             |
+| **Backend**    | Rust                  |
+| **Frontend**   | React 19 + TypeScript |
+| **Styling**    | Tailwind CSS v4       |
+| **State**      | Zustand               |
+| **Animations** | Framer Motion         |
+| **Icons**      | Lucide React          |
 
 ### System Architecture
 
@@ -222,9 +239,16 @@ Start → Initialize & Baseline → Mentoring Phase → Executing Phase → Revi
 
 ### Prerequisites
 
-- **Node.js** 20+
+- **Node.js** 22.22+
 - **npm** or **pnpm**
 - **Git**
+- **Rustup** for desktop builds
+
+Run a quick environment check before building:
+
+```bash
+npm run preflight
+```
 
 ### Setup
 
@@ -258,16 +282,20 @@ the-pair/
 
 ### Scripts
 
-| Command               | Description                         |
-| --------------------- | ----------------------------------- |
-| `npm run dev`         | Start hot-reload development server |
-| `npm test`            | Run JavaScript and Rust unit tests   |
-| `npm run typecheck`   | Check TypeScript types              |
-| `npm run lint`        | Run ESLint                          |
-| `npm run format`      | Format with Prettier                |
-| `npm run build:mac`   | Build for macOS                     |
-| `npm run build:win`   | Build for Windows                   |
-| `npm run build:linux` | Build for Linux                     |
+| Command                   | Description                         |
+| ------------------------- | ----------------------------------- |
+| `npm run dev`             | Start hot-reload development server |
+| `npm run preflight`       | Check local build prerequisites     |
+| `npm run preflight:mac`   | Check macOS build prerequisites     |
+| `npm run preflight:win`   | Check Windows build prerequisites   |
+| `npm run preflight:linux` | Check Linux build prerequisites     |
+| `npm test`                | Run JavaScript and Rust unit tests  |
+| `npm run typecheck`       | Check TypeScript types              |
+| `npm run lint`            | Run ESLint                          |
+| `npm run format`          | Format with Prettier                |
+| `npm run build:mac`       | Build for macOS                     |
+| `npm run build:win`       | Build for Windows                   |
+| `npm run build:linux`     | Build for Linux                     |
 
 ---
 

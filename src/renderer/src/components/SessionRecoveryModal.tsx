@@ -10,7 +10,9 @@ interface SessionRecoveryModalProps {
   sessions: RecoverableSessionSummary[]
   isOpen: boolean
   isRestoring: boolean
+  deletingPairId: string | null
   onRestore: (pairId: string, continueRun: boolean) => void | Promise<void>
+  onDelete: (pairId: string) => void | Promise<void>
   onDismiss: () => void
 }
 
@@ -21,17 +23,71 @@ function formatTime(ts: number): string {
 function SessionCard({
   session,
   onRestore,
-  isRestoring
+  onDelete,
+  isRestoring,
+  isDeleting,
+  isDeletionLocked
 }: {
   session: RecoverableSessionSummary
   onRestore: (pairId: string, continueRun: boolean) => void | Promise<void>
+  onDelete: (pairId: string) => void | Promise<void>
   isRestoring: boolean
+  isDeleting: boolean
+  isDeletionLocked: boolean
 }): React.ReactNode {
   const isMentor = session.turn === 'mentor'
   const canResume = session.status !== 'Finished'
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-background/60 p-4 shadow-sm">
+    <div
+      className={cn(
+        'relative overflow-hidden rounded-2xl border border-border/70 bg-background/60 p-4 shadow-sm transition-all duration-300',
+        isDeleting && 'border-blue-500/25 bg-background/80'
+      )}
+    >
+      {isDeleting && (
+        <div className="absolute inset-0 z-20 overflow-hidden rounded-2xl border border-blue-500/20 bg-background/85 backdrop-blur-md">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.12),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.04),transparent_40%)]" />
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent animate-pulse" />
+          <div className="relative flex h-full min-h-[220px] flex-col justify-between p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-700 dark:text-blue-300">
+                  <Zap size={12} />
+                  Deleting snapshot
+                </div>
+                <div className="space-y-1">
+                  <div className="h-4 w-44 rounded-full bg-muted/40 animate-pulse" />
+                  <div className="h-3 w-56 rounded-full bg-muted/25 animate-pulse" />
+                </div>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-blue-500/25 bg-blue-500/10 text-blue-500 shadow-[0_0_18px_rgba(59,130,246,0.18)]">
+                <span className="metal-sheen-emblem">
+                  <Zap size={15} />
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="h-2.5 w-full rounded-full bg-muted/30">
+                <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-blue-500 via-cyan-400 to-amber-400 animate-[pulse_1.2s_ease-in-out_infinite]" />
+              </div>
+              <div className="grid gap-2">
+                <div className="h-3 w-4/5 rounded-full bg-muted/20 animate-pulse" />
+                <div className="h-3 w-2/3 rounded-full bg-muted/20 animate-pulse" />
+                <div className="h-3 w-1/2 rounded-full bg-muted/20 animate-pulse" />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Removing files and index entry</span>
+              <span className="font-mono uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
+                WAIT
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-2">
           <div className="flex items-center gap-2">
@@ -69,9 +125,7 @@ function SessionCard({
           <div className="mt-1 font-medium text-foreground">{session.turn}</div>
         </div>
         <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-            Models
-          </div>
+          <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Models</div>
           <div className="mt-1 truncate font-mono text-xs text-foreground">
             {session.mentorModel.split('/').pop()} / {session.executorModel.split('/').pop()}
           </div>
@@ -100,10 +154,26 @@ function SessionCard({
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
           <GlassButton
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Delete the unfinished session for ${session.name}? This cannot be undone.`
+                )
+              ) {
+                void onDelete(session.pairId)
+              }
+            }}
+            disabled={isRestoring || isDeletionLocked}
+          >
+            Delete
+          </GlassButton>
+          <GlassButton
             variant="ghost"
             size="sm"
             onClick={() => void onRestore(session.pairId, false)}
-            disabled={isRestoring}
+            disabled={isRestoring || isDeletionLocked}
           >
             Restore history
           </GlassButton>
@@ -111,7 +181,7 @@ function SessionCard({
             variant="primary"
             size="sm"
             onClick={() => void onRestore(session.pairId, true)}
-            disabled={isRestoring || !canResume}
+            disabled={isRestoring || isDeletionLocked || !canResume}
             icon={<RotateCcw size={13} />}
           >
             Resume execution
@@ -126,7 +196,9 @@ export function SessionRecoveryModal({
   sessions,
   isOpen,
   isRestoring,
+  deletingPairId,
   onRestore,
+  onDelete,
   onDismiss
 }: SessionRecoveryModalProps): React.ReactNode {
   if (!isOpen || sessions.length === 0) return null
@@ -150,7 +222,10 @@ export function SessionRecoveryModal({
               key={session.pairId}
               session={session}
               onRestore={onRestore}
+              onDelete={onDelete}
               isRestoring={isRestoring}
+              isDeleting={deletingPairId === session.pairId}
+              isDeletionLocked={deletingPairId !== null}
             />
           ))}
         </div>
@@ -160,7 +235,8 @@ export function SessionRecoveryModal({
             Start fresh
           </GlassButton>
           <div className="text-xs leading-relaxed text-muted-foreground sm:text-right">
-            Dismissing keeps the snapshots on disk for the next launch.
+            Dismissing keeps the snapshots on disk for the next launch. Delete removes them
+            permanently.
           </div>
         </div>
       </div>

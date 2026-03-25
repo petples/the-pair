@@ -14,10 +14,10 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
-    strictPort: true,
+    strictPort: true
   },
   build: {
     outDir: '../../out/renderer',
-    emptyOutDir: true,
+    emptyOutDir: true
   }
 })

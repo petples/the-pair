@@ -28,8 +28,11 @@ const api = {
       listen('pair:handoff', (e) => callback(e.payload)) as Promise<unknown>
   },
   session: {
-    saveSnapshot: (input: unknown) => invoke('session_save_snapshot', { input }) as Promise<unknown>,
+    saveSnapshot: (input: unknown) =>
+      invoke('session_save_snapshot', { input }) as Promise<unknown>,
     listRecoverable: () => invoke('list_recoverable_sessions') as Promise<unknown>,
+    deleteRecoverable: (pairId: string) =>
+      invoke('delete_recoverable_session', { pairId }) as Promise<unknown>,
     restore: (pairId: string, continueRun = true) =>
       invoke('restore_session', { input: { pairId, continueRun } }) as Promise<unknown>
   },

@@ -1,3 +1,4 @@
+use crate::provider_registry::ProviderKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,6 +109,7 @@ pub struct GitTracking {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
     pub role: AgentRole,
+    pub provider: ProviderKind,
     pub model: String,
 }
 
@@ -179,8 +181,12 @@ pub struct Pair {
     pub name: String,
     pub directory: String,
     pub status: PairStatus,
+    #[serde(rename = "mentorProvider")]
+    pub mentor_provider: ProviderKind,
     #[serde(rename = "mentorModel")]
     pub mentor_model: String,
+    #[serde(rename = "executorProvider")]
+    pub executor_provider: ProviderKind,
     #[serde(rename = "executorModel")]
     pub executor_model: String,
     #[serde(rename = "createdAt")]

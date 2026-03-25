@@ -21,6 +21,7 @@ interface Window {
     session: {
       saveSnapshot: (input: unknown) => Promise<unknown>
       listRecoverable: () => Promise<unknown>
+      deleteRecoverable: (pairId: string) => Promise<unknown>
       restore: (pairId: string, continueRun?: boolean) => Promise<unknown>
     }
     config: {

@@ -109,18 +109,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   }
 
   const handleSelectDirectory = async (): Promise<void> => {
-    console.log('[OnboardingWizard] Choosing directory...');
+    console.log('[OnboardingWizard] Choosing directory...')
     try {
       const selected = await open({
         directory: true,
-        multiple: false,
+        multiple: false
       })
-      console.log('[OnboardingWizard] Result:', selected);
+      console.log('[OnboardingWizard] Result:', selected)
       if (selected) {
         setDirectory(selected)
       }
     } catch (err) {
-      console.error('[OnboardingWizard] Error choosing directory:', err);
+      console.error('[OnboardingWizard] Error choosing directory:', err)
     }
   }
 
@@ -723,9 +723,7 @@ function ReviewStep({
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-bold tracking-tight text-foreground">Review & Launch</h2>
-        <p className="text-muted-foreground">
-          One last check before starting the pair.
-        </p>
+        <p className="text-muted-foreground">One last check before starting the pair.</p>
       </div>
 
       <GlassCard className="p-4 space-y-2">

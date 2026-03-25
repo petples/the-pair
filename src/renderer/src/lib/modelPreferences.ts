@@ -33,7 +33,10 @@ export function getPreferredQualifiedModel(
   models: AvailableModel[]
 ): string {
   const preferred = getPreferredModelId(role)
-  if (preferred && models.some((model) => model.available && getQualifiedModel(model) === preferred)) {
+  if (
+    preferred &&
+    models.some((model) => model.available && getQualifiedModel(model) === preferred)
+  ) {
     return preferred
   }
 

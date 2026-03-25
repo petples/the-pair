@@ -1,11 +1,11 @@
 {
   "name": "the-pair",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "type": "module",
   "license": "Apache-2.0",
   "description": "Desktop orchestrator for dual AI agents that collaboratively solve coding tasks",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.22.0"
   },
   "author": {
     "name": "timwuhaotian",
@@ -31,12 +31,19 @@
     "dev:renderer": "vite",
     "build": "npm run typecheck && vite build",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "dev": "tauri dev",
-    "build:mac": "tauri build --target universal-apple-darwin",
-    "build:win": "tauri build --target x86_64-pc-windows-msvc",
-    "build:linux": "tauri build"
+    "with-rustup": "node scripts/run-with-rustup.mjs",
+    "preflight": "node scripts/preflight.mjs",
+    "tauri:dev": "npm run with-rustup -- tauri dev",
+    "ensure:mac-targets": "node scripts/ensure-macos-targets.mjs",
+    "ensure:rust-targets": "node scripts/ensure-rust-targets.mjs",
+    "preflight:mac": "npm run preflight -- macos",
+    "preflight:win": "npm run preflight -- windows",
+    "preflight:linux": "npm run preflight -- linux",
+    "tauri:build": "npm run preflight && npm run ensure:mac-targets && npm run with-rustup -- tauri build",
+    "dev": "npm run preflight && npm run with-rustup -- tauri dev",
+    "build:mac": "npm run preflight:mac && npm run ensure:mac-targets && npm run with-rustup -- tauri build --target universal-apple-darwin --bundles app",
+    "build:win": "npm run preflight:win && npm run ensure:rust-targets -- x86_64-pc-windows-msvc && npm run with-rustup -- tauri build --target x86_64-pc-windows-msvc",
+    "build:linux": "npm run preflight:linux && npm run ensure:rust-targets -- x86_64-unknown-linux-gnu && npm run with-rustup -- tauri build --target x86_64-unknown-linux-gnu"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",

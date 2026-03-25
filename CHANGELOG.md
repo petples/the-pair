@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - 2026-03-25
+
+### Fixed
+
+- macOS release builds now inherit the user's login-shell PATH so local provider CLIs like `opencode` are detected outside Terminal
+- The signed release workflow now pulls its notes from `CHANGELOG.md` so GitHub Releases include a readable changelog body
+- macOS GitHub Releases and Homebrew cask now ship ZIP assets instead of DMG bundles to avoid Finder automation failures
+
 ## [1.1.4] - 2026-03-25
 
 ### Changed
@@ -50,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
-[1.0.1]: https://github.com/timwuhaotian/the-pair/compare/v1.0.0...v1.0.1
+[1.1.7]: https://github.com/timwuhaotian/the-pair/compare/v1.1.6...v1.1.7
 [1.1.4]: https://github.com/timwuhaotian/the-pair/compare/v1.0.1...v1.1.4
+[1.0.1]: https://github.com/timwuhaotian/the-pair/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/timwuhaotian/the-pair/releases/tag/v1.0.0

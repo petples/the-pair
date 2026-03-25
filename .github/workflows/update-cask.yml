@@ -19,13 +19,13 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           path: homebrew-tap
 
-      - name: Download DMG
+      - name: Download ZIP
         id: download
         run: |
-          curl -L -o the-pair.dmg "https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/the-pair-${{ inputs.version }}.dmg"
-          SHA256=$(shasum -a 256 the-pair.dmg | cut -d ' ' -f 1)
+          curl -L -o the-pair.zip "https://github.com/${{ github.repository }}/releases/download/v${{ inputs.version }}/the-pair-${{ inputs.version }}.zip"
+          SHA256=$(shasum -a 256 the-pair.zip | cut -d ' ' -f 1)
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          rm the-pair.dmg
+          rm the-pair.zip
 
       - name: Update Cask File
         run: |
@@ -39,7 +39,7 @@ jobs:
             version "${VERSION}"
             sha256 "${SHA256}"
 
-            url "https://github.com/timwuhaotian/the-pair/releases/download/v\#{version}/the-pair-\#{version}.dmg",
+            url "https://github.com/timwuhaotian/the-pair/releases/download/v\#{version}/the-pair-\#{version}.zip",
                 verified: "github.com/timwuhaotian/the-pair/"
             name "The Pair"
             desc "Desktop orchestrator for dual AI agents (Mentor + Executor) for autonomous coding tasks"

@@ -1,3 +1,5 @@
+export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
+
 export type PairStatus =
   | 'Idle'
   | 'Mentoring'
@@ -8,7 +10,7 @@ export type PairStatus =
   | 'Finished'
 
 export interface AvailableModel {
-  provider: string
+  provider: ProviderKind
   modelId: string
   displayName: string
   available: boolean
@@ -29,8 +31,8 @@ export interface CreatePairInput {
   name: string
   directory: string
   spec: string
-  mentor: { role: 'mentor' | 'executor'; model: string }
-  executor: { role: 'mentor' | 'executor'; model: string }
+  mentor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
+  executor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
 }
 
 export interface AssignTaskInput {
@@ -82,7 +84,9 @@ export interface SessionSnapshotDraft {
   iterations: number
   maxIterations: number
   turn: 'mentor' | 'executor'
+  mentorProvider?: ProviderKind
   mentorModel: string
+  executorProvider?: ProviderKind
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
@@ -105,7 +109,12 @@ export interface SessionSnapshotDraft {
   cpuUsage: number
   memUsage: number
   modifiedFiles: Array<{ path: string; status: 'A' | 'M' | 'D' | 'R' | '??'; displayPath: string }>
-  gitTracking: { available: boolean; rootPath?: string; baseline?: string; gitReviewAvailable?: boolean }
+  gitTracking: {
+    available: boolean
+    rootPath?: string
+    baseline?: string
+    gitReviewAvailable?: boolean
+  }
   automationMode: 'full-auto'
   currentTurnCard?: SnapshotTurnCard
   runCount: number

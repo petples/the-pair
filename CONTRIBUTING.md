@@ -26,8 +26,9 @@ This project and everyone participating in it is governed by our [Code of Conduc
 
 Before you begin, ensure you have the following installed:
 
-- **Node.js** 20+ ([Download](https://nodejs.org/))
+- **Node.js** 22.22+ ([Download](https://nodejs.org/))
 - **Git** ([Download](https://git-scm.com/))
+- **Rustup** for desktop builds
 - **VS Code** (recommended) with:
   - [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
   - [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
@@ -56,7 +57,13 @@ Before you begin, ensure you have the following installed:
    npm install
    ```
 
-5. **Start development mode**:
+5. **Check your environment**:
+
+   ```bash
+   npm run preflight
+   ```
+
+6. **Start development mode**:
    ```bash
    npm run dev
    ```

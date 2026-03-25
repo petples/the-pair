@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
-import { ChevronLeft, Moon, Plus, Settings2, Sparkles, Sun, WandSparkles } from 'lucide-react'
+import { ChevronLeft, Moon, Plus, Settings2, Sun, WandSparkles } from 'lucide-react'
 import { Pair } from '../store/usePairStore'
 import { cn } from '../lib/utils'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
+import appIcon from '../assets/app-icon.png'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -18,7 +19,12 @@ interface AppChromeProps {
 }
 
 function isBusy(status: Pair['status']): boolean {
-  return status === 'Mentoring' || status === 'Executing' || status === 'Reviewing'
+  return (
+    status === 'Mentoring' ||
+    status === 'Executing' ||
+    status === 'Reviewing' ||
+    status === 'Awaiting Human Review'
+  )
 }
 
 export function AppChrome({
@@ -73,8 +79,8 @@ export function AppChrome({
               <ChevronLeft size={18} />
             </button>
           ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-gradient-to-br from-background via-muted/70 to-background shadow-sm">
-              <Sparkles size={16} className="text-foreground/75" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-gradient-to-br from-background via-muted/70 to-background shadow-sm overflow-hidden">
+              <img src={appIcon} alt="The Pair" className="h-5 w-5 object-contain" />
             </div>
           )}
 

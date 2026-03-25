@@ -6,7 +6,9 @@ export interface TauriPair {
   name: string
   directory: string
   status: string
+  mentorProvider: string
   mentorModel: string
+  executorProvider: string
   executorModel: string
   createdAt: number
 }

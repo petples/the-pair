@@ -22,7 +22,10 @@
         color: var(--fg);
         margin: 0;
         overflow: hidden;
-        font-family: system-ui, -apple-system, sans-serif;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
       }
       #root {
         display: flex;
@@ -63,15 +66,18 @@
       }
     </style>
     <script>
-      (function() {
+      ;(function () {
         try {
-          const storage = JSON.parse(localStorage.getItem('theme-storage'));
-          const theme = storage?.state?.theme;
-          if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
+          const storage = JSON.parse(localStorage.getItem('theme-storage'))
+          const theme = storage?.state?.theme
+          if (
+            theme === 'dark' ||
+            (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          ) {
+            document.documentElement.classList.add('dark')
           }
         } catch (e) {}
-      })();
+      })()
     </script>
   </head>
 
@@ -81,7 +87,14 @@
         <div class="boot-zap">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <defs>
-              <linearGradient id="boot-zap-gradient" x1="12" y1="2" x2="12" y2="22" gradientUnits="userSpaceOnUse">
+              <linearGradient
+                id="boot-zap-gradient"
+                x1="12"
+                y1="2"
+                x2="12"
+                y2="22"
+                gradientUnits="userSpaceOnUse"
+              >
                 <stop offset="0%" stop-color="#94a3b8" />
                 <stop offset="20%" stop-color="#f8fafc" />
                 <stop offset="52%" stop-color="#ffffff" />

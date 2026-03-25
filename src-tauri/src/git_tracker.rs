@@ -20,7 +20,7 @@ impl GitTracker {
                     if line.len() > 3 {
                         let status_str = &line[0..2];
                         let path = &line[3..];
-                        
+
                         let status = if status_str.starts_with('?') {
                             FileStatus::Untracked
                         } else if status_str.contains('M') {
@@ -44,7 +44,10 @@ impl GitTracker {
                 }
                 state.modified_files = files;
             } else {
-                println!("[GitTracker] Git status command failed in directory: {}", state.directory);
+                println!(
+                    "[GitTracker] Git status command failed in directory: {}",
+                    state.directory
+                );
                 state.git_tracking.available = false;
             }
         } else {

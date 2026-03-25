@@ -17,14 +17,33 @@ pub struct FileListOptions {
 }
 
 const EXCLUDED_DIRS: &[&str] = &[
-    ".git", ".svn", ".hg", "node_modules", "dist", "build", "out",
-    ".next", ".nuxt", ".svelte-kit", "__pycache__", ".venv", "venv",
-    ".cache", ".parcel-cache", ".turbo", ".pair", ".opencode"
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    "dist",
+    "build",
+    "out",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".cache",
+    ".parcel-cache",
+    ".turbo",
+    ".pair",
+    ".opencode",
 ];
 
 const EXCLUDED_FILES: &[&str] = &[
-    ".DS_Store", "Thumbs.db", "package-lock.json", "yarn.lock",
-    "pnpm-lock.yaml", "*.log"
+    ".DS_Store",
+    "Thumbs.db",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "*.log",
 ];
 
 pub fn should_exclude_dir(name: &str) -> bool {
@@ -37,13 +56,13 @@ pub fn should_exclude_file(name: &str) -> bool {
 
 pub fn scan_directory(directory: &Path, base_dir: &Path) -> Result<Vec<FileEntry>, String> {
     let mut results = Vec::new();
-    
+
     if !directory.exists() {
         return Ok(results);
     }
 
-    let entries = fs::read_dir(directory)
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
+    let entries =
+        fs::read_dir(directory).map_err(|e| format!("Failed to read directory: {}", e))?;
 
     for entry in entries {
         let entry = match entry {
@@ -70,7 +89,7 @@ pub fn scan_directory(directory: &Path, base_dir: &Path) -> Result<Vec<FileEntry
             if should_exclude_dir(&file_name) {
                 continue;
             }
-            
+
             results.push(FileEntry {
                 path: relative_path.clone(),
                 file_type: "directory".to_string(),
@@ -98,7 +117,8 @@ pub async fn file_list_files(
         let pair_manager = app.state::<std::sync::Mutex<crate::pair_manager::PairManager>>();
         let manager = pair_manager.lock().map_err(|e| e.to_string())?;
         let pairs = manager.list_pairs();
-        pairs.iter()
+        pairs
+            .iter()
             .find(|p| p.pair_id == pair_id)
             .map(|p| p.directory.clone())
             .ok_or_else(|| format!("Pair {} not found", pair_id))?

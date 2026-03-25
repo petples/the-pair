@@ -1,4 +1,4 @@
-name: Release Signed macOS
+name: Release
 
 on:
   push:
@@ -49,13 +49,10 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_publish=${shouldPublish}\n`)
           NODE
 
-  publish-release:
+  lint-and-test:
     needs: detect-version-bump
     if: needs.detect-version-bump.outputs.should_publish == 'true'
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ needs.detect-version-bump.outputs.version }}
-      TAG: ${{ needs.detect-version-bump.outputs.tag }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,13 +60,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.22.0'
           cache: 'npm'
 
-      - name: Install Rust stable
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -85,7 +80,62 @@ jobs:
       - name: Run type checking
         run: npm run typecheck
 
+      - name: Run unit tests
+        run: npm test
+
+  build-release:
+    needs:
+      - detect-version-bump
+      - lint-and-test
+    if: needs.detect-version-bump.outputs.should_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-latest
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundle-root: src-tauri/target/universal-apple-darwin/release/bundle
+          - platform: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
+            bundle-root: src-tauri/target/x86_64-pc-windows-msvc/release/bundle
+          - platform: linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            rust-targets: x86_64-unknown-linux-gnu
+            bundle-root: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
+
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.detect-version-bump.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.0'
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Import signing certificate
+        if: matrix.platform == 'macos'
         env:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -104,33 +154,73 @@ jobs:
           CERT_ID=$(security find-identity -v -p codesigning build.keychain | awk -F'"' '/Developer ID Application:/ {print $2; exit}')
           echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
 
-      # Tauri handles signing and notarizing once the certificate is available in the keychain.
-      - name: Build, sign, and notarize Tauri app
+      - name: Build Tauri app
         env:
           APPLE_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run tauri build -- --target universal-apple-darwin --ci
+        run: |
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            npm run tauri:build -- --target ${{ matrix.target }} --ci --bundles app
+          else
+            npm run tauri:build -- --target ${{ matrix.target }} --ci
+          fi
 
-      - name: Package artifacts for release
+      - name: Collect release asset
+        if: matrix.platform != 'macos'
+        run: node scripts/release-assets.mjs --platform ${{ matrix.platform }} --bundle-root ${{ matrix.bundle-root }} --out-dir dist --version "$VERSION"
+
+      - name: Package macOS zip
+        if: matrix.platform == 'macos'
         run: |
           mkdir -p dist
-
-          # Move DMG to the name used for GitHub Release assets
-          mv "src-tauri/target/universal-apple-darwin/release/bundle/dmg/The Pair_${VERSION}_universal.dmg" "dist/the-pair-${VERSION}.dmg"
-
-          # Create ZIP of the raw .app
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/The Pair.app"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "dist/the-pair-${VERSION}.zip"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.platform }}
+          path: dist/
+          retention-days: 7
+
+  publish-release:
+    needs:
+      - detect-version-bump
+      - build-release
+    if: needs.detect-version-bump.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.detect-version-bump.outputs.version }}
+      TAG: ${{ needs.detect-version-bump.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-assets-*
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare release notes
+        run: |
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { capture = 1; next }
+            capture && /^## \\[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
 
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/*.dmg dist/*.zip --clobber
+            gh release edit "$TAG" --notes-file release-notes.md
+            gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/*.dmg dist/*.zip --title "$TAG" --generate-notes
+            gh release create "$TAG" dist/* --title "$TAG" --notes-file release-notes.md
           fi

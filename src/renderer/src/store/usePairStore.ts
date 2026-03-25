@@ -7,6 +7,11 @@ import type {
   SessionSnapshotDraft,
   SessionSnapshotRecord
 } from '../types'
+import {
+  buildAgentConfig,
+  getModelByQualifiedId,
+  inferProviderFromModel
+} from '../lib/providerResolution'
 
 export type PairStatus =
   | 'Idle'
@@ -96,7 +101,9 @@ export interface Pair {
   cpuUsage: number
   memUsage: number
   spec: string
+  mentorProvider: AvailableModel['provider']
   mentorModel: string
+  executorProvider: AvailableModel['provider']
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
@@ -162,6 +169,8 @@ interface PairStore {
 
   loadAvailableModels: () => Promise<void>
   loadRecoverableSessions: () => Promise<void>
+  deleteRecoverableSession: (pairId: string) => Promise<void>
+  removeRecoverableSession: (pairId: string) => void
   flushSnapshots: () => Promise<void>
   createPair: (
     input: Omit<CreatePairInput, 'mentor' | 'executor'> & {
@@ -206,7 +215,9 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     iterations: pair.iterations,
     maxIterations: pair.maxIterations,
     turn: pair.turn,
+    mentorProvider: pair.mentorProvider,
     mentorModel: pair.mentorModel,
+    executorProvider: pair.executorProvider,
     executorModel: pair.executorModel,
     pendingMentorModel: pair.pendingMentorModel,
     pendingExecutorModel: pair.pendingExecutorModel,
@@ -248,7 +259,9 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     cpuUsage: snapshot.cpuUsage,
     memUsage: snapshot.memUsage,
     spec: snapshot.spec,
+    mentorProvider: snapshot.mentorProvider ?? inferProviderFromModel(snapshot.mentorModel),
     mentorModel: snapshot.mentorModel,
+    executorProvider: snapshot.executorProvider ?? inferProviderFromModel(snapshot.executorModel),
     executorModel: snapshot.executorModel,
     pendingMentorModel: snapshot.pendingMentorModel,
     pendingExecutorModel: snapshot.pendingExecutorModel,
@@ -383,12 +396,17 @@ function sanitizeProgressDetail(
     return fallback
   }
 
-  return role === 'mentor' ? text.replace(/^Mentor[:：]\s*/i, '') : text.replace(/^Executor[:：]\s*/i, '')
+  return role === 'mentor'
+    ? text.replace(/^Mentor[:：]\s*/i, '')
+    : text.replace(/^Executor[:：]\s*/i, '')
 }
 
 function normalizePairStatus(raw: unknown): PairStatus | undefined {
   if (typeof raw !== 'string') return undefined
-  const normalized = raw.trim().toLowerCase().replace(/[_\s]+/g, '-')
+  const normalized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
 
   switch (normalized) {
     case 'idle':
@@ -558,8 +576,7 @@ function parseProgressUpdate(
   }
 
   const event =
-    parseJson(line) ??
-    (line.startsWith('data:') ? parseJson(line.slice(5).trim()) : null)
+    parseJson(line) ?? (line.startsWith('data:') ? parseJson(line.slice(5).trim()) : null)
 
   if (event) {
     const type = typeof event.type === 'string' ? event.type : ''
@@ -672,12 +689,10 @@ function hasExecutablePlanShape(content: string): boolean {
   if (!text || text.length < 40) return false
 
   const hasStructuredSteps =
-    /(?:^|\n)\s*(?:\d+[.)]|[-*])\s+/.test(text) ||
-    /(?:^|\n)\s*(?:步骤|step|plan|执行)/i.test(text)
+    /(?:^|\n)\s*(?:\d+[.)]|[-*])\s+/.test(text) || /(?:^|\n)\s*(?:步骤|step|plan|执行)/i.test(text)
 
   // Guard against "intent-only" outputs that often lead to executor "no plan provided" replies.
-  const intentOnly =
-    /^(?:我来|我将|让我|I'll|I will|Let me)\b/i.test(text) && text.length < 120
+  const intentOnly = /^(?:我来|我将|让我|I'll|I will|Let me)\b/i.test(text) && text.length < 120
 
   return hasStructuredSteps && !intentOnly
 }
@@ -699,7 +714,10 @@ export const usePairStore = create<PairStore>((set) => ({
       const incoming = data.message
 
       if (incoming.type === 'progress') {
-        const progress = parseProgressUpdate(incoming.content, incoming.from === 'mentor' ? 'mentor' : 'executor')
+        const progress = parseProgressUpdate(
+          incoming.content,
+          incoming.from === 'mentor' ? 'mentor' : 'executor'
+        )
         if (!progress) return
 
         set((state) => ({
@@ -769,7 +787,12 @@ export const usePairStore = create<PairStore>((set) => ({
         pairs: state.pairs.map((p) =>
           p.id === data.pairId
             ? (() => {
-                const role = incoming.from === 'mentor' ? 'mentor' : incoming.from === 'executor' ? 'executor' : null
+                const role =
+                  incoming.from === 'mentor'
+                    ? 'mentor'
+                    : incoming.from === 'executor'
+                      ? 'executor'
+                      : null
                 if (!role) return p
 
                 const nextActivity =
@@ -801,7 +824,8 @@ export const usePairStore = create<PairStore>((set) => ({
                     ...messages,
                     {
                       ...incoming,
-                      content: incoming.content.trim() || buildTurnCardContent(nextActivity, 'Working...')
+                      content:
+                        incoming.content.trim() || buildTurnCardContent(nextActivity, 'Working...')
                     }
                   ]
                 }
@@ -824,9 +848,7 @@ export const usePairStore = create<PairStore>((set) => ({
         )
       }))
 
-      const currentPair = usePairStore
-        .getState()
-        .pairs.find((pair) => pair.id === data.pairId)
+      const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === data.pairId)
       if (currentPair) {
         void saveSnapshotForPair(currentPair)
       }
@@ -855,15 +877,15 @@ export const usePairStore = create<PairStore>((set) => ({
         }
       }
     })
-    
+
     // Listen for handoff events to trigger next agent
     window.api.pair.onHandoff(async (payload) => {
       const data = payload as PairHandoffEvent
       console.log('[usePairStore] Handoff event:', data)
-      
+
       const state = usePairStore.getState()
-      const pair = state.pairs.find(p => p.id === data.pairId)
-      
+      const pair = state.pairs.find((p) => p.id === data.pairId)
+
       if (!pair) {
         console.warn('[usePairStore] Pair not found for handoff:', data.pairId)
         return
@@ -871,14 +893,19 @@ export const usePairStore = create<PairStore>((set) => ({
 
       let contextMessages = pair.messages
       try {
-        const backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
+        const backendState = (await window.api.pair.getState(
+          data.pairId
+        )) as BackendPairState | null
         if (backendState?.messages?.length) {
           contextMessages = backendState.messages
         }
       } catch (error) {
-        console.warn('[usePairStore] Failed to load backend state for handoff, falling back to local messages', error)
+        console.warn(
+          '[usePairStore] Failed to load backend state for handoff, falling back to local messages',
+          error
+        )
       }
-      
+
       // Build context-aware message for the next agent
       let message = ''
       if (data.nextRole === 'executor') {
@@ -900,37 +927,41 @@ export const usePairStore = create<PairStore>((set) => ({
           return
         }
 
-        message = '### ROLE: EXECUTOR\n' +
-                  'Your mission is ONLY to EXECUTE the plan provided below. \n' +
-                  '- DO NOT create new plans.\n' +
-                  '- DO NOT review your own work.\n' +
-                  '- JUST EXECUTE THE STEPS and report results.\n\n' +
-                  '--- COMMAND TO EXECUTE ---\n'
-        
+        message =
+          '### ROLE: EXECUTOR\n' +
+          'Your mission is ONLY to EXECUTE the plan provided below. \n' +
+          '- DO NOT create new plans.\n' +
+          '- DO NOT review your own work.\n' +
+          '- JUST EXECUTE THE STEPS and report results.\n\n' +
+          '--- COMMAND TO EXECUTE ---\n'
+
         if (lastMentorMessage) {
           message += lastMentorMessage.content
         } else {
-          message += 'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
+          message +=
+            'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
         }
       } else {
         const lastExecutorMessage = [...contextMessages]
           .reverse()
           .find((m) => m.from === 'executor' && (m.type === 'plan' || m.type === 'result'))
 
-        message = '### ROLE: MENTOR\n' +
-                  'Your mission is ONLY to PLAN and REVIEW. \n' +
-                  '- DO NOT execute any code or tools that modify files.\n' +
-                  '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
-                  '--- REVIEW REQUEST ---\n' +
-                  'The executor has finished a turn. Review their results below:\n\n'
-        
+        message =
+          '### ROLE: MENTOR\n' +
+          'Your mission is ONLY to PLAN and REVIEW. \n' +
+          '- DO NOT execute any code or tools that modify files.\n' +
+          '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
+          '--- REVIEW REQUEST ---\n' +
+          'The executor has finished a turn. Review their results below:\n\n'
+
         if (lastExecutorMessage) {
-           message += lastExecutorMessage.content + '\n\n'
+          message += lastExecutorMessage.content + '\n\n'
         }
-        
-        message += 'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
+
+        message +=
+          'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
       }
-      
+
       const { assignTask } = state
       await assignTask(data.pairId, message, data.nextRole)
     })
@@ -956,6 +987,28 @@ export const usePairStore = create<PairStore>((set) => ({
     }
   },
 
+  deleteRecoverableSession: async (pairId) => {
+    set({ isLoading: true, error: null })
+
+    try {
+      await window.api.session.deleteRecoverable(pairId)
+      set({ isLoading: false })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to delete recoverable session'
+      set({
+        isLoading: false,
+        error: message
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
+  },
+
+  removeRecoverableSession: (pairId) =>
+    set((state) => ({
+      recoverableSessions: state.recoverableSessions.filter((session) => session.pairId !== pairId)
+    })),
+
   flushSnapshots: async () => {
     const pairs = usePairStore.getState().pairs
     await Promise.all(pairs.map((pair) => saveSnapshotForPair(pair)))
@@ -967,13 +1020,16 @@ export const usePairStore = create<PairStore>((set) => ({
 
     try {
       console.log('[usePairStore] Calling window.api.pair.create...')
-      const pairProcess = await window.api.pair.create({
+      const availableModels = usePairStore.getState().availableModels
+      const mentorConfig = buildAgentConfig('mentor', input.mentorModel, availableModels)
+      const executorConfig = buildAgentConfig('executor', input.executorModel, availableModels)
+      const pairProcess = (await window.api.pair.create({
         name: input.name,
         directory: input.directory,
         spec: input.spec,
-        mentor: { role: 'mentor', model: input.mentorModel },
-        executor: { role: 'executor', model: input.executorModel }
-      }) as PairCreatedResponse
+        mentor: mentorConfig,
+        executor: executorConfig
+      })) as PairCreatedResponse
       console.log('[usePairStore] Pair created:', pairProcess)
 
       const now = Date.now()
@@ -999,7 +1055,9 @@ export const usePairStore = create<PairStore>((set) => ({
         memUsage: 0,
         spec: input.spec,
         mentorModel: input.mentorModel,
+        mentorProvider: mentorConfig.provider,
         executorModel: input.executorModel,
+        executorProvider: executorConfig.provider,
         messages: [initialMessage],
         mentorActivity: createIdleActivity('Mentor idle'),
         executorActivity: createIdleActivity('Executor idle'),
@@ -1046,7 +1104,7 @@ export const usePairStore = create<PairStore>((set) => ({
         isLoading: false,
         pairs: state.pairs.map((pair) => {
           if (pair.id !== pairId) return pair
-          
+
           // Only reset if this is a NEW run (i.e. role is undefined)
           if (!role) {
             return resetPairForNewRun(pair, spec, {
@@ -1056,7 +1114,7 @@ export const usePairStore = create<PairStore>((set) => ({
               pendingExecutorModel: undefined
             })
           }
-          
+
           // For handoffs, we do NOT update the spec. The spec should remain the original mission goal.
           return pair
         })
@@ -1085,6 +1143,9 @@ export const usePairStore = create<PairStore>((set) => ({
     try {
       const result = await window.api.pair.updateModels(pairId, selection)
       const typedResult = result as PairModelSelection
+      const availableModels = usePairStore.getState().availableModels
+      const mentorModelEntry = getModelByQualifiedId(availableModels, typedResult.mentorModel)
+      const executorModelEntry = getModelByQualifiedId(availableModels, typedResult.executorModel)
 
       set((state) => ({
         isLoading: false,
@@ -1093,7 +1154,9 @@ export const usePairStore = create<PairStore>((set) => ({
             ? {
                 ...pair,
                 mentorModel: typedResult.mentorModel,
+                mentorProvider: mentorModelEntry?.provider ?? pair.mentorProvider,
                 executorModel: typedResult.executorModel,
+                executorProvider: executorModelEntry?.provider ?? pair.executorProvider,
                 pendingMentorModel: typedResult.pendingMentorModel,
                 pendingExecutorModel: typedResult.pendingExecutorModel
               }
@@ -1119,7 +1182,10 @@ export const usePairStore = create<PairStore>((set) => ({
     set({ isLoading: true, error: null })
 
     try {
-      const snapshot = (await window.api.session.restore(pairId, continueRun)) as SessionSnapshotRecord
+      const snapshot = (await window.api.session.restore(
+        pairId,
+        continueRun
+      )) as SessionSnapshotRecord
       const pair = snapshotToPair(snapshot)
 
       set((state) => ({
@@ -1127,7 +1193,9 @@ export const usePairStore = create<PairStore>((set) => ({
         pairs: state.pairs.some((existing) => existing.id === pair.id)
           ? state.pairs.map((existing) => (existing.id === pair.id ? pair : existing))
           : [...state.pairs, pair],
-        recoverableSessions: state.recoverableSessions.filter((session) => session.pairId !== pair.id)
+        recoverableSessions: state.recoverableSessions.filter(
+          (session) => session.pairId !== pair.id
+        )
       }))
 
       if (!continueRun) {

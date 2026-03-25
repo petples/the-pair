@@ -37,8 +37,8 @@ npm run build
 
 - [ ] App launches locally after the build
 - [ ] Icons render correctly on macOS, Windows, and Linux bundles
-- [ ] Release artifacts are generated for the intended platforms
-- [ ] `npm run build:mac`, `npm run build:win`, or `npm run build:linux` work for the target platform
+- [ ] Release artifacts are generated for macOS, Windows, and Linux
+- [ ] `npm run preflight`, `npm run build:mac`, `npm run build:win`, or `npm run build:linux` work for the target platform
 
 ## 5. GitHub Release
 

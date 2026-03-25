@@ -20,7 +20,12 @@ import { PairSettingsModal } from './components/PairSettingsModal'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
-  return normalized === 'mentoring' || normalized === 'executing' || normalized === 'reviewing'
+  return (
+    normalized === 'mentoring' ||
+    normalized === 'executing' ||
+    normalized === 'reviewing' ||
+    normalized === 'awaiting human review'
+  )
 }
 
 function isAgentExecuting(phase: string): boolean {
@@ -29,6 +34,67 @@ function isAgentExecuting(phase: string): boolean {
 
 function buildConsoleMessages(messages: Message[]): Message[] {
   return messages
+}
+
+function useMinimumVisibleText(text: string, resetKey: string, minimumMs = 1200): string {
+  const [visibleText, setVisibleText] = useState(text)
+  const visibleTextRef = useRef(text)
+  const lastChangeAtRef = useRef(Date.now())
+  const timeoutRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    visibleTextRef.current = text
+    lastChangeAtRef.current = Date.now()
+    setVisibleText(text)
+
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+  }, [resetKey])
+
+  useEffect(
+    () => () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current)
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (text === visibleTextRef.current) {
+      return
+    }
+
+    const commit = () => {
+      visibleTextRef.current = text
+      lastChangeAtRef.current = Date.now()
+      setVisibleText(text)
+      timeoutRef.current = null
+    }
+
+    const elapsed = Date.now() - lastChangeAtRef.current
+    if (elapsed >= minimumMs) {
+      commit()
+      return
+    }
+
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current)
+    }
+
+    timeoutRef.current = window.setTimeout(commit, minimumMs - elapsed)
+
+    return () => {
+      if (timeoutRef.current !== null) {
+        window.clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
+    }
+  }, [minimumMs, text])
+
+  return visibleText
 }
 
 function MarkdownContent({ content }: { content: string }): React.ReactNode {
@@ -201,7 +267,9 @@ function Dashboard({ onSelectPair }: { onSelectPair: (p: Pair) => void }): React
                               : 'text-muted-foreground/50'
                           )}
                         />
-                        <span>{pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'turn idle'}</span>
+                        <span>
+                          {pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'turn idle'}
+                        </span>
                       </div>
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="text-[10px] font-medium text-blue-600">MENTOR</span>
@@ -234,9 +302,9 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
 
   // Filter out technical handoff messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
-  
-  const isTechnicalHandoff = 
-    displayContent.includes('### ROLE:') || 
+
+  const isTechnicalHandoff =
+    displayContent.includes('### ROLE:') ||
     displayContent.includes('--- COMMAND TO EXECUTE ---') ||
     displayContent.includes('--- REVIEW REQUEST ---')
 
@@ -249,12 +317,13 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
 
   const getRoleColors = (): string => {
     if (isHuman) return 'bg-green-500/10 border-green-500/20 shadow-sm'
-    if (msg.from === 'mentor') return 'bg-blue-500/10 border-blue-500/20 shadow-[0_4px_12px_rgba(59,130,246,0.06)]'
+    if (msg.from === 'mentor')
+      return 'bg-blue-500/10 border-blue-500/20 shadow-[0_4px_12px_rgba(59,130,246,0.06)]'
     return 'bg-purple-500/10 border-purple-500/20 shadow-[0_4px_12px_rgba(168,85,247,0.06)]'
   }
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       className={cn(
@@ -266,24 +335,42 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2.5">
           {!isSystem && (
-            <div className={cn(
-              "flex items-center justify-center h-7 w-7 rounded-xl text-[11px] font-black text-white shadow-md",
-              msg.from === 'mentor' ? "bg-blue-600" : msg.from === 'executor' ? "bg-purple-600" : "bg-green-600"
-            )}>
+            <div
+              className={cn(
+                'flex items-center justify-center h-7 w-7 rounded-xl text-[11px] font-black text-white shadow-md',
+                msg.from === 'mentor'
+                  ? 'bg-blue-600'
+                  : msg.from === 'executor'
+                    ? 'bg-purple-600'
+                    : 'bg-green-600'
+              )}
+            >
               {msg.from[0].toUpperCase()}
             </div>
           )}
           <div className="flex flex-col -space-y-0.5">
-            <span className={cn(
-              "text-[11px] font-black uppercase tracking-[0.1em]",
-              msg.from === 'mentor' ? "text-blue-600" : msg.from === 'executor' ? "text-purple-600" : "text-green-600"
-            )}>
+            <span
+              className={cn(
+                'text-[11px] font-black uppercase tracking-[0.1em]',
+                msg.from === 'mentor'
+                  ? 'text-blue-600'
+                  : msg.from === 'executor'
+                    ? 'text-purple-600'
+                    : 'text-green-600'
+              )}
+            >
               {msg.from === 'human' ? 'MISSION SPECS' : msg.from}
             </span>
-            <span className={cn(
-              "text-[9px] font-bold tracking-tight opacity-60",
-              msg.from === 'mentor' ? "text-blue-500" : msg.from === 'executor' ? "text-purple-500" : "text-green-500"
-            )}>
+            <span
+              className={cn(
+                'text-[9px] font-bold tracking-tight opacity-60',
+                msg.from === 'mentor'
+                  ? 'text-blue-500'
+                  : msg.from === 'executor'
+                    ? 'text-purple-500'
+                    : 'text-green-500'
+              )}
+            >
               {msg.type.toUpperCase()}
             </span>
           </div>
@@ -293,24 +380,30 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
         </span>
       </div>
 
-      <div className={cn(
-        "relative flex flex-col gap-2 overflow-hidden transition-all duration-300",
-        !isExpanded && displayContent.length > 600 && "max-h-[250px]"
-      )}>
-        <div className={cn(
-          "break-words leading-relaxed selection:bg-primary/20 [overflow-wrap:anywhere]",
-          isSystem ? "text-[12px] italic text-muted-foreground" : "text-[14px] text-foreground/90 font-sans",
-        )}>
+      <div
+        className={cn(
+          'relative flex flex-col gap-2 overflow-hidden transition-all duration-300',
+          !isExpanded && displayContent.length > 600 && 'max-h-[250px]'
+        )}
+      >
+        <div
+          className={cn(
+            'break-words leading-relaxed selection:bg-primary/20 [overflow-wrap:anywhere]',
+            isSystem
+              ? 'text-[12px] italic text-muted-foreground'
+              : 'text-[14px] text-foreground/90 font-sans'
+          )}
+        >
           <MarkdownContent content={displayContent} />
         </div>
-        
+
         {!isExpanded && displayContent.length > 600 && (
           <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background/90 to-transparent pointer-events-none" />
         )}
       </div>
 
       {displayContent.length > 600 && (
-        <button 
+        <button
           onClick={() => setIsExpanded(!isExpanded)}
           className="w-fit text-[10px] font-bold uppercase tracking-widest text-primary hover:underline transition-all"
         >
@@ -327,7 +420,12 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
   const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
   const border = isMentor ? 'border-blue-500/25' : 'border-purple-500/25'
   const bg = isMentor ? 'bg-blue-500/8' : 'bg-purple-500/8'
-  const currentAction = (card.content || card.activity.detail || card.activity.label || 'Working...').trim()
+  const currentAction = (
+    card.content ||
+    card.activity.detail ||
+    card.activity.label ||
+    'Working...'
+  ).trim()
 
   return (
     <motion.div
@@ -349,7 +447,12 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
           {isLive ? 'working' : 'result'}
         </span>
       </div>
-      <div className={cn('text-sm leading-relaxed [overflow-wrap:anywhere]', isLive ? 'text-foreground/90' : 'text-foreground')}>
+      <div
+        className={cn(
+          'text-sm leading-relaxed [overflow-wrap:anywhere]',
+          isLive ? 'text-foreground/90' : 'text-foreground'
+        )}
+      >
         <MarkdownContent content={currentAction} />
       </div>
     </motion.div>
@@ -358,10 +461,22 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
 function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React.ReactNode {
   const retryTurn = usePairStore((s) => s.retryTurn)
+  const humanFeedback = usePairStore((s) => s.humanFeedback)
+  const isStoreBusy = usePairStore((s) => s.isLoading)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
 
   const handleRetryTurn = (): void => {
     retryTurn(pair.id)
+  }
+
+  const handleHumanFeedback = async (approved: boolean): Promise<void> => {
+    setIsSubmittingReview(true)
+    try {
+      await humanFeedback(pair.id, approved)
+    } finally {
+      setIsSubmittingReview(false)
+    }
   }
 
   useEffect(() => {
@@ -416,6 +531,21 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
   const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
   const isRunning = isPairRunning(pair.status) || mentorIsExecuting || executorIsExecuting
   const consoleMessages = useMemo(() => buildConsoleMessages(pair.messages), [pair.messages])
+  const reviewReason =
+    pair.status === 'Awaiting Human Review'
+      ? (pair.mentorActivity.detail ??
+        pair.executorActivity.detail ??
+        pair.currentTurnCard?.content ??
+        'Awaiting human intervention')
+      : null
+  const liveStatusText =
+    pair.status === 'Awaiting Human Review'
+      ? (reviewReason ?? 'Awaiting human intervention')
+      : pair.currentTurnCard?.content ||
+        (activeRole === 'mentor'
+          ? pair.mentorActivity.detail || 'Thinking...'
+          : pair.executorActivity.detail || 'Working...')
+  const visibleStatusText = useMinimumVisibleText(liveStatusText, pair.id)
 
   return (
     <div className="flex h-full flex-col">
@@ -435,6 +565,30 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 Retry Turn
               </GlassButton>
             )}
+            {pair.status === 'Awaiting Human Review' && (
+              <>
+                <GlassButton
+                  variant="approve"
+                  size="sm"
+                  onClick={() => {
+                    void handleHumanFeedback(true)
+                  }}
+                  disabled={isSubmittingReview || isStoreBusy}
+                >
+                  Approve
+                </GlassButton>
+                <GlassButton
+                  variant="reject"
+                  size="sm"
+                  onClick={() => {
+                    void handleHumanFeedback(false)
+                  }}
+                  disabled={isSubmittingReview || isStoreBusy}
+                >
+                  Reject
+                </GlassButton>
+              </>
+            )}
             {pair.automationMode === 'full-auto' && (
               <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[10px] text-amber-600 dark:text-amber-400">
                 <Zap size={10} />
@@ -442,6 +596,16 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
               </div>
             )}
           </div>
+          {pair.status === 'Awaiting Human Review' && (
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-3 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700/80 dark:text-amber-300/80">
+                Pause reason
+              </div>
+              <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                {reviewReason}
+              </div>
+            </div>
+          )}
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -449,7 +613,9 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
             </h3>
             <div className="glass-card rounded-2xl p-4 space-y-4">
               <div className="space-y-1">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Mission Spec</span>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Mission Spec
+                </span>
                 <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                   {pair.spec}
                 </p>
@@ -457,7 +623,9 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
 
               {pair.runHistory.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-border/40">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Previous Runs</span>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Previous Runs
+                  </span>
                   <div className="space-y-2">
                     {pair.runHistory
                       .slice()
@@ -469,7 +637,9 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                           className="rounded-xl border border-border/40 bg-background/30 px-2.5 py-2 group hover:bg-background/50 transition-colors"
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-medium text-foreground/80">{run.status}</span>
+                            <span className="text-[10px] font-medium text-foreground/80">
+                              {run.status}
+                            </span>
                           </div>
                           <p className="mt-1 line-clamp-1 text-[10px] text-muted-foreground/80 group-hover:line-clamp-none transition-all">
                             {run.spec}
@@ -490,11 +660,20 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={cn("h-1.5 w-1.5 rounded-full bg-blue-500", mentorIsExecuting && "metal-sheen-mark")} />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Mentor</span>
+                    <div
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full bg-blue-500',
+                        mentorIsExecuting && 'metal-sheen-mark'
+                      )}
+                    />
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                      Mentor
+                    </span>
                   </div>
                   {mentorIsExecuting && (
-                    <span className="text-[10px] font-mono text-blue-500 metal-sheen-text">ACTIVE</span>
+                    <span className="text-[10px] font-mono text-blue-500 metal-sheen-text">
+                      ACTIVE
+                    </span>
                   )}
                 </div>
                 <p className="pl-4 font-mono text-xs text-muted-foreground">{pair.mentorModel}</p>
@@ -507,13 +686,20 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={cn("h-1.5 w-1.5 rounded-full bg-purple-500", executorIsExecuting && "metal-sheen-mark")} />
+                    <div
+                      className={cn(
+                        'h-1.5 w-1.5 rounded-full bg-purple-500',
+                        executorIsExecuting && 'metal-sheen-mark'
+                      )}
+                    />
                     <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">
                       Executor
                     </span>
                   </div>
                   {executorIsExecuting && (
-                    <span className="text-[10px] font-mono text-purple-500 metal-sheen-text">ACTIVE</span>
+                    <span className="text-[10px] font-mono text-purple-500 metal-sheen-text">
+                      ACTIVE
+                    </span>
                   )}
                 </div>
                 <p className="pl-4 font-mono text-xs text-muted-foreground">{pair.executorModel}</p>
@@ -553,8 +739,13 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
             <span className="uppercase tracking-widest font-bold">Session Console</span>
             <div className="ml-auto flex items-center gap-3">
               <div className="flex items-center gap-1.5">
-                 <div className={cn("h-2 w-2 rounded-full", isRunning ? "bg-green-500 animate-pulse" : "bg-muted-foreground/30")} />
-                 <span className="text-[10px]">{isRunning ? 'SYSTEM ONLINE' : 'SYSTEM IDLE'}</span>
+                <div
+                  className={cn(
+                    'h-2 w-2 rounded-full',
+                    isRunning ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground/30'
+                  )}
+                />
+                <span className="text-[10px]">{isRunning ? 'SYSTEM ONLINE' : 'SYSTEM IDLE'}</span>
               </div>
             </div>
           </div>
@@ -564,14 +755,14 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
             <div
               className={cn(
                 'flex flex-col gap-0.5 transition-all duration-300',
-                activeRole === 'mentor'
-                  ? 'opacity-100 scale-100'
-                  : 'opacity-40 scale-95 grayscale'
+                activeRole === 'mentor' ? 'opacity-100 scale-100' : 'opacity-40 scale-95 grayscale'
               )}
             >
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-tighter">MENTOR</span>
-                <span className={cn("text-xs", mentorIsExecuting && "metal-sheen-text")}>
+                <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 tracking-tighter">
+                  MENTOR
+                </span>
+                <span className={cn('text-xs', mentorIsExecuting && 'metal-sheen-text')}>
                   {getActivityIcon(pair.mentorActivity.phase)}
                 </span>
                 {mentorIsExecuting && (
@@ -580,10 +771,12 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                   </span>
                 )}
               </div>
-              <span className={cn(
-                "max-w-[140px] truncate text-[11px] font-medium text-foreground",
-                mentorIsExecuting && "metal-sheen-text"
-              )}>
+              <span
+                className={cn(
+                  'max-w-[140px] truncate text-[11px] font-medium text-foreground',
+                  mentorIsExecuting && 'metal-sheen-text'
+                )}
+              >
                 {pair.mentorActivity.label}
               </span>
             </div>
@@ -599,8 +792,10 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
               )}
             >
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 tracking-tighter">EXECUTOR</span>
-                <span className={cn("text-xs", executorIsExecuting && "metal-sheen-text")}>
+                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 tracking-tighter">
+                  EXECUTOR
+                </span>
+                <span className={cn('text-xs', executorIsExecuting && 'metal-sheen-text')}>
                   {getActivityIcon(pair.executorActivity.phase)}
                 </span>
                 {executorIsExecuting && (
@@ -609,32 +804,38 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                   </span>
                 )}
               </div>
-              <span className={cn(
-                "max-w-[140px] truncate text-[11px] font-medium text-foreground",
-                executorIsExecuting && "metal-sheen-text"
-              )}>
+              <span
+                className={cn(
+                  'max-w-[140px] truncate text-[11px] font-medium text-foreground',
+                  executorIsExecuting && 'metal-sheen-text'
+                )}
+              >
                 {pair.executorActivity.label}
               </span>
             </div>
 
             <div className="ml-auto flex items-center gap-3">
+              {pair.status === 'Awaiting Human Review' && (
+                <div className="max-w-[320px] rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-300">
+                  <span className="block truncate">Human review required</span>
+                  <span className="mt-1 block truncate text-[9px] font-medium normal-case tracking-normal text-amber-700/80 dark:text-amber-300/80">
+                    {visibleStatusText}
+                  </span>
+                </div>
+              )}
               {isRunning && (
-                 <div className="flex items-center gap-2 rounded-full border border-border/50 bg-background/50 px-3 py-1.5 shadow-sm animate-in fade-in slide-in-from-right-2">
-                    <RefreshCw size={12} className="animate-spin text-primary/60" />
-                    <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[150px]">
-                      {pair.currentTurnCard?.content ||
-                        (activeRole === 'mentor' ? pair.mentorActivity.detail || 'Thinking...' : pair.executorActivity.detail || 'Working...')}
-                    </span>
-                 </div>
+                <div className="flex items-center gap-2 rounded-full border border-border/50 bg-background/50 px-3 py-1.5 shadow-sm animate-in fade-in slide-in-from-right-2">
+                  <RefreshCw size={12} className="animate-spin text-primary/60" />
+                  <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[150px]">
+                    {visibleStatusText}
+                  </span>
+                </div>
               )}
             </div>
           </div>
 
           <div className="relative flex min-h-0 flex-1 flex-col bg-background/20">
-            <div
-              ref={scrollRef}
-              className="flex-1 min-h-0 overflow-y-auto scrollbar-thin"
-            >
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
               <div className="flex flex-col gap-4 p-6 pb-36">
                 {consoleMessages.length === 0 && !pair.currentTurnCard ? (
                   <div className="flex h-[400px] flex-col items-center justify-center space-y-4 opacity-40">
@@ -669,7 +870,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
             <div className="space-y-3">
               <div className="glass-card rounded-2xl p-3">
                 <div className="mb-2 text-[10px] text-muted-foreground">Pair Total</div>
-                <ResourceMeter cpu={pair.cpuUsage} mem={Math.round(pair.memUsage)} />
+                <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
               </div>
               <div className="glass-card rounded-2xl p-3">
                 <div className="mb-2 flex items-center gap-2">
@@ -686,7 +887,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>CPU: {pair.mentorCpu.toFixed(1)}%</span>
-                  <span>MEM: {Math.round(pair.mentorMemMb)}MB</span>
+                  <span>MEM: {pair.mentorMemMb.toFixed(1)}MB</span>
                 </div>
               </div>
               <div className="glass-card rounded-2xl p-3">
@@ -704,7 +905,7 @@ function PairDetail({ pair, onStop }: { pair: Pair; onStop: () => void }): React
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground">
                   <span>CPU: {pair.executorCpu.toFixed(1)}%</span>
-                  <span>MEM: {Math.round(pair.executorMemMb)}MB</span>
+                  <span>MEM: {pair.executorMemMb.toFixed(1)}MB</span>
                 </div>
               </div>
             </div>
@@ -849,6 +1050,7 @@ function App(): React.ReactNode {
   const [isInitializing, setIsInitializing] = useState(true)
   const [isRecoveryDismissed, setIsRecoveryDismissed] = useState(false)
   const [isRestoringSession, setIsRestoringSession] = useState(false)
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
@@ -858,6 +1060,8 @@ function App(): React.ReactNode {
   const flushSnapshots = usePairStore((state) => state.flushSnapshots)
   const initMessageListener = usePairStore((state) => state.initMessageListener)
   const restoreSession = usePairStore((state) => state.restoreSession)
+  const deleteRecoverableSession = usePairStore((state) => state.deleteRecoverableSession)
+  const removeRecoverableSession = usePairStore((state) => state.removeRecoverableSession)
   const removePair = usePairStore((state) => state.removePair)
 
   const theme = useThemeStore((state) => state.theme)
@@ -866,12 +1070,8 @@ function App(): React.ReactNode {
   useEffect(() => {
     const init = async (): Promise<void> => {
       // Parallel execution but wait for models to finish
-      await Promise.all([
-        loadAvailableModels(),
-        initMessageListener(),
-        loadRecoverableSessions()
-      ])
-      
+      await Promise.all([loadAvailableModels(), initMessageListener(), loadRecoverableSessions()])
+
       setIsInitializing(false)
     }
     init()
@@ -917,6 +1117,28 @@ function App(): React.ReactNode {
     }
   }
 
+  const handleDeleteRecoverableSession = async (pairId: string): Promise<void> => {
+    const startedAt = Date.now()
+    setDeletingSessionId(pairId)
+    let deletionSucceeded = false
+    try {
+      await deleteRecoverableSession(pairId)
+      deletionSucceeded = true
+    } catch (error) {
+      console.error('[App] Failed to delete recoverable session:', error)
+    } finally {
+      const elapsed = Date.now() - startedAt
+      const minimumFeedbackMs = 350
+      if (elapsed < minimumFeedbackMs) {
+        await new Promise((resolve) => setTimeout(resolve, minimumFeedbackMs - elapsed))
+      }
+      if (deletionSucceeded) {
+        removeRecoverableSession(pairId)
+      }
+      setDeletingSessionId(null)
+    }
+  }
+
   const handleDismissRecovery = (): void => {
     setIsRecoveryDismissed(true)
   }
@@ -957,7 +1179,9 @@ function App(): React.ReactNode {
         sessions={recoverableSessions}
         isOpen={showRecoveryPrompt}
         isRestoring={isRestoringSession}
+        deletingPairId={deletingSessionId}
         onRestore={handleRestoreSession}
+        onDelete={handleDeleteRecoverableSession}
         onDismiss={handleDismissRecovery}
       />
 
@@ -965,7 +1189,9 @@ function App(): React.ReactNode {
         <>
           <CreatePairModal isOpen={isCreatePairOpen} onClose={() => setIsCreatePairOpen(false)} />
           <AssignTaskModal
-            key={selectedPair ? `assign-${selectedPair.id}-${String(isAssignTaskOpen)}` : 'assign-none'}
+            key={
+              selectedPair ? `assign-${selectedPair.id}-${String(isAssignTaskOpen)}` : 'assign-none'
+            }
             pair={selectedPair}
             isOpen={isAssignTaskOpen}
             onClose={() => setIsAssignTaskOpen(false)}

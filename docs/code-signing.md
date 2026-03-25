@@ -9,13 +9,12 @@ The repository uses a GitHub Actions release pipeline:
 ```
 push to main
   → detect package.json version bump
-  → build unpacked macOS app
-  → manually codesign the app bundle
-  → notarize the notarization archive
-  → staple when available
-  → package DMG/ZIP
-  → create/update GitHub Release
-  → update Homebrew tap cask
+  → run lint, typecheck, and tests
+  → build macOS/Windows/Linux release artifacts
+  → codesign and notarize the macOS bundle
+  → package ZIP on macOS plus Windows/Linux installers
+  → create/update GitHub Release with all platform assets
+  → update Homebrew tap cask from the macOS ZIP
 ```
 
 The workflow file is: [build-signed-mac.yml](../.github/workflows/build-signed-mac.yml)
@@ -57,15 +56,15 @@ Found under `Membership details` in your developer account.
 
 Configure these in `Settings → Secrets and variables → Actions`:
 
-| Secret                         | What it is                                                             | How to get it                                                                                                                       |
-| ------------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Secret                         | What it is                                                              | How to get it                                                                                                                       |
+| ------------------------------ | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `MACOS_SIGNING_IDENTITY`       | Exact signing identity string used by Tauri as `APPLE_SIGNING_IDENTITY` | Run `security find-identity -v -p codesigning` after installing the certificate, then copy the `Developer ID Application: ...` line |
-| `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded `.p12` export of your Developer ID Application cert     | `base64 -i /path/to/developer-id.p12 \| pbcopy` on macOS                                                                            |
-| `MACOS_CERTIFICATE_PASSWORD`   | Password you chose when exporting the `.p12`                           | You set this during export                                                                                                          |
-| `APPLE_ID`                     | Apple Account email used for notarization                              | Your Apple Developer account email                                                                                                  |
-| `APPLE_APP_SPECIFIC_PASSWORD`  | App-specific password for notarization                                 | Go to `account.apple.com` → `Sign-In and Security` → `App-Specific Passwords`                                                       |
-| `APPLE_TEAM_ID`                | 10-character Apple team identifier                                     | `developer.apple.com` → `Membership details`                                                                                        |
-| `HOMEBREW_TAP_GITHUB_TOKEN`    | Token allowed to push to `timwuhaotian/homebrew-the-pair`              | Create a GitHub PAT with repo contents write access to the tap repo                                                                 |
+| `MACOS_CERTIFICATE_P12_BASE64` | Base64-encoded `.p12` export of your Developer ID Application cert      | `base64 -i /path/to/developer-id.p12 \| pbcopy` on macOS                                                                            |
+| `MACOS_CERTIFICATE_PASSWORD`   | Password you chose when exporting the `.p12`                            | You set this during export                                                                                                          |
+| `APPLE_ID`                     | Apple Account email used for notarization                               | Your Apple Developer account email                                                                                                  |
+| `APPLE_APP_SPECIFIC_PASSWORD`  | App-specific password for notarization                                  | Go to `account.apple.com` → `Sign-In and Security` → `App-Specific Passwords`                                                       |
+| `APPLE_TEAM_ID`                | 10-character Apple team identifier                                      | `developer.apple.com` → `Membership details`                                                                                        |
+| `HOMEBREW_TAP_GITHUB_TOKEN`    | Token allowed to push to `timwuhaotian/homebrew-the-pair`               | Create a GitHub PAT with repo contents write access to the tap repo                                                                 |
 
 **Notes:**
 
@@ -84,8 +83,21 @@ export APPLE_ID="your-apple-id@example.com"
 export APPLE_APP_SPECIFIC_PASSWORD="your-app-specific-password"
 export TEAM_ID="YOURTEAMID"
 
+npm run preflight:mac
 npm run build:mac
 ```
+
+The macOS build flow will install the required Rust targets automatically when `rustup` is available. If you need to do it yourself, run:
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+```
+
+The release workflow now publishes:
+
+- macOS: `the-pair-{version}.zip`
+- Windows: `the-pair-{version}-setup.exe`
+- Linux: `the-pair-{version}.AppImage`
 
 ## Manual Notarization Check
 

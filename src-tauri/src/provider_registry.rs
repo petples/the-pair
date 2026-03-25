@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
-use std::path::PathBuf;
-use std::fs;
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
@@ -11,56 +11,6 @@ pub enum ProviderKind {
     Codex,
     Claude,
     Gemini,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum InputTransport {
-    Stdio,
-    JsonEvents,
-    SessionJson,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum OutputTransport {
-    Stdio,
-    JsonEvents,
-    SessionJson,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum SessionStrategy {
-    NewFirst,
-    ResumeExisting,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum PermissionStrategy {
-    Auto,
-    ManualConfirm,
-    PreApproved,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "kebab-case")]
-pub enum CwdStrategy {
-    Worktree,
-    OriginalRepo,
-    Custom,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PairRuntimeSpec {
-    pub executable: String,
-    pub input_transport: InputTransport,
-    pub output_transport: OutputTransport,
-    pub session_strategy: SessionStrategy,
-    pub permission_strategy: PermissionStrategy,
-    pub cwd_strategy: CwdStrategy,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -165,9 +115,12 @@ impl ProviderRegistry {
             if let Some(config) = safe_read_json(config_path) {
                 if let Some(providers) = config.get("provider").and_then(|p| p.as_object()) {
                     for (provider_id, provider_data) in providers {
-                        if let Some(model_list) = provider_data.get("models").and_then(|m| m.as_object()) {
+                        if let Some(model_list) =
+                            provider_data.get("models").and_then(|m| m.as_object())
+                        {
                             for (model_id, model_config) in model_list {
-                                let display_name = model_config.get("name")
+                                let display_name = model_config
+                                    .get("name")
                                     .and_then(|n| n.as_str())
                                     .unwrap_or(model_id)
                                     .to_string();
@@ -202,35 +155,44 @@ impl ProviderRegistry {
 
         // 3. Detect from 'opencode models' command output
         if installed {
-            let output = Command::new("opencode")
-                .arg("models")
-                .output();
-            
+            let output = Command::new("opencode").arg("models").output();
+
             if let Ok(o) = output {
                 if o.status.success() {
                     let content = String::from_utf8_lossy(&o.stdout);
                     for line in content.lines() {
                         let line = line.trim();
-                        if line.is_empty() { continue; }
-                        
+                        if line.is_empty() {
+                            continue;
+                        }
+
                         // Check if we already added this model from config
-                        if models.iter().any(|m| m.model_id == line) { continue; }
+                        if models.iter().any(|m| m.model_id == line) {
+                            continue;
+                        }
 
                         let parts: Vec<&str> = line.split('/').collect();
                         if parts.len() >= 2 {
                             let provider_id = parts[0];
                             let model_name = parts[1..].join("/");
-                            
+
                             // Check if this model belongs to an authenticated provider (either internal or custom)
-                            let is_authenticated = internal_providers.contains(&provider_id.to_string()) || 
-                                                 models.iter().any(|m| m.source_provider.as_deref() == Some(provider_id));
+                            let is_authenticated = internal_providers
+                                .contains(&provider_id.to_string())
+                                || models
+                                    .iter()
+                                    .any(|m| m.source_provider.as_deref() == Some(provider_id));
 
                             if is_authenticated {
                                 models.push(DetectedModelOption {
                                     model_id: line.to_string(),
                                     display_name: model_name,
                                     source_provider: Some(provider_id.to_string()),
-                                    subscription_label: if provider_id == "opencode" { "zen-backed".into() } else { "internal-provider".into() },
+                                    subscription_label: if provider_id == "opencode" {
+                                        "zen-backed".into()
+                                    } else {
+                                        "internal-provider".into()
+                                    },
                                     supports_pair_execution: true,
                                     runnable: true,
                                 });
@@ -262,7 +224,10 @@ impl ProviderRegistry {
             runnable: installed,
             subscription_label: "multi-provider".into(),
             current_models: models,
-            detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            detected_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         }
     }
 
@@ -271,15 +236,20 @@ impl ProviderRegistry {
         let homedir = homedir();
         let auth_path = homedir.join(".codex/auth.json");
         let config_path = homedir.join(".codex/config.toml");
-        
+
         let authenticated = auth_path.exists();
         let mut models = Vec::new();
         let subscription_label = "subscription-backed".to_string();
 
         if authenticated || config_path.exists() {
             // Default common models
-            let mut model_ids = vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string(), "o1".to_string(), "o3".to_string()];
-            
+            let mut model_ids = vec![
+                "gpt-4o".to_string(),
+                "gpt-4o-mini".to_string(),
+                "o1".to_string(),
+                "o3".to_string(),
+            ];
+
             // Try to extract current model from config.toml
             if config_path.exists() {
                 if let Ok(content) = fs::read_to_string(&config_path) {
@@ -316,7 +286,10 @@ impl ProviderRegistry {
             runnable: installed && (authenticated || config_path.exists()),
             subscription_label,
             current_models: models,
-            detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            detected_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         }
     }
 
@@ -327,15 +300,16 @@ impl ProviderRegistry {
         let mut models = Vec::new();
 
         if installed {
-            let output = Command::new("claude")
-                .arg("auth")
-                .arg("status")
-                .output();
-            
+            let output = Command::new("claude").arg("auth").arg("status").output();
+
             if let Ok(o) = output {
                 let status_str = String::from_utf8_lossy(&o.stdout);
                 if let Ok(status) = serde_json::from_str::<serde_json::Value>(&status_str) {
-                    if status.get("loggedIn").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if status
+                        .get("loggedIn")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                    {
                         authenticated = true;
                         subscription_label = "subscription-backed".to_string();
                     }
@@ -348,7 +322,12 @@ impl ProviderRegistry {
             }
 
             if authenticated {
-                for m in &["claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus", "claude-3-7-sonnet"] {
+                for m in &[
+                    "claude-3-5-sonnet",
+                    "claude-3-5-haiku",
+                    "claude-3-opus",
+                    "claude-3-7-sonnet",
+                ] {
                     models.push(DetectedModelOption {
                         model_id: m.to_string(),
                         display_name: m.to_string(),
@@ -368,7 +347,10 @@ impl ProviderRegistry {
             runnable: installed && authenticated,
             subscription_label,
             current_models: models,
-            detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+            detected_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         }
     }
 
@@ -383,7 +365,11 @@ impl ProviderRegistry {
         if settings_path.exists() {
             authenticated = true;
             if let Some(settings) = safe_read_json(settings_path) {
-                if let Some(name) = settings.get("model").and_then(|m| m.get("name")).and_then(|n| n.as_str()) {
+                if let Some(name) = settings
+                    .get("model")
+                    .and_then(|m| m.get("name"))
+                    .and_then(|n| n.as_str())
+                {
                     current_model = name.to_string();
                 }
             }
@@ -391,7 +377,7 @@ impl ProviderRegistry {
 
         if installed {
             let model_ids = vec![
-                "gemini-1.5-pro".to_string(), 
+                "gemini-1.5-pro".to_string(),
                 "gemini-1.5-flash".to_string(),
                 "gemini-2.0-flash".to_string(),
                 "gemini-2.0-pro-exp".to_string(),
@@ -420,96 +406,10 @@ impl ProviderRegistry {
             runnable: installed && authenticated,
             subscription_label: "subscription-backed".into(),
             current_models: models,
-            detected_at: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
-        }
-    }
-
-    pub fn get_runtime_spec(kind: ProviderKind) -> PairRuntimeSpec {
-        match kind {
-            ProviderKind::Opencode => PairRuntimeSpec {
-                executable: "opencode".into(),
-                input_transport: InputTransport::Stdio,
-                output_transport: OutputTransport::JsonEvents,
-                session_strategy: SessionStrategy::NewFirst,
-                permission_strategy: PermissionStrategy::Auto,
-                cwd_strategy: CwdStrategy::Worktree,
-            },
-            ProviderKind::Codex => PairRuntimeSpec {
-                executable: "codex".into(),
-                input_transport: InputTransport::SessionJson,
-                output_transport: OutputTransport::SessionJson,
-                session_strategy: SessionStrategy::ResumeExisting,
-                permission_strategy: PermissionStrategy::Auto,
-                cwd_strategy: CwdStrategy::Worktree,
-            },
-            ProviderKind::Claude => PairRuntimeSpec {
-                executable: "claude".into(),
-                input_transport: InputTransport::Stdio,
-                output_transport: OutputTransport::JsonEvents,
-                session_strategy: SessionStrategy::ResumeExisting,
-                permission_strategy: PermissionStrategy::PreApproved,
-                cwd_strategy: CwdStrategy::Worktree,
-            },
-            ProviderKind::Gemini => PairRuntimeSpec {
-                executable: "gemini".into(),
-                input_transport: InputTransport::Stdio,
-                output_transport: OutputTransport::Stdio,
-                session_strategy: SessionStrategy::NewFirst,
-                permission_strategy: PermissionStrategy::ManualConfirm,
-                cwd_strategy: CwdStrategy::Worktree,
-            },
-        }
-    }
-
-    pub fn get_arg_builder(kind: ProviderKind, model: &str, session_id: Option<&str>, role: &str) -> Vec<String> {
-        match kind {
-            ProviderKind::Opencode => {
-                let mut args = vec!["run".into(), "--model".into(), model.into()];
-                if let Some(sid) = session_id {
-                    args.push("--session".into());
-                    args.push(sid.into());
-                }
-                args.push("--format".into());
-                args.push("json".into());
-                args
-            }
-            ProviderKind::Codex => {
-                let mut args = vec!["exec".into(), "--model".into(), model.into()];
-                if let Some(sid) = session_id {
-                    args.push("--session".into());
-                    args.push(sid.into());
-                }
-                if role == "mentor" {
-                    args.push("--sandbox".into());
-                    args.push("read-only".into());
-                }
-                args
-            }
-            ProviderKind::Claude => {
-                let mut args = vec![
-                    "-p".into(),
-                    "--model".into(),
-                    model.into(),
-                    "--output-format".into(),
-                    "stream-json".into(),
-                ];
-                if role == "mentor" {
-                    args.push("--permission-mode".into());
-                    args.push("plan".into());
-                } else {
-                    args.push("--permission-mode".into());
-                    args.push("auto".into());
-                }
-                if let Some(sid) = session_id {
-                    args.push("--resume".into());
-                    args.push(sid.into());
-                }
-                args
-            }
-            ProviderKind::Gemini => {
-                let args = vec!["--model".into(), model.into(), "--prompt".into()];
-                args
-            }
+            detected_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         }
     }
 }

@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.22.0'
           cache: 'npm'
 
       - name: Install dependencies
@@ -60,7 +60,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.22.0'
           cache: 'npm'
 
       - name: Install Rust
@@ -77,7 +77,12 @@ jobs:
         run: npm ci
 
       - name: Build Tauri app
-        run: npx tauri build --target ${{ matrix.target }}
+        run: |
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            npx tauri build --target ${{ matrix.target }} --bundles app
+          else
+            npx tauri build --target ${{ matrix.target }}
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

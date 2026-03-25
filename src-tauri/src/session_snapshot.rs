@@ -1,9 +1,11 @@
 use crate::message_broker::MessageBroker;
 use crate::pair_manager::PairManager;
 use crate::process_spawner::{ProcessContext, ProcessSpawner};
+use crate::provider_adapter::ProviderAdapter;
+use crate::provider_registry::ProviderKind;
 use crate::types::{
-    AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType, ModifiedFile,
-    Pair, PairResources, PairState, PairStatus, ResourceInfo,
+    AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType, ModifiedFile, Pair,
+    PairResources, PairState, PairStatus, ResourceInfo,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -60,7 +62,9 @@ pub struct SessionSnapshotRecord {
     pub iterations: u32,
     pub max_iterations: u32,
     pub turn: AgentRole,
+    pub mentor_provider: Option<ProviderKind>,
     pub mentor_model: String,
+    pub executor_provider: Option<ProviderKind>,
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
@@ -96,7 +100,9 @@ pub struct SessionSnapshotDraft {
     pub iterations: u32,
     pub max_iterations: u32,
     pub turn: AgentRole,
+    pub mentor_provider: Option<ProviderKind>,
     pub mentor_model: String,
+    pub executor_provider: Option<ProviderKind>,
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
@@ -162,6 +168,10 @@ fn to_role_string(role: &AgentRole) -> &'static str {
         AgentRole::Mentor => "mentor",
         AgentRole::Executor => "executor",
     }
+}
+
+fn resolve_provider_kind(provider: Option<ProviderKind>, model: &str) -> ProviderKind {
+    provider.unwrap_or_else(|| ProviderAdapter::infer_provider_kind(model))
 }
 
 fn build_mentor_planning_prompt(task_spec: &str) -> String {
@@ -252,12 +262,12 @@ fn snapshot_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn snapshot_index_path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(snapshot_dir(app)?.join(INDEX_FILE_NAME))
+fn snapshot_index_path_in_dir(snapshot_dir: &Path) -> PathBuf {
+    snapshot_dir.join(INDEX_FILE_NAME)
 }
 
-fn snapshot_file_path(app: &AppHandle, pair_id: &str) -> Result<PathBuf, String> {
-    Ok(snapshot_dir(app)?.join(format!("{}.json", pair_id)))
+fn snapshot_file_path_in_dir(snapshot_dir: &Path, pair_id: &str) -> PathBuf {
+    snapshot_dir.join(format!("{}.json", pair_id))
 }
 
 fn ensure_snapshot_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -278,16 +288,24 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
-fn save_index(app: &AppHandle, summaries: &[RecoverableSessionSummary]) -> Result<(), String> {
-    let index_path = snapshot_index_path(app)?;
+fn save_index_in_dir(
+    snapshot_dir: &Path,
+    summaries: &[RecoverableSessionSummary],
+) -> Result<(), String> {
+    let index_path = snapshot_index_path_in_dir(snapshot_dir);
     if let Some(parent) = index_path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     write_json_atomic(&index_path, summaries)
 }
 
-fn load_index(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
-    let index_path = snapshot_index_path(app)?;
+fn save_index(app: &AppHandle, summaries: &[RecoverableSessionSummary]) -> Result<(), String> {
+    let dir = snapshot_dir(app)?;
+    save_index_in_dir(&dir, summaries)
+}
+
+fn load_index_from_dir(snapshot_dir: &Path) -> Result<Vec<RecoverableSessionSummary>, String> {
+    let index_path = snapshot_index_path_in_dir(snapshot_dir);
     if !index_path.exists() {
         return Ok(Vec::new());
     }
@@ -295,11 +313,18 @@ fn load_index(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String>
     read_json::<Vec<RecoverableSessionSummary>>(&index_path)
 }
 
-fn scan_snapshot_files(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
-    let dir = ensure_snapshot_dir(app)?;
+fn load_index(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
+    let dir = snapshot_dir(app)?;
+    load_index_from_dir(&dir)
+}
+
+fn scan_snapshot_files_in_dir(
+    snapshot_dir: &Path,
+) -> Result<Vec<RecoverableSessionSummary>, String> {
     let mut summaries = Vec::new();
 
-    let entries = fs::read_dir(&dir).map_err(|e| format!("Failed to read snapshot dir: {}", e))?;
+    let entries =
+        fs::read_dir(snapshot_dir).map_err(|e| format!("Failed to read snapshot dir: {}", e))?;
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -330,6 +355,11 @@ fn scan_snapshot_files(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>
     Ok(summaries)
 }
 
+fn scan_snapshot_files(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
+    let dir = ensure_snapshot_dir(app)?;
+    scan_snapshot_files_in_dir(&dir)
+}
+
 fn load_summaries(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, String> {
     match load_index(app) {
         Ok(from_index) if !from_index.is_empty() => return Ok(from_index),
@@ -349,10 +379,28 @@ fn load_summaries(app: &AppHandle) -> Result<Vec<RecoverableSessionSummary>, Str
     Ok(scanned)
 }
 
-fn upsert_snapshot_record(
-    app: &AppHandle,
-    snapshot: &SessionSnapshotRecord,
-) -> Result<(), String> {
+fn delete_pair_snapshot_in_dir(snapshot_dir: &Path, pair_id: &str) -> Result<(), String> {
+    let path = snapshot_file_path_in_dir(snapshot_dir, pair_id);
+    if path.exists() {
+        let _ = fs::remove_file(&path);
+    }
+
+    let index_path = snapshot_index_path_in_dir(snapshot_dir);
+    if !index_path.exists() {
+        return Ok(());
+    }
+
+    let mut summaries = load_index_from_dir(snapshot_dir).unwrap_or_default();
+    let before = summaries.len();
+    summaries.retain(|entry| entry.pair_id != pair_id);
+    if before != summaries.len() {
+        save_index_in_dir(snapshot_dir, &summaries)?;
+    }
+
+    Ok(())
+}
+
+fn upsert_snapshot_record(app: &AppHandle, snapshot: &SessionSnapshotRecord) -> Result<(), String> {
     let path = snapshot_path_for_pair(app, &snapshot.pair_id)?;
     ensure_snapshot_dir(app)?;
     write_json_atomic(&path, snapshot)?;
@@ -414,6 +462,11 @@ impl SessionSnapshotRecord {
 fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
     ProcessContext {
         directory: snapshot.directory.clone(),
+        mentor_provider: resolve_provider_kind(snapshot.mentor_provider, &snapshot.mentor_model),
+        executor_provider: resolve_provider_kind(
+            snapshot.executor_provider,
+            &snapshot.executor_model,
+        ),
         mentor_model: snapshot.mentor_model.clone(),
         executor_model: snapshot.executor_model.clone(),
         mentor_session_id: snapshot.provider_sessions.mentor_session_id.clone(),
@@ -427,7 +480,12 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         name: snapshot.name.clone(),
         directory: snapshot.directory.clone(),
         status: snapshot.status.clone(),
+        mentor_provider: resolve_provider_kind(snapshot.mentor_provider, &snapshot.mentor_model),
         mentor_model: snapshot.mentor_model.clone(),
+        executor_provider: resolve_provider_kind(
+            snapshot.executor_provider,
+            &snapshot.executor_model,
+        ),
         executor_model: snapshot.executor_model.clone(),
         created_at: snapshot.created_at,
     }
@@ -477,10 +535,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         modified_files: snapshot.modified_files.clone(),
         git_tracking: snapshot.git_tracking.clone(),
         automation_mode: snapshot.automation_mode.clone(),
-        git_review_available: snapshot
-            .git_tracking
-            .git_review_available
-            .unwrap_or(false),
+        git_review_available: snapshot.git_tracking.git_review_available.unwrap_or(false),
     }
 }
 
@@ -491,6 +546,8 @@ fn build_snapshot_from_state(
 ) -> SessionSnapshotRecord {
     let context = context.cloned().unwrap_or(ProcessContext {
         directory: pair.directory.clone(),
+        mentor_provider: pair.mentor_provider,
+        executor_provider: pair.executor_provider,
         mentor_model: pair.mentor_model.clone(),
         executor_model: pair.executor_model.clone(),
         mentor_session_id: None,
@@ -536,7 +593,9 @@ fn build_snapshot_from_state(
         iterations: state.iteration,
         max_iterations: state.max_iterations,
         turn: state.turn.clone(),
+        mentor_provider: Some(pair.mentor_provider),
         mentor_model: pair.mentor_model.clone(),
+        executor_provider: Some(pair.executor_provider),
         executor_model: pair.executor_model.clone(),
         pending_mentor_model: None,
         pending_executor_model: None,
@@ -571,6 +630,8 @@ fn build_snapshot_from_draft(
 ) -> SessionSnapshotRecord {
     let context = context.unwrap_or(ProcessContext {
         directory: draft.directory.clone(),
+        mentor_provider: resolve_provider_kind(draft.mentor_provider, &draft.mentor_model),
+        executor_provider: resolve_provider_kind(draft.executor_provider, &draft.executor_model),
         mentor_model: draft.mentor_model.clone(),
         executor_model: draft.executor_model.clone(),
         mentor_session_id: None,
@@ -588,7 +649,9 @@ fn build_snapshot_from_draft(
         iterations: draft.iterations,
         max_iterations: draft.max_iterations,
         turn: draft.turn,
+        mentor_provider: draft.mentor_provider,
         mentor_model: draft.mentor_model,
+        executor_provider: draft.executor_provider,
         executor_model: draft.executor_model,
         pending_mentor_model: draft.pending_mentor_model,
         pending_executor_model: draft.pending_executor_model,
@@ -618,7 +681,7 @@ fn build_snapshot_from_draft(
 }
 
 fn snapshot_path_for_pair(app: &AppHandle, pair_id: &str) -> Result<PathBuf, String> {
-    snapshot_file_path(app, pair_id)
+    Ok(snapshot_dir(app)?.join(format!("{}.json", pair_id)))
 }
 
 pub fn persist_pair_snapshot_from_state(
@@ -649,7 +712,9 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.iterations = state.iteration;
     snapshot.max_iterations = state.max_iterations;
     snapshot.turn = state.turn.clone();
+    snapshot.mentor_provider = Some(pair.mentor_provider);
     snapshot.mentor_model = pair.mentor_model.clone();
+    snapshot.executor_provider = Some(pair.executor_provider);
     snapshot.executor_model = pair.executor_model.clone();
     snapshot.messages = state.messages.clone();
     snapshot.mentor_activity = state.mentor_activity.clone();
@@ -664,8 +729,12 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.git_tracking = state.git_tracking.clone();
     snapshot.automation_mode = state.automation_mode.clone();
     snapshot.provider_sessions = SnapshotProcessContext {
-        mentor_session_id: context.as_ref().and_then(|ctx| ctx.mentor_session_id.clone()),
-        executor_session_id: context.as_ref().and_then(|ctx| ctx.executor_session_id.clone()),
+        mentor_session_id: context
+            .as_ref()
+            .and_then(|ctx| ctx.mentor_session_id.clone()),
+        executor_session_id: context
+            .as_ref()
+            .and_then(|ctx| ctx.executor_session_id.clone()),
     };
 
     upsert_snapshot_record(app, &snapshot)
@@ -693,10 +762,7 @@ pub fn session_save_snapshot(
 ) -> Result<SessionSnapshotRecord, String> {
     let context = {
         let spawner = app.state::<ProcessSpawner>();
-        let contexts = spawner
-            .pair_contexts
-            .lock()
-            .map_err(|e| e.to_string())?;
+        let contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
         contexts.get(&input.pair_id).cloned()
     };
 
@@ -707,19 +773,13 @@ pub fn session_save_snapshot(
 }
 
 pub fn delete_pair_snapshot(app: &AppHandle, pair_id: &str) -> Result<(), String> {
-    let path = snapshot_path_for_pair(app, pair_id)?;
-    if path.exists() {
-        let _ = fs::remove_file(&path);
-    }
+    let dir = snapshot_dir(app)?;
+    delete_pair_snapshot_in_dir(&dir, pair_id)
+}
 
-    let mut summaries = load_summaries(app).unwrap_or_default();
-    let before = summaries.len();
-    summaries.retain(|entry| entry.pair_id != pair_id);
-    if before != summaries.len() {
-        save_index(app, &summaries)?;
-    }
-
-    Ok(())
+#[tauri::command]
+pub fn delete_recoverable_session(app: AppHandle, pair_id: String) -> Result<(), String> {
+    delete_pair_snapshot(&app, &pair_id)
 }
 
 #[tauri::command]
@@ -765,7 +825,10 @@ pub async fn restore_session(
     let mut updated_snapshot = snapshot.clone();
     updated_snapshot.provider_sessions = SnapshotProcessContext {
         mentor_session_id: updated_snapshot.provider_sessions.mentor_session_id.clone(),
-        executor_session_id: updated_snapshot.provider_sessions.executor_session_id.clone(),
+        executor_session_id: updated_snapshot
+            .provider_sessions
+            .executor_session_id
+            .clone(),
     };
     upsert_snapshot_record(&app, &updated_snapshot)?;
 
@@ -782,7 +845,9 @@ pub async fn restore_session(
             let broker_guard = broker.lock().map_err(|e| e.to_string())?;
             broker_guard.prepare_run(&pair.pair_id, &role, spawner.active_processes.clone());
         }
-        spawner.trigger_turn(app.clone(), pair.pair_id.clone(), role, prompt).await?;
+        spawner
+            .trigger_turn(app.clone(), pair.pair_id.clone(), role, prompt)
+            .await?;
     }
 
     Ok(snapshot)
@@ -791,6 +856,8 @@ pub async fn restore_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_registry::ProviderKind;
+    use std::fs;
 
     fn activity(label: &str) -> AgentActivity {
         AgentActivity {
@@ -820,7 +887,11 @@ mod tests {
         }
     }
 
-    fn snapshot(turn: AgentRole, status: PairStatus, messages: Vec<Message>) -> SessionSnapshotRecord {
+    fn snapshot(
+        turn: AgentRole,
+        status: PairStatus,
+        messages: Vec<Message>,
+    ) -> SessionSnapshotRecord {
         SessionSnapshotRecord {
             snapshot_version: SNAPSHOT_VERSION,
             saved_at: 10,
@@ -832,7 +903,9 @@ mod tests {
             iterations: 2,
             max_iterations: 3,
             turn: turn.clone(),
+            mentor_provider: Some(ProviderKind::Opencode),
             mentor_model: "mentor-model".to_string(),
+            executor_provider: Some(ProviderKind::Codex),
             executor_model: "executor-model".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
@@ -871,6 +944,57 @@ mod tests {
                 mentor_session_id: Some("ses_mentor".to_string()),
                 executor_session_id: None,
             },
+        }
+    }
+
+    fn legacy_snapshot(turn: AgentRole, status: PairStatus) -> SessionSnapshotRecord {
+        let mut snapshot = snapshot(turn, status, vec![]);
+        snapshot.mentor_provider = None;
+        snapshot.executor_provider = None;
+        snapshot.mentor_model = "claude-3-5-sonnet".to_string();
+        snapshot.executor_model = "gpt-4o-mini".to_string();
+        snapshot
+    }
+
+    fn draft() -> SessionSnapshotDraft {
+        SessionSnapshotDraft {
+            pair_id: "pair-1".to_string(),
+            name: "Demo".to_string(),
+            directory: "/tmp/project".to_string(),
+            spec: "Fallback task spec".to_string(),
+            status: PairStatus::Idle,
+            iterations: 0,
+            max_iterations: 3,
+            turn: AgentRole::Mentor,
+            mentor_provider: Some(ProviderKind::Claude),
+            mentor_model: "claude-3-5-sonnet".to_string(),
+            executor_provider: Some(ProviderKind::Codex),
+            executor_model: "gpt-4o-mini".to_string(),
+            pending_mentor_model: None,
+            pending_executor_model: None,
+            messages: vec![],
+            mentor_activity: activity("Mentor idle"),
+            executor_activity: activity("Executor idle"),
+            mentor_cpu: 0.0,
+            mentor_mem_mb: 0.0,
+            executor_cpu: 0.0,
+            executor_mem_mb: 0.0,
+            cpu_usage: 0.0,
+            mem_usage: 0.0,
+            modified_files: vec![],
+            git_tracking: GitTracking {
+                available: false,
+                root_path: None,
+                baseline: None,
+                git_review_available: Some(false),
+            },
+            automation_mode: "full-auto".to_string(),
+            current_turn_card: None,
+            run_count: 1,
+            run_history: vec![],
+            current_run_started_at: 0,
+            current_run_finished_at: None,
+            created_at: 0,
         }
     }
 
@@ -932,13 +1056,94 @@ mod tests {
     }
 
     #[test]
+    fn build_snapshot_from_draft_persists_provider_kinds() {
+        let record = build_snapshot_from_draft(draft(), None);
+
+        assert_eq!(record.mentor_provider, Some(ProviderKind::Claude));
+        assert_eq!(record.executor_provider, Some(ProviderKind::Codex));
+        assert_eq!(record.mentor_model, "claude-3-5-sonnet");
+        assert_eq!(record.executor_model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn build_pair_and_process_context_infer_provider_kinds_for_legacy_snapshots() {
+        let snapshot = legacy_snapshot(AgentRole::Executor, PairStatus::Executing);
+
+        let pair = build_pair(&snapshot);
+        let context = build_process_context(&snapshot);
+
+        assert_eq!(pair.mentor_provider, ProviderKind::Claude);
+        assert_eq!(pair.executor_provider, ProviderKind::Codex);
+        assert_eq!(context.mentor_provider, ProviderKind::Claude);
+        assert_eq!(context.executor_provider, ProviderKind::Codex);
+    }
+
+    #[test]
     fn to_summary_preserves_session_card_and_session_presence_flags() {
         let snapshot = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
         let summary = snapshot.to_summary();
 
         assert_eq!(summary.pair_id, "pair-1");
-        assert_eq!(summary.current_turn_card.as_ref().map(|card| card.id.as_str()), Some("turn-1"));
+        assert_eq!(
+            summary
+                .current_turn_card
+                .as_ref()
+                .map(|card| card.id.as_str()),
+            Some("turn-1")
+        );
         assert!(summary.has_mentor_session);
         assert!(!summary.has_executor_session);
+    }
+
+    #[test]
+    fn delete_pair_snapshot_in_dir_removes_snapshot_file_and_index_entry() {
+        let dir =
+            std::env::temp_dir().join(format!("the-pair-snapshot-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+
+        let snapshot = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
+        let pair_id = snapshot.pair_id.clone();
+        let snapshot_path = dir.join(format!("{}.json", pair_id));
+        let index_path = dir.join("index.json");
+
+        fs::write(
+            &snapshot_path,
+            serde_json::to_vec_pretty(&snapshot).unwrap(),
+        )
+        .unwrap();
+
+        let summaries = vec![
+            snapshot.to_summary(),
+            RecoverableSessionSummary {
+                pair_id: "pair-2".to_string(),
+                name: "Keep".to_string(),
+                directory: "/tmp/keep".to_string(),
+                spec: "Keep this".to_string(),
+                status: PairStatus::Idle,
+                turn: AgentRole::Executor,
+                mentor_model: "mentor".to_string(),
+                executor_model: "executor".to_string(),
+                pending_mentor_model: None,
+                pending_executor_model: None,
+                run_count: 1,
+                current_run_started_at: 1,
+                current_run_finished_at: None,
+                saved_at: 20,
+                created_at: 2,
+                current_turn_card: None,
+                has_mentor_session: false,
+                has_executor_session: false,
+            },
+        ];
+        fs::write(&index_path, serde_json::to_vec_pretty(&summaries).unwrap()).unwrap();
+
+        delete_pair_snapshot_in_dir(&dir, &pair_id).unwrap();
+
+        assert!(!snapshot_path.exists());
+        let remaining = fs::read_to_string(&index_path).unwrap();
+        assert!(remaining.contains("pair-2"));
+        assert!(!remaining.contains(&pair_id));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -44,11 +44,26 @@ impl ModelCatalog {
                 };
 
                 let (status, reason, available) = if !profile.installed {
-                    ("cli-missing".to_string(), Some(format!("{} CLI is not installed", provider_label)), false)
+                    (
+                        "cli-missing".to_string(),
+                        Some(format!("{} CLI is not installed", provider_label)),
+                        false,
+                    )
                 } else if !profile.authenticated {
-                    ("auth-missing".to_string(), Some(format!("{} is not signed in", provider_label)), false)
+                    (
+                        "auth-missing".to_string(),
+                        Some(format!("{} is not signed in", provider_label)),
+                        false,
+                    )
                 } else if !profile.runnable || !model.runnable || !model.supports_pair_execution {
-                    ("runtime-unsupported".to_string(), Some(format!("{} is detected, but pair execution is not yet supported", provider_label)), false)
+                    (
+                        "runtime-unsupported".to_string(),
+                        Some(format!(
+                            "{} is detected, but pair execution is not yet supported",
+                            provider_label
+                        )),
+                        false,
+                    )
                 } else {
                     ("ready".to_string(), None, true)
                 };

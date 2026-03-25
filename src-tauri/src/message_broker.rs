@@ -1,11 +1,11 @@
 use crate::types::{
-    ActivityPhase, AgentActivity, AgentRole, Message, MessageSender, MessageType, PairResources,
-    PairState, PairStatus, ResourceInfo, CreatePairInput, GitTracking, AgentState
+    ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput, GitTracking, Message,
+    MessageSender, MessageType, PairResources, PairState, PairStatus, ResourceInfo,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter};
 
 pub struct MessageBroker {
     pair_states: Arc<Mutex<HashMap<String, PairState>>>,
@@ -43,12 +43,24 @@ impl MessageBroker {
     }
 
     pub fn initialize_pair(&self, pair_id: &str, input: CreatePairInput) -> Result<(), String> {
-        println!("[MessageBroker::initialize_pair] Initializing pair: {}", pair_id);
-        
+        println!(
+            "[MessageBroker::initialize_pair] Initializing pair: {}",
+            pair_id
+        );
+
         let empty_resources = PairResources {
-            mentor: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
-            executor: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
-            pair_total: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
+            mentor: ResourceInfo {
+                cpu: 0.0,
+                mem_mb: 0.0,
+            },
+            executor: ResourceInfo {
+                cpu: 0.0,
+                mem_mb: 0.0,
+            },
+            pair_total: ResourceInfo {
+                cpu: 0.0,
+                mem_mb: 0.0,
+            },
         };
 
         let state = PairState {
@@ -105,11 +117,11 @@ impl MessageBroker {
                 } else if matches!(message.from, MessageSender::Executor) {
                     state.executor.last_message = Some(message.clone());
                 }
-                
+
                 // Only add high-signal messages to the conversation history
                 state.messages.push(message.clone());
             }
-            
+
             if message.msg_type == MessageType::Handoff {
                 state.turn = if matches!(state.turn, AgentRole::Mentor) {
                     AgentRole::Executor
@@ -120,13 +132,16 @@ impl MessageBroker {
             }
 
             self.notify_state_update(pair_id, state);
-            
+
             // Emit all message types for real-time UI updates
             if let Some(handle) = &self.app_handle {
-                let _ = handle.emit("pair:message", serde_json::json!({
-                    "pairId": pair_id,
-                    "message": message
-                }));
+                let _ = handle.emit(
+                    "pair:message",
+                    serde_json::json!({
+                        "pairId": pair_id,
+                        "message": message
+                    }),
+                );
             }
         }
     }
@@ -137,24 +152,116 @@ impl MessageBroker {
             let msg = Message {
                 id: uuid::Uuid::new_v4().to_string(),
                 timestamp: Self::now(),
-                from: if role == "mentor" { MessageSender::Mentor } else { MessageSender::Executor },
+                from: if role == "mentor" {
+                    MessageSender::Mentor
+                } else {
+                    MessageSender::Executor
+                },
                 to: "human".to_string(),
                 msg_type: MessageType::Progress,
                 content: line.to_string(),
                 iteration: state.iteration,
             };
-            
+
             if let Some(handle) = &self.app_handle {
-                let _ = handle.emit("pair:message", serde_json::json!({
-                    "pairId": pair_id,
-                    "message": msg
-                }));
+                let _ = handle.emit(
+                    "pair:message",
+                    serde_json::json!({
+                        "pairId": pair_id,
+                        "message": msg
+                    }),
+                );
                 // We no longer push to state.messages to keep context clean for agents
             }
         }
     }
 
-    pub fn prepare_run(&self, pair_id: &str, role: &str, active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>) {
+    pub fn record_human_feedback(
+        &self,
+        pair_id: &str,
+        approved: bool,
+    ) -> Result<Option<AgentRole>, String> {
+        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
+        let state = pair_states
+            .get_mut(pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+
+        if !matches!(state.status, PairStatus::AwaitingHumanReview) {
+            return Err(format!("Pair {} is not waiting for human review", pair_id));
+        }
+
+        let feedback_text = if approved {
+            "Human approved review. Continuing."
+        } else {
+            "Human rejected review. Stopping run."
+        };
+
+        let feedback = Message {
+            id: uuid::Uuid::new_v4().to_string(),
+            timestamp: Self::now(),
+            from: MessageSender::Human,
+            to: "both".to_string(),
+            msg_type: MessageType::Feedback,
+            content: feedback_text.to_string(),
+            iteration: state.iteration,
+        };
+
+        state.messages.push(feedback.clone());
+
+        if approved {
+            self.notify_state_update(pair_id, state);
+            if let Some(handle) = &self.app_handle {
+                let _ = handle.emit(
+                    "pair:message",
+                    serde_json::json!({
+                        "pairId": pair_id,
+                        "message": feedback
+                    }),
+                );
+            }
+
+            let next_role = match state.turn {
+                AgentRole::Mentor => AgentRole::Executor,
+                AgentRole::Executor => AgentRole::Mentor,
+            };
+
+            Ok(Some(next_role))
+        } else {
+            state.status = PairStatus::Error;
+            state.mentor.status = PairStatus::Error;
+            state.executor.status = PairStatus::Error;
+
+            state.mentor_activity.phase = ActivityPhase::Error;
+            state.mentor_activity.label = "Human rejected review".to_string();
+            state.mentor_activity.detail = Some("Manual intervention required".to_string());
+            state.mentor_activity.updated_at = Self::now();
+
+            state.executor_activity.phase = ActivityPhase::Error;
+            state.executor_activity.label = "Human rejected review".to_string();
+            state.executor_activity.detail = Some("Manual intervention required".to_string());
+            state.executor_activity.updated_at = Self::now();
+
+            self.notify_state_update(pair_id, state);
+            if let Some(handle) = &self.app_handle {
+                let _ = handle.emit(
+                    "pair:message",
+                    serde_json::json!({
+                        "pairId": pair_id,
+                        "message": feedback
+                    }),
+                );
+            }
+
+            Ok(None)
+        }
+    }
+
+    pub fn prepare_run(
+        &self,
+        pair_id: &str,
+        role: &str,
+        active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
+    ) {
         let mut pair_states = self.pair_states.lock().unwrap();
         let mut should_spawn_monitor = false;
 
@@ -164,20 +271,32 @@ impl MessageBroker {
             // Only spawn monitor if we're starting from a stopped state
             if matches!(
                 state.status,
-                PairStatus::Idle | PairStatus::Finished | PairStatus::Error | PairStatus::AwaitingHumanReview
+                PairStatus::Idle
+                    | PairStatus::Finished
+                    | PairStatus::Error
+                    | PairStatus::AwaitingHumanReview
             ) {
                 should_spawn_monitor = true;
             }
 
             // Update status based on role
-            state.status = if role == "mentor" { PairStatus::Mentoring } else { PairStatus::Executing };
-            state.turn = if role == "mentor" { AgentRole::Mentor } else { AgentRole::Executor };
-            
+            state.status = if role == "mentor" {
+                PairStatus::Mentoring
+            } else {
+                PairStatus::Executing
+            };
+            state.turn = if role == "mentor" {
+                AgentRole::Mentor
+            } else {
+                AgentRole::Executor
+            };
+
             if role == "mentor" {
                 if matches!(
                     previous_status,
                     PairStatus::Idle | PairStatus::Finished | PairStatus::Error
-                ) || state.iteration == 0 {
+                ) || state.iteration == 0
+                {
                     state.iteration = 1;
                 } else {
                     state.iteration = state.iteration.saturating_add(1);
@@ -187,7 +306,7 @@ impl MessageBroker {
                 state.mentor_activity.label = "Analyzing task".to_string();
                 state.mentor_activity.detail = Some("Preparing first instruction".to_string());
                 state.mentor_activity.updated_at = Self::now();
-                
+
                 state.executor_activity.phase = ActivityPhase::Waiting;
                 state.executor_activity.label = "Executor standing by".to_string();
                 state.executor_activity.updated_at = Self::now();
@@ -207,8 +326,11 @@ impl MessageBroker {
             }
 
             self.notify_state_update(pair_id, state);
-            
-            println!("[MessageBroker] Prepared run for pair {} as {}", pair_id, role);
+
+            println!(
+                "[MessageBroker] Prepared run for pair {} as {}",
+                pair_id, role
+            );
         }
         drop(pair_states);
 
@@ -233,10 +355,14 @@ impl MessageBroker {
                         ) {
                             break;
                         }
-                        
+
                         crate::git_tracker::GitTracker::update_state(state);
-                        crate::resource_monitor::ResourceMonitor::update_state(state, &mut sys, active_processes_clone.clone());
-                        
+                        crate::resource_monitor::ResourceMonitor::update_state(
+                            state,
+                            &mut sys,
+                            active_processes_clone.clone(),
+                        );
+
                         if let Some(handle) = &app_handle_clone {
                             let _ = handle.emit("pair:state", state.clone());
                         }
@@ -262,21 +388,28 @@ impl MessageBroker {
         Ok(())
     }
 
-    pub fn update_agent_activity(&self, pair_id: &str, role: &str, phase: crate::types::ActivityPhase, label: String, detail: Option<String>) {
+    pub fn update_agent_activity(
+        &self,
+        pair_id: &str,
+        role: &str,
+        phase: crate::types::ActivityPhase,
+        label: String,
+        detail: Option<String>,
+    ) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
-             let activity = if role == "mentor" {
-                 &mut state.mentor_activity
-             } else {
-                 &mut state.executor_activity
-             };
-             
-             activity.phase = phase;
-             activity.label = label;
-             activity.detail = detail;
-             activity.updated_at = Self::now();
-             
-             self.notify_state_update(pair_id, state);
+            let activity = if role == "mentor" {
+                &mut state.mentor_activity
+            } else {
+                &mut state.executor_activity
+            };
+
+            activity.phase = phase;
+            activity.label = label;
+            activity.detail = detail;
+            activity.updated_at = Self::now();
+
+            self.notify_state_update(pair_id, state);
         }
     }
 
@@ -335,13 +468,45 @@ impl MessageBroker {
     }
 }
 
+#[tauri::command]
+pub fn pair_human_feedback(
+    broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
+    pair_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    let next_role = {
+        let broker = broker.lock().map_err(|e| e.to_string())?;
+        broker.record_human_feedback(&pair_id, approved)?
+    };
+
+    if approved {
+        if let Some(next_role) = next_role {
+            let broker = broker.lock().map_err(|e| e.to_string())?;
+            if let Some(handle) = &broker.app_handle {
+                let _ = handle.emit(
+                    "pair:handoff",
+                    serde_json::json!({
+                        "pairId": pair_id,
+                        "nextRole": match next_role {
+                            AgentRole::Mentor => "mentor",
+                            AgentRole::Executor => "executor",
+                        }
+                    }),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{
-        ActivityPhase, AgentActivity, AgentConfig, AgentRole, CreatePairInput, Message,
-        MessageSender, MessageType, PairResources, PairState, PairStatus, GitTracking,
-        ResourceInfo, AgentState,
+        ActivityPhase, AgentActivity, AgentConfig, AgentRole, AgentState, CreatePairInput,
+        GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
+        ResourceInfo,
     };
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
@@ -380,9 +545,18 @@ mod tests {
             mentor_activity: activity("Mentor idle", ActivityPhase::Idle),
             executor_activity: activity("Executor idle", ActivityPhase::Idle),
             resources: PairResources {
-                mentor: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
-                executor: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
-                pair_total: ResourceInfo { cpu: 0.0, mem_mb: 0.0 },
+                mentor: ResourceInfo {
+                    cpu: 0.0,
+                    mem_mb: 0.0,
+                },
+                executor: ResourceInfo {
+                    cpu: 0.0,
+                    mem_mb: 0.0,
+                },
+                pair_total: ResourceInfo {
+                    cpu: 0.0,
+                    mem_mb: 0.0,
+                },
             },
             modified_files: Vec::new(),
             git_tracking: GitTracking {
@@ -403,10 +577,12 @@ mod tests {
             spec: "Build the feature".to_string(),
             mentor: AgentConfig {
                 role: AgentRole::Mentor,
+                provider: crate::provider_registry::ProviderKind::Opencode,
                 model: "mentor-model".to_string(),
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
+                provider: crate::provider_registry::ProviderKind::Codex,
                 model: "executor-model".to_string(),
             },
         }
@@ -416,7 +592,9 @@ mod tests {
     fn prepare_run_advances_idle_mentor_pairs_into_mentoring() {
         let broker = MessageBroker::new();
         broker.initialize_pair("pair-1", sample_input()).unwrap();
-        broker.restore_state(pair_state(PairStatus::Mentoring, 0)).unwrap();
+        broker
+            .restore_state(pair_state(PairStatus::Mentoring, 0))
+            .unwrap();
 
         broker.prepare_run(
             "pair-1",
@@ -429,8 +607,14 @@ mod tests {
         assert_eq!(state.iteration, 1);
         assert_eq!(state.turn, AgentRole::Mentor);
         assert_eq!(state.mentor.status, PairStatus::Executing);
-        assert!(matches!(state.mentor_activity.phase, ActivityPhase::Thinking));
-        assert!(matches!(state.executor_activity.phase, ActivityPhase::Waiting));
+        assert!(matches!(
+            state.mentor_activity.phase,
+            ActivityPhase::Thinking
+        ));
+        assert!(matches!(
+            state.executor_activity.phase,
+            ActivityPhase::Waiting
+        ));
     }
 
     #[test]
@@ -455,7 +639,11 @@ mod tests {
         assert_eq!(state.iteration, 0);
         assert_eq!(state.messages.len(), 1);
         assert_eq!(
-            state.mentor.last_message.as_ref().map(|message| message.content.as_str()),
+            state
+                .mentor
+                .last_message
+                .as_ref()
+                .map(|message| message.content.as_str()),
             Some("Plan the work")
         );
 
@@ -473,7 +661,11 @@ mod tests {
         );
 
         let state = broker.get_state("pair-1").expect("pair state should exist");
-        assert_eq!(state.messages.len(), 1, "progress logs should stay out of history");
+        assert_eq!(
+            state.messages.len(),
+            1,
+            "progress logs should stay out of history"
+        );
         assert!(state.executor.last_message.is_none());
 
         broker.add_message(
@@ -493,5 +685,30 @@ mod tests {
         assert_eq!(state.turn, AgentRole::Executor);
         assert_eq!(state.iteration, 1);
         assert_eq!(state.messages.len(), 1);
+    }
+
+    #[test]
+    fn record_human_feedback_approval_persists_feedback_and_returns_next_role() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker
+            .restore_state(pair_state(PairStatus::AwaitingHumanReview, 2))
+            .unwrap();
+
+        let next_role = broker
+            .record_human_feedback("pair-1", true)
+            .expect("approval should succeed");
+
+        assert_eq!(next_role, Some(AgentRole::Executor));
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.status, PairStatus::AwaitingHumanReview);
+        assert_eq!(state.messages.len(), 1);
+        assert_eq!(state.messages[0].from, MessageSender::Human);
+        assert_eq!(state.messages[0].msg_type, MessageType::Feedback);
+        assert_eq!(
+            state.messages[0].content,
+            "Human approved review. Continuing."
+        );
     }
 }

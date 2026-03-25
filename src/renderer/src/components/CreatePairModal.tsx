@@ -55,7 +55,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const handleSelectDirectory = async (): Promise<void> => {
     const selected = await open({
       directory: true,
-      multiple: false,
+      multiple: false
     })
     if (selected) {
       setDirectory(selected)

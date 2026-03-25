@@ -72,7 +72,7 @@ function MeterBar({ icon, label, value, max, unit, color }: MeterBarProps): Reac
           </span>
         </div>
         <span className="text-sm font-mono font-semibold text-foreground">
-          {value}
+          {value.toFixed(1)}
           <span className="text-[10px] text-muted-foreground ml-0.5">{unit}</span>
         </span>
       </div>

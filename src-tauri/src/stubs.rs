@@ -70,7 +70,7 @@ pub fn pair_get_state(
     Ok(broker.get_state(&pair_id))
 }
 
-#[tauri::command]
+#[allow(dead_code)]
 pub fn pair_human_feedback() -> Result<(), String> {
     Ok(())
 }

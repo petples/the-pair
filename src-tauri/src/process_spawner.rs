@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::process::Stdio;
-use tokio::process::{Command, Child};
-use tokio::io::{BufReader, AsyncBufReadExt};
-use std::sync::{Arc, Mutex};
-use tauri::Emitter;
-use crate::provider_registry::{ProviderKind, ProviderRegistry};
+use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
+use crate::provider_registry::ProviderKind;
 use crate::session_snapshot::persist_current_pair_snapshot;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::process::Stdio;
+use std::sync::{Arc, Mutex};
+use tauri::Emitter;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
 
 #[derive(Clone)]
 pub struct ProcessSpawner {
@@ -18,6 +18,8 @@ pub struct ProcessSpawner {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessContext {
     pub directory: String,
+    pub mentor_provider: ProviderKind,
+    pub executor_provider: ProviderKind,
     pub mentor_model: String,
     pub executor_model: String,
     pub mentor_session_id: Option<String>,
@@ -162,16 +164,6 @@ fn is_noise_text_candidate(text: &str) -> bool {
         || lower.contains("falling back from websockets")
 }
 
-fn read_last_message_file(path: &PathBuf) -> Option<String> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let trimmed = content.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
 fn has_signal_token_on_own_line(content: &str, token: &str) -> bool {
     let upper_token = token.to_ascii_uppercase();
 
@@ -227,6 +219,8 @@ impl ProcessSpawner {
                 .ok_or_else(|| format!("Context not found for pair {}", pair_id))?;
             (
                 c.directory.clone(),
+                c.mentor_provider,
+                c.executor_provider,
                 c.mentor_model.clone(),
                 c.executor_model.clone(),
                 c.mentor_session_id.clone(),
@@ -234,57 +228,48 @@ impl ProcessSpawner {
             )
         };
 
-        let (directory, mentor_model, executor_model, mentor_sid, executor_sid) = ctx;
-        let model = if role == "mentor" { &mentor_model } else { &executor_model };
-        let session_id = if role == "mentor" { mentor_sid.as_deref() } else { executor_sid.as_deref() };
-
-        // Determine provider kind from model name
-        let provider_kind = if model.starts_with("opencode") || model.contains("/") {
-            // Check if it's a known provider prefix from opencode or an internal one
-            let parts: Vec<&str> = model.split('/').collect();
-            if parts.len() >= 2 {
-                 match parts[0] {
-                     "codex" => ProviderKind::Codex,
-                     "claude" => ProviderKind::Claude,
-                     "gemini" => ProviderKind::Gemini,
-                     _ => ProviderKind::Opencode, // opencode/..., minimax-cn/..., etc.
-                 }
-            } else {
-                ProviderKind::Opencode
-            }
-        } else if model.contains("claude") {
-            ProviderKind::Claude
-        } else if model.contains("gemini") {
-            ProviderKind::Gemini
-        } else if model.contains("gpt") || model.starts_with("o1") || model.starts_with("o3") {
-            ProviderKind::Codex
+        let (
+            directory,
+            mentor_provider,
+            executor_provider,
+            mentor_model,
+            executor_model,
+            mentor_sid,
+            executor_sid,
+        ) = ctx;
+        let (model, session_id, provider_kind) = if role == "mentor" {
+            (
+                mentor_model.as_str(),
+                mentor_sid.as_deref(),
+                mentor_provider,
+            )
         } else {
-            ProviderKind::Opencode // Default
+            (
+                executor_model.as_str(),
+                executor_sid.as_deref(),
+                executor_provider,
+            )
         };
 
-        let spec = ProviderRegistry::get_runtime_spec(provider_kind);
-        let mut args = ProviderRegistry::get_arg_builder(provider_kind, model, session_id, &role);
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind,
+            model,
+            session_id,
+            role: &role,
+            pair_id: &pair_id,
+            message: &message,
+        });
+        let spec = ProviderAdapter::runtime_spec(provider_kind);
+        let executable = command.executable.clone();
+        let args = command.args;
+        let codex_last_message_path = command.last_message_path;
 
-        let mut codex_last_message_path: Option<PathBuf> = None;
-        if provider_kind == ProviderKind::Codex {
-            let path = std::env::temp_dir().join(format!(
-                "the-pair-{}-{}-{}.txt",
-                pair_id,
-                role,
-                uuid::Uuid::new_v4()
-            ));
-            args.push("--json".into());
-            args.push("--output-last-message".into());
-            args.push(path.to_string_lossy().into_owned());
-            codex_last_message_path = Some(path);
-        }
-        
-        // Add the message as a positional argument for opencode
-        args.push(message.clone());
-        
-        println!("[ProcessSpawner] Spawning: {} {:?}", spec.executable, args);
+        println!(
+            "[ProcessSpawner] Spawning: {} {:?} (protocol: {:?})",
+            executable, args, spec
+        );
 
-        let mut child = Command::new(&spec.executable)
+        let mut child = Command::new(&executable)
             .args(&args)
             .current_dir(&directory)
             .stdout(Stdio::piped())
@@ -308,45 +293,53 @@ impl ProcessSpawner {
         let role_clone_err = role.clone();
         let app_clone_err = app.clone();
         tokio::spawn(async move {
-            use tauri::Manager;
             use crate::message_broker::MessageBroker;
+            use tauri::Manager;
 
             while let Ok(Some(line)) = stderr_reader.next_line().await {
-                println!("[ProcessSpawner] [STDERR] [{}] {}: {}", pair_id_clone_err, role_clone_err, line);
-                
+                println!(
+                    "[ProcessSpawner] [STDERR] [{}] {}: {}",
+                    pair_id_clone_err, role_clone_err, line
+                );
+
                 if let Some(broker) = app_clone_err.try_state::<Mutex<MessageBroker>>() {
                     let broker = broker.lock().unwrap();
-                    broker.add_log_line(&pair_id_clone_err, &role_clone_err, &format!("[STDERR] {}", line));
+                    broker.add_log_line(
+                        &pair_id_clone_err,
+                        &role_clone_err,
+                        &format!("[STDERR] {}", line),
+                    );
                 }
             }
         });
 
         tokio::spawn(async move {
-            use tauri::Manager;
             use crate::message_broker::MessageBroker;
-            use crate::types::{ActivityPhase, MessageType, MessageSender, Message};
+            use crate::types::{ActivityPhase, Message, MessageSender, MessageType};
+            use tauri::Manager;
 
             let mut first_output = true;
             let mut accumulated_plain_output = String::new();
             let mut json_candidates: Vec<String> = Vec::new();
-            
+
             // Get current iteration from state
-            let current_iteration = if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                let broker = broker.lock().unwrap();
-                broker.get_state(&pair_id_clone).map(|s| s.iteration).unwrap_or(0)
-            } else {
-                0
-            };
+            let current_iteration =
+                if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+                    broker
+                        .get_state(&pair_id_clone)
+                        .map(|s| s.iteration)
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
 
             while let Ok(Some(line)) = reader.next_line().await {
                 let mut is_internal_json = false;
 
                 if let Some(event) = parse_json_event(&line) {
                     is_internal_json = true;
-                    let event_type = event
-                        .get("type")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("");
+                    let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
                     if !event_type.is_empty() {
                         println!(
@@ -354,7 +347,10 @@ impl ProcessSpawner {
                             pair_id_clone, role_clone, event_type
                         );
                     } else {
-                        println!("[ProcessSpawner] [{}] {}: [JSON]", pair_id_clone, role_clone);
+                        println!(
+                            "[ProcessSpawner] [{}] {}: [JSON]",
+                            pair_id_clone, role_clone
+                        );
                     }
 
                     if !is_noise_event_type_for_final(event_type) {
@@ -372,13 +368,19 @@ impl ProcessSpawner {
                         if let Some(c) = guard.get_mut(&pair_id_clone) {
                             if role_clone == "mentor" {
                                 if c.mentor_session_id.as_deref() != Some(sid.as_str()) {
-                                    println!("[ProcessSpawner] [{}] Registered mentor session: {}", pair_id_clone, sid);
+                                    println!(
+                                        "[ProcessSpawner] [{}] Registered mentor session: {}",
+                                        pair_id_clone, sid
+                                    );
                                     c.mentor_session_id = Some(sid);
                                     should_persist_snapshot = true;
                                 }
                             } else {
                                 if c.executor_session_id.as_deref() != Some(sid.as_str()) {
-                                    println!("[ProcessSpawner] [{}] Registered executor session: {}", pair_id_clone, sid);
+                                    println!(
+                                        "[ProcessSpawner] [{}] Registered executor session: {}",
+                                        pair_id_clone, sid
+                                    );
                                     c.executor_session_id = Some(sid);
                                     should_persist_snapshot = true;
                                 }
@@ -390,9 +392,12 @@ impl ProcessSpawner {
                         }
                     }
                 } else {
-                    println!("[ProcessSpawner] [{}] {}: {}", pair_id_clone, role_clone, line);
+                    println!(
+                        "[ProcessSpawner] [{}] {}: {}",
+                        pair_id_clone, role_clone, line
+                    );
                 }
-                
+
                 if first_output {
                     if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                         let broker = broker.lock().unwrap();
@@ -401,7 +406,7 @@ impl ProcessSpawner {
                             &role_clone,
                             ActivityPhase::Responding,
                             "Processing response".to_string(),
-                            None
+                            None,
                         );
                     }
                     first_output = false;
@@ -422,12 +427,15 @@ impl ProcessSpawner {
             }
 
             // Process exited (stream closed)
-            println!("[ProcessSpawner] [{}] {} process completed", pair_id_clone, role_clone);
+            println!(
+                "[ProcessSpawner] [{}] {} process completed",
+                pair_id_clone, role_clone
+            );
 
             // Emit exactly one final user-facing message for the turn.
             let final_output_from_file = codex_last_message_path_clone
                 .as_ref()
-                .and_then(read_last_message_file);
+                .and_then(ProviderAdapter::read_last_message_file);
 
             if let Some(path) = &codex_last_message_path_clone {
                 let _ = std::fs::remove_file(path);
@@ -457,17 +465,27 @@ impl ProcessSpawner {
 
             if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker.lock().unwrap();
-                broker.add_message(&pair_id_clone, Message {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
-                    from: if role_clone == "mentor" { MessageSender::Mentor } else { MessageSender::Executor },
-                    to: "human".to_string(),
-                    msg_type: outgoing_type,
-                    content: final_output.clone(),
-                    iteration: current_iteration,
-                });
+                broker.add_message(
+                    &pair_id_clone,
+                    Message {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                        from: if role_clone == "mentor" {
+                            MessageSender::Mentor
+                        } else {
+                            MessageSender::Executor
+                        },
+                        to: "human".to_string(),
+                        msg_type: outgoing_type,
+                        content: final_output.clone(),
+                        iteration: current_iteration,
+                    },
+                );
             }
-            
+
             // Clean up from active processes
             {
                 let mut guard = active_processes_for_cleanup.lock().unwrap();
@@ -481,13 +499,13 @@ impl ProcessSpawner {
                     &role_clone,
                     ActivityPhase::Idle,
                     "Turn finished".to_string(),
-                    None
+                    None,
                 );
             }
 
             let mut should_handoff = true;
-            let mentor_finish_signaled =
-                role_clone == "mentor" && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
+            let mentor_finish_signaled = role_clone == "mentor"
+                && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
 
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker_state.lock().unwrap();
@@ -524,7 +542,10 @@ impl ProcessSpawner {
                             broker.set_pair_status(
                                 &pair_id_clone,
                                 crate::types::PairStatus::AwaitingHumanReview,
-                                Some("Max iterations reached. Awaiting human intervention.".to_string()),
+                                Some(
+                                    "Max iterations reached. Awaiting human intervention."
+                                        .to_string(),
+                                ),
                             );
                             should_handoff = false;
                         }
@@ -533,12 +554,22 @@ impl ProcessSpawner {
             }
 
             if should_handoff {
-                let next_role = if role_clone == "mentor" { "executor" } else { "mentor" };
-                println!("[ProcessSpawner] [{}] Triggering handoff to {}", pair_id_clone, next_role);
-                let _ = app_clone.emit("pair:handoff", serde_json::json!({
-                    "pairId": pair_id_clone,
-                    "nextRole": next_role
-                }));
+                let next_role = if role_clone == "mentor" {
+                    "executor"
+                } else {
+                    "mentor"
+                };
+                println!(
+                    "[ProcessSpawner] [{}] Triggering handoff to {}",
+                    pair_id_clone, next_role
+                );
+                let _ = app_clone.emit(
+                    "pair:handoff",
+                    serde_json::json!({
+                        "pairId": pair_id_clone,
+                        "nextRole": next_role
+                    }),
+                );
             } else {
                 println!("[ProcessSpawner] [{}] Handoff skipped", pair_id_clone);
             }
@@ -559,14 +590,18 @@ mod tests {
     #[test]
     fn parse_json_event_handles_raw_and_data_prefixed_payloads() {
         assert_eq!(
-            parse_json_event(r#"{"type":"step_start"}"#)
-                .and_then(|event| event.get("type").and_then(|value| value.as_str()).map(|value| value.to_string())),
+            parse_json_event(r#"{"type":"step_start"}"#).and_then(|event| event
+                .get("type")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())),
             Some("step_start".to_string())
         );
 
         assert_eq!(
-            parse_json_event(r#"data: {"type":"step_start"}"#)
-                .and_then(|event| event.get("type").and_then(|value| value.as_str()).map(|value| value.to_string())),
+            parse_json_event(r#"data: {"type":"step_start"}"#).and_then(|event| event
+                .get("type")
+                .and_then(|value| value.as_str())
+                .map(|value| value.to_string())),
             Some("step_start".to_string())
         );
 
@@ -599,7 +634,11 @@ mod tests {
 
         assert_eq!(
             extract_event_texts(&event),
-            vec!["hello".to_string(), "world".to_string(), "again".to_string()]
+            vec![
+                "hello".to_string(),
+                "world".to_string(),
+                "again".to_string()
+            ]
         );
     }
 
@@ -622,8 +661,14 @@ mod tests {
 
     #[test]
     fn has_signal_token_on_own_line_and_noise_checks_match_the_output_filters() {
-        assert!(has_signal_token_on_own_line("`TASK_COMPLETE`", "TASK_COMPLETE"));
-        assert!(!has_signal_token_on_own_line("TASK_COMPLETE please", "TASK_COMPLETE"));
+        assert!(has_signal_token_on_own_line(
+            "`TASK_COMPLETE`",
+            "TASK_COMPLETE"
+        ));
+        assert!(!has_signal_token_on_own_line(
+            "TASK_COMPLETE please",
+            "TASK_COMPLETE"
+        ));
 
         assert!(is_noise_event_type_for_final("thread.started"));
         assert!(is_noise_text_candidate("reconnecting..."));

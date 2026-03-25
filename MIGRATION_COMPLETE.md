@@ -7,6 +7,7 @@ Successfully removed all Electron dependencies and code from the repository. The
 ## Changes Made
 
 ### 1. Package Configuration
+
 - ✅ Removed all Electron dependencies from `package.json`:
   - `electron`, `electron-builder`, `electron-vite`
   - `@electron-toolkit/*` packages
@@ -16,33 +17,39 @@ Successfully removed all Electron dependencies and code from the repository. The
 - ✅ Added missing ESLint dependencies for new config
 
 ### 2. Tauri Configuration
+
 - ✅ Updated app identifier from `com.electron.the-pair` to `com.thepair.app`
 - ✅ Verified Tauri config is properly set up
 
 ### 3. Homebrew Publishing
+
 - ✅ Updated `homebrew-cask/the-pair.rb` with new bundle identifier
 - ✅ Updated `.github/workflows/build-signed-mac.yml` with new bundle ID
 - ✅ Updated `.github/workflows/update-cask.yml` with new bundle ID
 - ✅ Updated `.github/workflows/build.yml` to use Tauri build commands
 
 ### 4. Code Cleanup
+
 - ✅ Removed `electron-builder.yml` configuration file
 - ✅ Removed `src/main/` directory (Electron main process)
 - ✅ Removed `src/preload/` directory (Electron preload scripts)
 - ✅ Removed `.worktrees/` directory (old migration branch)
 
 ### 5. TypeScript Configuration
+
 - ✅ Updated `tsconfig.node.json` to remove Electron toolkit references
 - ✅ Updated `tsconfig.web.json` to remove Electron toolkit references
 - ✅ Updated `eslint.config.mjs` to use standard ESLint instead of Electron toolkit
 
 ### 6. Frontend Updates
+
 - ✅ Updated `Versions.tsx` to use Tauri API instead of Electron shim
 - ✅ Updated `OnboardingWizard.tsx` to use Tauri dialog API directly
 - ✅ Updated `CreatePairModal.tsx` to use Tauri dialog API directly
 - ✅ Simplified `tauri-shim.ts` by removing Electron compatibility layer
 
 ### 7. Documentation
+
 - ✅ Updated README.md:
   - Changed badge from Electron to Tauri
   - Updated tech stack table
@@ -58,6 +65,7 @@ Successfully removed all Electron dependencies and code from the repository. The
 **New:** `com.thepair.app`
 
 This change affects:
+
 - Tauri app configuration
 - Homebrew cask formula
 - macOS application preferences and cache locations
@@ -66,11 +74,13 @@ This change affects:
 ## Next Steps
 
 1. **Install dependencies:**
+
    ```bash
    npm install
    ```
 
 2. **Test the build:**
+
    ```bash
    npm run dev
    npm run build:mac
@@ -88,10 +98,12 @@ This change affects:
 ## Migration Notes for Users
 
 Users upgrading from Electron-based versions will have a new bundle identifier. Old preferences and caches will remain at:
+
 - `~/Library/Caches/com.electron.the-pair`
 - `~/Library/Preferences/com.electron.the-pair.plist`
 
 New versions will use:
+
 - `~/Library/Caches/com.thepair.app`
 - `~/Library/Preferences/com.thepair.app.plist`
 
