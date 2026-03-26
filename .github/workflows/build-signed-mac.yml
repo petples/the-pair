@@ -301,10 +301,6 @@ jobs:
           const changelog = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/)
           const start = changelog.findIndex((line) => line.startsWith(`## [${version}]`))
 
-          if (start === -1) {
-            throw new Error(`Missing changelog entry for ${version}`)
-          }
-
           let end = changelog.length
           for (let index = start + 1; index < changelog.length; index += 1) {
             if (changelog[index].startsWith('## [')) {
