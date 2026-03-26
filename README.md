@@ -20,13 +20,11 @@
 
 **macOS** • **Windows** • **Linux**
 
-![intro-0](https://github.com/user-attachments/assets/8e950301-5a2d-433a-95ee-2dc4e5d2b20f)
+![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
 _Watch Mentor and Executor agents collaborate in real-time_
 
 </div>
-
-![CleanShot2026-03-27at03 02 42-ezgif com-optimize](https://github.com/user-attachments/assets/b9d0f06c-c167-45f1-9154-0c49187296ab)
 
 ---
 
