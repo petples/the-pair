@@ -44,6 +44,14 @@ jobs:
             ? 'true'
             : String(currentVersion !== previousVersion)
 
+          // Validate changelog entry exists
+          if (shouldPublish === 'true') {
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8')
+            if (!changelog.includes(`## [${currentVersion}]`)) {
+              throw new Error(`Missing changelog entry for ${currentVersion}. Please add it to CHANGELOG.md before releasing.`)
+            }
+          }
+
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${currentVersion}\n`)
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${currentVersion}\n`)
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_publish=${shouldPublish}\n`)
