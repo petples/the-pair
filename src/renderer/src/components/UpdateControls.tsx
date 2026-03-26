@@ -31,12 +31,29 @@ export function UpdateControls(): React.ReactNode {
     async (showErrors: boolean) => {
       setPhase('checking')
       setProgress(null)
+      setMessage('Checking for updates...')
       totalBytesRef.current = null
       downloadedBytesRef.current = 0
 
+      const timeoutPromise = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 10000)
+      })
+
       try {
         await clearUpdateResource()
-        const update = await check()
+        console.log('[Updater] Starting check...')
+        const update = await Promise.race([check(), timeoutPromise])
+
+        if (update === null) {
+          console.error('[Updater] Check timed out after 10 seconds')
+          if (showErrors) {
+            setMessage('Update check timed out')
+            setPhase('error')
+          } else {
+            setPhase('idle')
+          }
+          return
+        }
 
         if (!update) {
           setVersion(null)
@@ -51,11 +68,13 @@ export function UpdateControls(): React.ReactNode {
         setMessage(update.body?.trim() || `Version ${update.version} is available`)
         setPhase('available')
       } catch (error) {
+        console.error('[Updater] Check failed:', error)
         if (showErrors) {
           const message = error instanceof Error ? error.message : 'Unable to check for updates'
           setMessage(message)
           setPhase('error')
         } else {
+          console.error('[Updater] Silent error during auto-check (set showErrors=true to debug)')
           setPhase('idle')
         }
       }
@@ -112,7 +131,7 @@ export function UpdateControls(): React.ReactNode {
   useEffect(() => {
     if (import.meta.env.PROD) {
       void (async () => {
-        await checkForUpdates(false)
+        await checkForUpdates(true)
       })()
     }
 
@@ -177,13 +196,21 @@ export function UpdateControls(): React.ReactNode {
           </button>
         )}
       </div>
-      {message && phase !== 'available' ? (
+      {message && phase !== 'available' && phase !== 'checking' ? (
         <p
           className={cn(
             'max-w-[280px] truncate text-[10px] leading-tight text-muted-foreground',
             phase === 'error' && 'text-red-700 dark:text-red-300',
             phase === 'up-to-date' && 'text-green-700 dark:text-green-300'
           )}
+          title={message}
+        >
+          {message}
+        </p>
+      ) : null}
+      {phase === 'checking' && message ? (
+        <p
+          className="max-w-[280px] truncate text-[10px] leading-tight text-muted-foreground animate-pulse"
           title={message}
         >
           {message}

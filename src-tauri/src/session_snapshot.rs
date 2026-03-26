@@ -40,6 +40,7 @@ pub struct SnapshotRunSummary {
     pub mentor_model: String,
     pub executor_model: String,
     pub iterations: u32,
+    pub messages: Vec<Message>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

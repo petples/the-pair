@@ -8,6 +8,7 @@ import { usePairStore, Pair, Message, TurnCard } from './store/usePairStore'
 import { useThemeStore } from './store/useThemeStore'
 import { CreatePairModal } from './components/CreatePairModal'
 import { StatusBadge } from './components/StatusBadge'
+import { TaskHistoryPanel } from './components/TaskHistoryPanel'
 import { OnboardingWizard } from './components/OnboardingWizard'
 import { SessionRecoveryModal } from './components/SessionRecoveryModal'
 import { GlassCard } from './components/ui/GlassCard'
@@ -17,6 +18,7 @@ import { fadeInUp, staggerContainer } from './lib/animations'
 import { AppChrome } from './components/AppChrome'
 import { AssignTaskModal } from './components/AssignTaskModal'
 import { PairSettingsModal } from './components/PairSettingsModal'
+import { ConfirmModal } from './components/ui/ConfirmModal'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
@@ -271,10 +273,12 @@ function Dashboard({
                       <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
                         Paused
                       </span>
-                    ) : !isPairRunning(pair.status) && (
-                      <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
-                        Ready for new task
-                      </span>
+                    ) : (
+                      !isPairRunning(pair.status) && (
+                        <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
+                          Ready for new task
+                        </span>
+                      )
                     )}
                     {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
                       <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
@@ -493,14 +497,18 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
 function PairDetail({
   pair,
-  onPause
+  onPause,
+  onRestoreTask
 }: {
   pair: Pair
   onPause: () => Promise<void>
+  onRestoreTask: (spec: string, mentorModel: string, executorModel: string) => void
 }): React.ReactNode {
   const retryTurn = usePairStore((s) => s.retryTurn)
   const humanFeedback = usePairStore((s) => s.humanFeedback)
   const isStoreBusy = usePairStore((s) => s.isLoading)
+  const viewingRunId = usePairStore((s) => s.viewingRunId)
+  const setViewingRunId = usePairStore((s) => s.setViewingRunId)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [isSubmittingReview, setIsSubmittingReview] = useState(false)
   const canPause = isPairRunning(pair.status)
@@ -576,7 +584,13 @@ function PairDetail({
   const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
   const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
   const isRunning = isPairRunning(pair.status) || mentorIsExecuting || executorIsExecuting
-  const consoleMessages = useMemo(() => buildConsoleMessages(pair.messages), [pair.messages])
+  const consoleMessages = useMemo(() => {
+    if (viewingRunId) {
+      const run = pair.runHistory.find((r) => r.id === viewingRunId)
+      return run ? buildConsoleMessages(run.messages) : []
+    }
+    return buildConsoleMessages(pair.messages)
+  }, [pair.messages, pair.runHistory, viewingRunId])
   const reviewReason =
     pair.status === 'Awaiting Human Review'
       ? (pair.mentorActivity.detail ??
@@ -674,37 +688,16 @@ function PairDetail({
                   {pair.spec}
                 </p>
               </div>
-
-              {pair.runHistory.length > 0 && (
-                <div className="space-y-2 pt-2 border-t border-border/40">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                    Previous Runs
-                  </span>
-                  <div className="space-y-2">
-                    {pair.runHistory
-                      .slice()
-                      .reverse()
-                      .slice(0, 3)
-                      .map((run) => (
-                        <div
-                          key={run.id}
-                          className="rounded-xl border border-border/40 bg-background/30 px-2.5 py-2 group hover:bg-background/50 transition-colors"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-medium text-foreground/80">
-                              {run.status}
-                            </span>
-                          </div>
-                          <p className="mt-1 line-clamp-1 text-[10px] text-muted-foreground/80 group-hover:line-clamp-none transition-all">
-                            {run.spec}
-                          </p>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
+
+          <TaskHistoryPanel
+            runHistory={pair.runHistory}
+            viewingRunId={viewingRunId}
+            onSelectTask={(runId) => setViewingRunId(runId)}
+            onBackToCurrent={() => setViewingRunId(null)}
+            onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
+          />
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -787,7 +780,14 @@ function PairDetail({
         <div className="flex w-[46%] flex-col bg-muted/10">
           <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/50 px-4 font-mono text-[11px] text-muted-foreground bg-background/50">
             <Terminal size={13} />
-            <span className="uppercase tracking-widest font-bold">Session Console</span>
+            <span className="uppercase tracking-widest font-bold">
+              {viewingRunId ? 'Task History' : 'Session Console'}
+            </span>
+            {viewingRunId && (
+              <span className="text-[9px] text-muted-foreground/50 ml-1">
+                · viewing archived run
+              </span>
+            )}
             <div className="ml-auto flex items-center gap-3">
               <div className="flex items-center gap-1.5">
                 <div
@@ -1051,7 +1051,11 @@ function AppSkeleton(): React.ReactNode {
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md">
           <div className="flex items-center gap-4">
             <div className="powering-up-emblem flex h-6 w-6 items-center justify-center rounded-lg border border-border/50 bg-slate-950/5 shadow-sm">
-              <Zap size={14} fill="currentColor" className="relative z-10 drop-shadow-[0_0_4px_rgba(255,255,255,0.32)]" />
+              <Zap
+                size={14}
+                fill="currentColor"
+                className="relative z-10 drop-shadow-[0_0_4px_rgba(255,255,255,0.32)]"
+              />
             </div>
             <div className="h-4 w-32 animate-pulse rounded-md bg-muted/20" />
           </div>
@@ -1106,6 +1110,7 @@ function App(): React.ReactNode {
   const [isRestoringSession, setIsRestoringSession] = useState(false)
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [deletingPairId, setDeletingPairId] = useState<string | null>(null)
+  const [pendingDeletePair, setPendingDeletePair] = useState<Pair | null>(null)
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
@@ -1119,6 +1124,7 @@ function App(): React.ReactNode {
   const removeRecoverableSession = usePairStore((state) => state.removeRecoverableSession)
   const pausePair = usePairStore((state) => state.pausePair)
   const deletePair = usePairStore((state) => state.deletePair)
+  const setRestoringSpec = usePairStore((state) => state.setRestoringSpec)
 
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
@@ -1162,12 +1168,19 @@ function App(): React.ReactNode {
     }
   }
 
-  const handleDeletePair = async (pair: Pair): Promise<void> => {
-    const confirmed = window.confirm(
-      `Delete pair "${pair.name}"? This will permanently remove the pair, its snapshot, and its recoverable session.`
-    )
-    if (!confirmed) return
+  const handleRestoreTask = (spec: string, mentorModel: string, executorModel: string): void => {
+    setRestoringSpec({ spec, mentorModel, executorModel })
+    setIsAssignTaskOpen(true)
+  }
 
+  const handleDeletePair = (pair: Pair): void => {
+    setPendingDeletePair(pair)
+  }
+
+  const confirmDeletePair = async (): Promise<void> => {
+    if (!pendingDeletePair) return
+    const pair = pendingDeletePair
+    setPendingDeletePair(null)
     setDeletingPairId(pair.id)
     try {
       await deletePair(pair.id)
@@ -1179,6 +1192,10 @@ function App(): React.ReactNode {
     } finally {
       setDeletingPairId(null)
     }
+  }
+
+  const cancelDeletePair = (): void => {
+    setPendingDeletePair(null)
   }
 
   const handleRestoreSession = async (pairId: string, continueRun: boolean): Promise<void> => {
@@ -1244,7 +1261,11 @@ function App(): React.ReactNode {
 
           <div className="flex-1 overflow-hidden">
             {selectedPair ? (
-              <PairDetail pair={selectedPair} onPause={handlePauseSelectedPair} />
+              <PairDetail
+                pair={selectedPair}
+                onPause={handlePauseSelectedPair}
+                onRestoreTask={handleRestoreTask}
+              />
             ) : (
               <Dashboard
                 onSelectPair={(pair) => setSelectedPairId(pair.id)}
@@ -1266,6 +1287,15 @@ function App(): React.ReactNode {
         onRestore={handleRestoreSession}
         onDelete={handleDeleteRecoverableSession}
         onDismiss={handleDismissRecovery}
+      />
+
+      <ConfirmModal
+        isOpen={pendingDeletePair !== null}
+        title={`Delete "${pendingDeletePair?.name}"?`}
+        message="This will permanently remove the pair, its snapshot, and its recoverable session."
+        confirmLabel="Delete"
+        onConfirm={confirmDeletePair}
+        onCancel={cancelDeletePair}
       />
 
       {!showOnboarding && (

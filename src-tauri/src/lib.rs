@@ -9,6 +9,7 @@ mod provider_adapter;
 mod provider_registry;
 mod resource_monitor;
 mod session_snapshot;
+mod skill_discovery;
 mod stubs;
 mod types;
 
@@ -51,7 +52,9 @@ fn setup_menu(app: &AppHandle) -> tauri::Result<()> {
 
     app.on_menu_event(move |app_handle, event| match event.id().0.as_str() {
         "check_updates" => {
+            log::info!("Menu: Check for updates triggered");
             let _ = app_handle.emit("app:update:check", ());
+            log::info!("Emitting app:update:check event");
         }
         "quit" => {
             app_handle.exit(0);
@@ -105,6 +108,7 @@ pub fn run() {
             session_snapshot::list_recoverable_sessions,
             session_snapshot::delete_recoverable_session,
             session_snapshot::restore_session,
+            skill_discovery::discover_skills,
             app_restart
         ])
         .run(tauri::generate_context!())

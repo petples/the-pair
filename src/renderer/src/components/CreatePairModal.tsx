@@ -7,6 +7,7 @@ import { GlassButton } from './ui/GlassButton'
 import { ModelPicker } from './ModelPicker'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
+import { SkillPicker } from './SkillPicker'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -73,6 +74,17 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     } catch {
       // Store already exposes the error copy
     }
+  }
+
+  const handleSkillSelect = (skillName: string) => {
+    const insertion = `Load the ${skillName} skill and `
+    setSpec((prev) => {
+      if (textareaRef.current) {
+        const start = textareaRef.current.selectionStart
+        return prev.slice(0, start) + insertion + prev.slice(start)
+      }
+      return insertion + prev
+    })
   }
 
   const handleSelectDirectory = async (): Promise<void> => {
@@ -166,14 +178,19 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
             required
           />
-          {directory && (
-            <FileMention
-              textareaRef={textareaRef}
-              onChange={setSpec}
-              directory={directory}
-              onFileSelect={handleFileSelect}
-            />
-          )}
+          <div className="absolute top-8 right-2 flex items-center gap-1">
+            {directory && (
+              <>
+                <SkillPicker projectDir={directory} onSelect={handleSkillSelect} />
+                <FileMention
+                  textareaRef={textareaRef}
+                  onChange={setSpec}
+                  directory={directory}
+                  onFileSelect={handleFileSelect}
+                />
+              </>
+            )}
+          </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             Type @ to reference workspace files
           </p>

@@ -21,6 +21,7 @@ import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
+import { SkillPicker } from './SkillPicker'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 
 interface OnboardingWizardProps {
@@ -62,6 +63,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       const next = new Map(prev)
       next.set(path, content)
       return next
+    })
+  }, [])
+
+  const handleSkillSelect = useCallback((skillName: string) => {
+    const insertion = `Load the ${skillName} skill and `
+    setSpec((prev) => {
+      if (textareaRef.current) {
+        const start = textareaRef.current.selectionStart
+        return prev.slice(0, start) + insertion + prev.slice(start)
+      }
+      return insertion + prev
     })
   }, [])
 
@@ -197,6 +209,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
             onSpecChange={setSpec}
             textareaRef={textareaRef}
             onFileSelect={handleFileSelect}
+            onSkillSelect={handleSkillSelect}
           />
         )
       case 1:
@@ -348,7 +361,8 @@ function SetupStep({
   onNameChange,
   onSpecChange,
   textareaRef,
-  onFileSelect
+  onFileSelect,
+  onSkillSelect
 }: {
   status: 'checking' | 'ok' | 'missing-keys' | 'missing-file'
   loading: boolean
@@ -362,6 +376,7 @@ function SetupStep({
   onSpecChange: (v: string) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   onFileSelect: (path: string, content: string) => void
+  onSkillSelect: (skillName: string) => void
 }): React.ReactNode {
   return (
     <div className="space-y-6 py-1">
@@ -422,12 +437,15 @@ function SetupStep({
               className="w-full resize-none rounded-xl glass-card px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             {directory && (
-              <FileMention
-                textareaRef={textareaRef}
-                onChange={onSpecChange}
-                directory={directory}
-                onFileSelect={onFileSelect}
-              />
+              <div className="absolute top-8 right-2 flex items-center gap-1">
+                <SkillPicker projectDir={directory} onSelect={onSkillSelect} />
+                <FileMention
+                  textareaRef={textareaRef}
+                  onChange={onSpecChange}
+                  directory={directory}
+                  onFileSelect={onFileSelect}
+                />
+              </div>
             )}
             <p className="mt-1.5 text-xs text-muted-foreground">
               {spec.length} characters · a concrete target works better than a vague intention ·

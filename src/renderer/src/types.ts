@@ -74,6 +74,16 @@ export interface PairRunSummary {
   mentorModel: string
   executorModel: string
   iterations: number
+  messages: Array<{
+    id: string
+    timestamp: number
+    from: 'mentor' | 'executor' | 'human'
+    to: 'mentor' | 'executor' | 'both' | 'human'
+    type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
+    content: string
+    attachments?: { path: string; description: string }[]
+    iteration: number
+  }>
 }
 
 export interface SessionSnapshotDraft {

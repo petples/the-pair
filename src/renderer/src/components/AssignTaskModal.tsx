@@ -1,9 +1,11 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react'
-import { ArrowUpRight, Sparkles } from 'lucide-react'
+import { ArrowUpRight, Sparkles, RotateCcw } from 'lucide-react'
 import { usePairStore, Pair } from '../store/usePairStore'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
 import { FileMention } from './FileMention'
+import { ModelPicker } from './ModelPicker'
+import { SkillPicker } from './SkillPicker'
 
 interface AssignTaskModalProps {
   pair: Pair | null
@@ -12,10 +14,20 @@ interface AssignTaskModalProps {
 }
 
 export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps): React.ReactNode {
-  const { assignTask, isLoading, error } = usePairStore()
+  const { assignTask, isLoading, error, availableModels, restoringSpec, setRestoringSpec } =
+    usePairStore()
   const [spec, setSpec] = useState('')
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const [tempMentorModel, setTempMentorModel] = useState(
+    () => restoringSpec?.mentorModel ?? pair?.pendingMentorModel ?? pair?.mentorModel ?? ''
+  )
+  const [tempExecutorModel, setTempExecutorModel] = useState(
+    () => restoringSpec?.executorModel ?? pair?.pendingExecutorModel ?? pair?.executorModel ?? ''
+  )
+
+  const isRestoring = !!restoringSpec
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
     setFileContexts((prev) => {
@@ -34,7 +46,21 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     [pair]
   )
 
+  const modelsChanged =
+    tempMentorModel !== effectiveMentorModel || tempExecutorModel !== effectiveExecutorModel
+
   if (!pair) return null
+
+  const handleSkillSelect = (skillName: string) => {
+    const insertion = `Load the ${skillName} skill and `
+    setSpec((prev) => {
+      if (textareaRef.current) {
+        const start = textareaRef.current.selectionStart
+        return prev.slice(0, start) + insertion + prev.slice(start)
+      }
+      return insertion + prev
+    })
+  }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -47,17 +73,23 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     if (referencedFiles.length > 0) {
       const contextHeader =
         '--- REFERENCED FILES ---\n' +
-        referencedFiles
-          .map(([path, content]) => `@${path}:\n${content}`)
-          .join('\n\n') +
+        referencedFiles.map(([path, content]) => `@${path}:\n${content}`).join('\n\n') +
         '\n\n--- TASK ---\n'
       finalSpec = contextHeader + finalSpec
     }
 
     try {
-      await assignTask(pair.id, finalSpec)
+      const modelOverrides = modelsChanged
+        ? {
+            mentorModel: tempMentorModel !== effectiveMentorModel ? tempMentorModel : undefined,
+            executorModel:
+              tempExecutorModel !== effectiveExecutorModel ? tempExecutorModel : undefined
+          }
+        : undefined
+      await assignTask(pair.id, finalSpec, undefined, modelOverrides)
       setSpec('')
       setFileContexts(new Map())
+      setRestoringSpec(null)
       onClose()
     } catch {
       // Store already holds the user-facing error
@@ -68,7 +100,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     <GlassModal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Assign New Task · ${pair.name}`}
+      title={isRestoring ? `Restore Task · ${pair.name}` : `Assign New Task · ${pair.name}`}
       className="max-w-2xl"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -96,33 +128,23 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               {pair.directory}
             </div>
           </div>
-          <div className="glass-card rounded-2xl p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-400">
-              Mentor Next
-            </div>
-            <div
-              className="mt-2 truncate font-mono text-xs text-foreground"
-              title={effectiveMentorModel}
-            >
-              {effectiveMentorModel}
-            </div>
-          </div>
-          <div className="glass-card rounded-2xl p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-purple-600 dark:text-purple-400">
-              Executor Next
-            </div>
-            <div
-              className="mt-2 truncate font-mono text-xs text-foreground"
-              title={effectiveExecutorModel}
-            >
-              {effectiveExecutorModel}
-            </div>
-          </div>
+          <ModelPicker
+            value={tempMentorModel}
+            models={availableModels}
+            onChange={setTempMentorModel}
+            role="mentor"
+          />
+          <ModelPicker
+            value={tempExecutorModel}
+            models={availableModels}
+            onChange={setTempExecutorModel}
+            role="executor"
+          />
         </div>
 
-        {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-            Queued model changes will apply to this task as soon as you launch it.
+        {modelsChanged && (
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
+            Custom models selected for this task. Default models will be restored after this run.
           </div>
         )}
 
@@ -139,13 +161,16 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             className="glass-card w-full resize-none rounded-2xl px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             required
           />
-          <FileMention
-            textareaRef={textareaRef}
-            onChange={setSpec}
-            directory={pair.directory}
-            pairId={pair.id}
-            onFileSelect={handleFileSelect}
-          />
+          <div className="absolute top-8 right-2 flex items-center gap-1">
+            <SkillPicker projectDir={pair.directory} onSelect={handleSkillSelect} />
+            <FileMention
+              textareaRef={textareaRef}
+              onChange={setSpec}
+              directory={pair.directory}
+              pairId={pair.id}
+              onFileSelect={handleFileSelect}
+            />
+          </div>
           <p className="mt-1.5 text-xs text-muted-foreground">
             {spec.length} characters · the next run starts with a fresh planning loop · Type @ to
             reference files
@@ -159,16 +184,23 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
         )}
 
         <div className="flex justify-end gap-3">
-          <GlassButton type="button" variant="ghost" onClick={onClose}>
+          <GlassButton
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setRestoringSpec(null)
+              onClose()
+            }}
+          >
             Cancel
           </GlassButton>
           <GlassButton
             type="submit"
             variant="primary"
             disabled={isLoading || spec.trim().length === 0}
-            icon={<ArrowUpRight size={14} />}
+            icon={isRestoring ? <RotateCcw size={14} /> : <ArrowUpRight size={14} />}
           >
-            {isLoading ? 'Starting...' : 'Start New Task'}
+            {isLoading ? 'Starting...' : isRestoring ? 'Restore Task' : 'Start New Task'}
           </GlassButton>
         </div>
       </form>

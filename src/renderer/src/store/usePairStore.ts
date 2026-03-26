@@ -89,6 +89,7 @@ export interface PairRunSummary {
   mentorModel: string
   executorModel: string
   iterations: number
+  messages: Message[]
 }
 
 export interface Pair {
@@ -167,6 +168,8 @@ interface PairStore {
   recoverableSessions: RecoverableSessionSummary[]
   isLoading: boolean
   error: string | null
+  viewingRunId: string | null
+  restoringSpec: { spec: string; mentorModel: string; executorModel: string } | null
 
   loadAvailableModels: () => Promise<void>
   loadRecoverableSessions: () => Promise<void>
@@ -179,7 +182,12 @@ interface PairStore {
       executorModel: string
     }
   ) => Promise<void>
-  assignTask: (pairId: string, spec: string, role?: string) => Promise<void>
+  assignTask: (
+    pairId: string,
+    spec: string,
+    role?: string,
+    modelOverrides?: { mentorModel?: string; executorModel?: string }
+  ) => Promise<void>
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   restoreSession: (pairId: string, continueRun?: boolean) => Promise<void>
   pausePair: (id: string) => Promise<void>
@@ -193,6 +201,12 @@ interface PairStore {
   humanFeedback: (pairId: string, approved: boolean) => Promise<void>
   retryTurn: (id: string) => Promise<void>
   initMessageListener: () => void
+  viewTaskHistory: (pairId: string, runId: string) => void
+  clearViewingTask: (pairId: string) => void
+  setViewingRunId: (runId: string | null) => void
+  setRestoringSpec: (
+    spec: { spec: string; mentorModel: string; executorModel: string } | null
+  ) => void
 }
 
 let _listenersInitialized = false
@@ -453,7 +467,8 @@ function createRunSummary(pair: Pair): PairRunSummary | null {
     finishedAt: pair.currentRunFinishedAt ?? Date.now(),
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
-    iterations: pair.iterations
+    iterations: pair.iterations,
+    messages: pair.messages
   }
 }
 
@@ -707,6 +722,8 @@ export const usePairStore = create<PairStore>((set) => ({
   recoverableSessions: [],
   isLoading: false,
   error: null,
+  viewingRunId: null,
+  restoringSpec: null,
 
   initMessageListener: () => {
     if (_listenersInitialized) return
@@ -1095,8 +1112,23 @@ export const usePairStore = create<PairStore>((set) => ({
     }
   },
 
-  assignTask: async (pairId, spec, role) => {
-    console.log('[usePairStore] assignTask called', { pairId, spec, role })
+  assignTask: async (
+    pairId,
+    spec,
+    roleOrModelOverrides?,
+    modelOverrides?: { mentorModel?: string; executorModel?: string }
+  ) => {
+    let role: string | undefined
+    let overrides: { mentorModel?: string; executorModel?: string } | undefined
+
+    if (typeof roleOrModelOverrides === 'string') {
+      role = roleOrModelOverrides
+      overrides = modelOverrides
+    } else {
+      overrides = roleOrModelOverrides
+    }
+
+    console.log('[usePairStore] assignTask called', { pairId, spec, role, overrides })
     set({ isLoading: true, error: null })
 
     try {
@@ -1109,21 +1141,26 @@ export const usePairStore = create<PairStore>((set) => ({
         pairs: state.pairs.map((pair) => {
           if (pair.id !== pairId) return pair
 
-          // Only reset if this is a NEW run (i.e. role is undefined)
-          if (!role) {
-            return resetPairForNewRun(pair, spec, {
-              mentorModel: pair.pendingMentorModel ?? pair.mentorModel,
-              executorModel: pair.pendingExecutorModel ?? pair.executorModel,
-              pendingMentorModel: undefined,
-              pendingExecutorModel: undefined
-            })
+          // For handoffs, do NOT reset the pair - just pass through
+          if (role) {
+            return pair
           }
 
-          // For handoffs, we do NOT update the spec. The spec should remain the original mission goal.
-          return pair
+          // New run: apply model overrides if provided
+          const mentorModel = overrides?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel
+          const executorModel =
+            overrides?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
+
+          return resetPairForNewRun(pair, spec, {
+            mentorModel,
+            executorModel,
+            pendingMentorModel: undefined,
+            pendingExecutorModel: undefined
+          })
         })
       }))
 
+      // Only snapshot for new runs (not handoffs)
       if (!role) {
         const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === pairId)
         if (currentPair) {
@@ -1291,5 +1328,23 @@ export const usePairStore = create<PairStore>((set) => ({
 
   humanFeedback: async (pairId, approved) => {
     await window.api.pair.humanFeedback(pairId, approved)
+  },
+
+  viewTaskHistory: (pairId, runId) => {
+    set({ viewingRunId: runId })
+    void saveSnapshotForPair(usePairStore.getState().pairs.find((p) => p.id === pairId)!)
+  },
+
+  clearViewingTask: (pairId) => {
+    set({ viewingRunId: null })
+    void saveSnapshotForPair(usePairStore.getState().pairs.find((p) => p.id === pairId)!)
+  },
+
+  setViewingRunId: (runId) => {
+    set({ viewingRunId: runId })
+  },
+
+  setRestoringSpec: (spec) => {
+    set({ restoringSpec: spec })
   }
 }))
