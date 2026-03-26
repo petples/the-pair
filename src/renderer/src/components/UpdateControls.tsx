@@ -14,6 +14,7 @@ export function UpdateControls(): React.ReactNode {
   const [progress, setProgress] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [showReleaseNotes, setShowReleaseNotes] = useState(false)
+  const [releaseBody, setReleaseBody] = useState<string | null>(null)
   const updateRef = useRef<Update | null>(null)
   const totalBytesRef = useRef<number | null>(null)
   const downloadedBytesRef = useRef<number>(0)
@@ -46,6 +47,7 @@ export function UpdateControls(): React.ReactNode {
 
         updateRef.current = update
         setVersion(update.version)
+        setReleaseBody(update.body || null)
         setMessage(update.body?.trim() || `Version ${update.version} is available`)
         setPhase('available')
       } catch (error) {
@@ -165,7 +167,7 @@ export function UpdateControls(): React.ReactNode {
         >
           {label}
         </GlassButton>
-        {phase === 'available' && version && updateRef.current?.body && (
+        {phase === 'available' && version && releaseBody && (
           <button
             onClick={() => setShowReleaseNotes(true)}
             className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
@@ -187,12 +189,12 @@ export function UpdateControls(): React.ReactNode {
           {message}
         </p>
       ) : null}
-      {phase === 'available' && version && updateRef.current?.body && (
+      {phase === 'available' && version && releaseBody && (
         <ReleaseNotesModal
           isOpen={showReleaseNotes}
           onClose={() => setShowReleaseNotes(false)}
           version={version}
-          body={updateRef.current.body}
+          body={releaseBody}
         />
       )}
     </div>
