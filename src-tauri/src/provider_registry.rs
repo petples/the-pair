@@ -50,11 +50,34 @@ fn which_binary(name: &str) -> bool {
     #[cfg(not(target_os = "windows"))]
     let cmd = "which";
 
-    Command::new(cmd)
+    if Command::new(cmd)
         .arg(name)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+    {
+        return true;
+    }
+
+    // Fallback: check known install locations directly in case PATH was not
+    // captured from the login shell (common when app is launched from Finder/Dock
+    // on Apple Silicon where Homebrew installs to /opt/homebrew/bin).
+    #[cfg(not(target_os = "windows"))]
+    {
+        let fallback_dirs = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+        ];
+        for dir in &fallback_dirs {
+            let candidate = std::path::Path::new(dir).join(name);
+            if candidate.exists() {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 fn safe_read_json(path: PathBuf) -> Option<serde_json::Value> {
@@ -176,9 +199,12 @@ impl ProviderRegistry {
                             let provider_id = parts[0];
                             let model_name = parts[1..].join("/");
 
-                            // Check if this model belongs to an authenticated provider (either internal or custom)
-                            let is_authenticated = internal_providers
-                                .contains(&provider_id.to_string())
+                            // Check if this model belongs to an authenticated provider (either internal or custom).
+                            // The "opencode" provider_id represents zen-backed models that are available
+                            // whenever opencode is installed — they don't appear in auth.json.
+                            let is_authenticated = provider_id == "opencode"
+                                || internal_providers
+                                    .contains(&provider_id.to_string())
                                 || models
                                     .iter()
                                     .any(|m| m.source_provider.as_deref() == Some(provider_id));

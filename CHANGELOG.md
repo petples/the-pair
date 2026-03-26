@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.21] - 2026-03-26
+
+### Fixed
+
+- Fixed model and subscription detection on Apple Silicon Macs where Homebrew tools (`claude`, `opencode`, `codex`) were not found when the app was launched from the Dock or Finder, because `/opt/homebrew/bin` is not in the default macOS GUI app PATH
+- Added fallback binary detection that checks known install paths directly when the `which` command fails
+- Fixed PATH setup to always include Homebrew directories even when login shell PATH capture is blocked by corporate security software (e.g. CyberArk EPM)
+- Fixed OpenCode zen-backed models (`opencode/*` provider) being filtered out from the model list even when opencode is installed and authenticated
+
 ## [1.1.20] - 2026-03-26
 
 ### Changed

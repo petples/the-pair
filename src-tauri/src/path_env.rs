@@ -2,9 +2,25 @@ use std::process::Command;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn refresh_path_from_login_shell() {
-    if let Some(path) = capture_login_shell_path() {
-        std::env::set_var("PATH", path);
+    let current = std::env::var("PATH").unwrap_or_default();
+    let base = if let Some(shell_path) = capture_login_shell_path() {
+        shell_path
+    } else {
+        current.clone()
+    };
+
+    // Always ensure well-known tool directories are present, even if the login
+    // shell PATH capture is blocked by security software (e.g. CyberArk EPM) or
+    // the app was launched without a full shell environment.
+    let extra_dirs = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"];
+    let mut parts: Vec<&str> = base.split(':').collect();
+    for dir in &extra_dirs {
+        if !parts.contains(dir) {
+            parts.push(dir);
+        }
     }
+    let merged = parts.join(":");
+    std::env::set_var("PATH", merged);
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
