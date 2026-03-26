@@ -307,16 +307,16 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  opacity: 0.85;
+  opacity: 0.45;
   background-image: linear-gradient(
     135deg,
-    rgba(148, 163, 184, 0.7) 0%,
-    rgba(203, 213, 225, 0.9) 25%,
-    rgba(255, 255, 255, 1) 50%,
-    rgba(148, 163, 184, 0.7) 75%,
-    rgba(203, 213, 225, 0.85) 100%
+    rgba(148, 163, 184, 0.4) 0%,
+    rgba(203, 213, 225, 0.75) 25%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(148, 163, 184, 0.4) 75%,
+    rgba(203, 213, 225, 0.7) 100%
   );
-  background-size: 100% 240%;
+  background-size: 100% 280%;
   animation: metal-sheen-sweep 2.4s linear infinite;
   border-radius: inherit;
 }
