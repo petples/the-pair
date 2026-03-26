@@ -2,7 +2,11 @@ import React, { useMemo, useState } from 'react'
 import { Brain, CheckCircle2, ChevronDown, CircleAlert, Search, Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { AvailableModel } from '../types'
-import { getQualifiedModel, savePreferredModelId } from '../lib/modelPreferences'
+import {
+  getQualifiedModel,
+  isSelectableForPairExecution,
+  savePreferredModelId
+} from '../lib/modelPreferences'
 import { GlassModal } from './ui/GlassModal'
 
 const RECENT_MODELS_KEY = 'the-pair-recent-models'
@@ -105,11 +109,15 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
   }, [models, searchQuery])
 
   const readyModels = useMemo(
-    () => filteredModels.filter((model) => model.available),
+    () => filteredModels.filter((model) => isSelectableForPairExecution(model)),
     [filteredModels]
   )
   const unavailableModels = useMemo(
     () => filteredModels.filter((model) => !model.available),
+    [filteredModels]
+  )
+  const nonExecutableModels = useMemo(
+    () => filteredModels.filter((model) => model.available && !model.supportsPairExecution),
     [filteredModels]
   )
   const recentModels = useMemo(() => {
@@ -119,7 +127,7 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
   }, [recentModelIds, readyModels])
 
   const handleSelect = (model: AvailableModel): void => {
-    if (!model.available) return
+    if (!isSelectableForPairExecution(model)) return
     const modelId = getQualifiedModel(model)
     saveRecentModelId(modelId)
     savePreferredModelId(role, modelId)
@@ -204,6 +212,9 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <ModelBadge>{readyModels.length} ready</ModelBadge>
             <ModelBadge>{unavailableModels.length} unavailable</ModelBadge>
+            {nonExecutableModels.length > 0 && (
+              <ModelBadge>{nonExecutableModels.length} view only</ModelBadge>
+            )}
           </div>
 
           <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
@@ -212,6 +223,7 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
                 ? [{ title: 'Recently Used', items: recentModels, isRecent: true as const }]
                 : []),
               { title: 'Ready to use', items: readyModels },
+              { title: 'View only (no autonomous execution)', items: nonExecutableModels },
               { title: 'Unavailable', items: unavailableModels }
             ].map((section) =>
               section.items.length === 0 ? null : (
@@ -223,19 +235,20 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
                     {section.items.map((model) => {
                       const selected = getQualifiedModel(model) === value
                       const isRecent = 'isRecent' in section && section.isRecent
+                      const isSelectable = isSelectableForPairExecution(model)
 
                       return (
                         <button
                           key={getQualifiedModel(model)}
                           type="button"
-                          disabled={!model.available}
+                          disabled={!isSelectable}
                           onClick={() => handleSelect(model)}
                           className={cn(
                             'w-full rounded-xl border px-3 py-2.5 text-left transition-all',
                             selected
                               ? cn('border-foreground/20 bg-muted/40 shadow-sm', tone.border)
                               : 'border-border/60 bg-background/40',
-                            model.available
+                            isSelectable
                               ? 'hover:border-foreground/18 hover:bg-muted/30'
                               : 'cursor-not-allowed opacity-60'
                           )}
@@ -248,7 +261,7 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
                                 model.available ? tone.background : 'bg-muted/40'
                               )}
                             >
-                              {model.available ? (
+                              {model.supportsPairExecution ? (
                                 tone.icon
                               ) : (
                                 <CircleAlert
@@ -271,25 +284,37 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
                                     )}
                                   </div>
                                   <div className="flex items-center gap-1.5 text-[11px]">
-                                    {model.sourceProvider &&
-                                      model.sourceProvider !== model.provider && (
+                                    {model.provider === 'claude' ? (
+                                      <>
+                                        <span className="font-medium text-blue-600 dark:text-blue-400">
+                                          alias: {model.modelId}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      model.sourceProviderLabel &&
+                                      model.sourceProviderLabel !== model.providerLabel && (
                                         <>
                                           <span className="font-medium text-blue-600 dark:text-blue-400">
-                                            {model.sourceProvider}
+                                            {model.sourceProviderLabel}
                                           </span>
                                           <span className="text-muted-foreground">via</span>
                                         </>
-                                      )}
+                                      )
+                                    )}
                                     <span className="font-medium text-foreground/80">
                                       {model.providerLabel}
                                     </span>
                                     {model.planLabel && model.planLabel !== 'BYOK' && (
-                                      <>
-                                        <span className="text-muted-foreground">·</span>
-                                        <span className="text-muted-foreground">
-                                          {model.planLabel}
-                                        </span>
-                                      </>
+                                      <span
+                                        className={cn(
+                                          'inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+                                          model.available
+                                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                            : 'bg-muted/50 text-muted-foreground'
+                                        )}
+                                      >
+                                        {model.planLabel}
+                                      </span>
                                     )}
                                   </div>
                                 </div>
@@ -298,9 +323,12 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
                                 )}
                               </div>
 
-                              {!model.available && (
+                              {!isSelectable && (
                                 <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                                  {model.availabilityReason}
+                                  {!model.available && model.availabilityReason}
+                                  {model.available &&
+                                    !model.supportsPairExecution &&
+                                    'Not supported for autonomous pair execution'}
                                 </div>
                               )}
                             </div>

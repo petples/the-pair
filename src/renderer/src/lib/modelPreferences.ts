@@ -5,6 +5,10 @@ const PREFERRED_MODEL_KEYS = {
   executor: 'the-pair-preferred-executor-model'
 } as const
 
+export function isSelectableForPairExecution(model: AvailableModel): boolean {
+  return model.available && model.supportsPairExecution
+}
+
 export function getQualifiedModel(model: AvailableModel): string {
   if (model.provider === 'opencode') {
     return model.modelId
@@ -35,11 +39,13 @@ export function getPreferredQualifiedModel(
   const preferred = getPreferredModelId(role)
   if (
     preferred &&
-    models.some((model) => model.available && getQualifiedModel(model) === preferred)
+    models.some(
+      (model) => isSelectableForPairExecution(model) && getQualifiedModel(model) === preferred
+    )
   ) {
     return preferred
   }
 
-  const defaultEntry = models.find((model) => model.available) ?? models[0]
+  const defaultEntry = models.find((model) => isSelectableForPairExecution(model))
   return defaultEntry ? getQualifiedModel(defaultEntry) : ''
 }

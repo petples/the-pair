@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { ChevronLeft, Moon, Plus, Settings2, Sun, WandSparkles } from 'lucide-react'
 import { Pair } from '../store/usePairStore'
-import { cn } from '../lib/utils'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { UpdateControls } from './UpdateControls'
@@ -38,10 +37,6 @@ export function AppChrome({
   onAssignTask,
   onOpenSettings
 }: AppChromeProps): React.ReactNode {
-  const isMac =
-    typeof navigator !== 'undefined' &&
-    /(mac|iphone|ipad|ipod)/i.test(navigator.userAgent || navigator.platform)
-
   const pairBusy = selectedPair ? isBusy(selectedPair.status) : false
 
   const [appVersion, setAppVersion] = useState<string | null>(null)
@@ -60,12 +55,7 @@ export function AppChrome({
   return (
     <div className="app-chrome glass-toolbar relative shrink-0 border-b border-border/60">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
-      <div
-        className={cn(
-          'app-drag relative flex items-center justify-between gap-4 px-4 py-3',
-          isMac ? 'pl-24' : 'pl-4'
-        )}
-      >
+      <div className="app-drag relative flex items-center justify-between gap-4 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           {selectedPair ? (
             <button

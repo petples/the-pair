@@ -14,7 +14,6 @@ push to main
   → codesign and notarize the macOS bundle
   → package ZIP on macOS plus Windows/Linux installers
   → create/update GitHub Release with all platform assets
-  → update Homebrew tap cask from the macOS ZIP
 ```
 
 The workflow file is: [build-signed-mac.yml](../.github/workflows/build-signed-mac.yml)
@@ -66,12 +65,10 @@ Configure these in `Settings → Secrets and variables → Actions`:
 | `APPLE_ID`                     | Apple Account email used for notarization                               | Your Apple Developer account email                                                                                                  |
 | `APPLE_APP_SPECIFIC_PASSWORD`  | App-specific password for notarization                                  | Go to `account.apple.com` → `Sign-In and Security` → `App-Specific Passwords`                                                       |
 | `APPLE_TEAM_ID`                | 10-character Apple team identifier                                      | `developer.apple.com` → `Membership details`                                                                                        |
-| `HOMEBREW_TAP_GITHUB_TOKEN`    | Token allowed to push to `timwuhaotian/homebrew-the-pair`               | Create a GitHub PAT with repo contents write access to the tap repo                                                                 |
 
 **Notes:**
 
 - GitHub's built-in `GITHUB_TOKEN` is already used for creating/updating releases in the main repo. You do **not** need to add that one manually.
-- For `HOMEBREW_TAP_GITHUB_TOKEN`, GitHub docs say a fine-grained PAT can be used when it has repository contents read/write access to the target repo.
 - The updater private key is the gatekeeper for shipping new versions to existing users. If you lose it, you can still ship a new app binary, but you must rotate the updater key pair and update `src-tauri/tauri.conf.json` with the new public key before the release can go out.
 
 ## Local Signed Build
@@ -136,7 +133,6 @@ For the current workflow, **no App Store listing, no TestFlight app, and no App 
 This is because the app is being distributed outside the Mac App Store via:
 
 - GitHub Releases
-- Homebrew Cask
 
 ### What You **Do** Need
 

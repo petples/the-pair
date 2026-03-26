@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
   CheckCircle2,
@@ -16,13 +16,15 @@ import {
 import { cn } from '../lib/utils'
 import { usePairStore } from '../store/usePairStore'
 import { useThemeStore } from '../store/useThemeStore'
-import type { AvailableModel, OpenCodeConfig } from '../types'
+import type { AvailableModel } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
+import { buildProviderSetupSummary } from '../lib/providerSetup'
+import type { ProviderSetupSummary } from '../lib/providerSetup'
 
 interface OnboardingWizardProps {
   onComplete: () => void
@@ -43,10 +45,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       setAppVersion(v && v !== '0.0.0' ? v : '1.0.1')
     })
   }, [])
-  const [configLoading, setConfigLoading] = useState(true)
-  const [configStatus, setConfigStatus] = useState<
-    'checking' | 'ok' | 'missing-keys' | 'missing-file'
-  >('checking')
+  const [isCheckingProviders, setIsCheckingProviders] = useState(true)
   const [directory, setDirectory] = useState('')
   const [name, setName] = useState('')
   const [spec, setSpec] = useState('')
@@ -79,16 +78,28 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
 
   const { availableModels, loadAvailableModels, createPair } = usePairStore()
   const { theme, toggleTheme } = useThemeStore()
+  const providerSummary = useMemo(
+    () => buildProviderSetupSummary(availableModels),
+    [availableModels]
+  )
 
   useEffect(() => {
-    loadAvailableModels()
-  }, [loadAvailableModels])
-
-  useEffect(() => {
-    if (currentStep === 0) {
-      loadConfig()
+    if (currentStep !== 0) {
+      return
     }
-  }, [currentStep])
+    let cancelled = false
+    setIsCheckingProviders(true)
+    void (async () => {
+      await loadAvailableModels()
+      if (!cancelled) {
+        setIsCheckingProviders(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentStep, loadAvailableModels])
 
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
@@ -96,31 +107,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       setExecutorModel(getPreferredQualifiedModel('executor', availableModels))
     }
   }, [availableModels, mentorModel])
-
-  const loadConfig = async (): Promise<void> => {
-    setConfigLoading(true)
-    try {
-      const raw = (await window.api.config.read()) as OpenCodeConfig | null
-      if (!raw) {
-        setConfigStatus('missing-file')
-      } else {
-        const hasProviders = raw.provider && Object.keys(raw.provider).length > 0
-        const hasKeys = hasProviders && Object.values(raw.provider!).some((p) => p.options?.apiKey)
-        const hasModels =
-          hasProviders &&
-          Object.values(raw.provider!).some((p) => p.models && Object.keys(p.models).length > 0)
-        if (hasKeys && hasModels) {
-          setConfigStatus('ok')
-        } else {
-          setConfigStatus('missing-keys')
-        }
-      }
-    } catch {
-      setConfigStatus('missing-file')
-    } finally {
-      setConfigLoading(false)
-    }
-  }
 
   const handleOpenConfig = async (): Promise<void> => {
     setIsOpeningFile(true)
@@ -180,7 +166,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     switch (currentStep) {
       case 0:
         return (
-          configStatus === 'ok' &&
+          providerSummary.isReady &&
           directory.trim().length > 0 &&
           name.trim().length > 0 &&
           spec.trim().length > 0
@@ -196,9 +182,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     switch (currentStep) {
       case 0:
         return (
-          <SetupStep
-            status={configStatus}
-            loading={configLoading}
+          <ProviderStep
+            summary={providerSummary}
+            loading={isCheckingProviders}
             onOpenConfig={handleOpenConfig}
             isOpening={isOpeningFile}
             directory={directory}
@@ -349,8 +335,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   )
 }
 
-function SetupStep({
-  status,
+function ProviderStep({
+  summary,
   loading,
   onOpenConfig,
   isOpening,
@@ -364,7 +350,7 @@ function SetupStep({
   onFileSelect,
   onSkillSelect
 }: {
-  status: 'checking' | 'ok' | 'missing-keys' | 'missing-file'
+  summary: ProviderSetupSummary
   loading: boolean
   onOpenConfig: () => void
   isOpening: boolean
@@ -393,8 +379,8 @@ function SetupStep({
         </p>
       </div>
 
-      <ConfigStep
-        status={status}
+      <ProviderStatusCard
+        summary={summary}
         loading={loading}
         onOpenConfig={onOpenConfig}
         isOpening={isOpening}
@@ -458,25 +444,26 @@ function SetupStep({
   )
 }
 
-function ConfigStep({
-  status,
+function ProviderStatusCard({
+  summary,
   loading,
   onOpenConfig,
   isOpening
 }: {
-  status: 'checking' | 'ok' | 'missing-keys' | 'missing-file'
+  summary: ProviderSetupSummary
   loading: boolean
   onOpenConfig: () => void
   isOpening: boolean
 }): React.ReactNode {
+  const readyProviderLabels = summary.readyProviderLabels.join(', ')
+
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          OpenCode Configuration
-        </h2>
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">AI Provider Setup</h2>
         <p className="text-muted-foreground">
-          The Pair uses your existing OpenCode setup to authenticate and select AI models.
+          The Pair checks your installed providers and selectable models across OpenCode, Codex,
+          Claude Code, and Gemini CLI.
         </p>
       </div>
 
@@ -485,16 +472,16 @@ function ConfigStep({
           <div
             className={cn(
               'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border',
-              status === 'ok'
-                ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/20'
-                : status === 'checking'
-                  ? 'bg-muted border-border'
+              loading
+                ? 'bg-muted border-border'
+                : summary.isReady
+                  ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/20'
                   : 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/20'
             )}
           >
             {loading ? (
               <div className="w-4 h-4 border border-muted-foreground/20 border-t-muted-foreground rounded-full animate-spin" />
-            ) : status === 'ok' ? (
+            ) : summary.isReady ? (
               <CheckCircle2 size={20} className="text-green-600 dark:text-green-400" />
             ) : (
               <ExternalLink size={20} className="text-amber-600 dark:text-amber-400" />
@@ -503,61 +490,33 @@ function ConfigStep({
           <div className="flex-1">
             <h3 className="font-semibold mb-1 text-foreground">
               {loading
-                ? 'Checking configuration...'
-                : status === 'ok'
-                  ? 'Configuration looks great!'
-                  : status === 'missing-file'
-                    ? 'Config file not found'
-                    : 'API keys or models missing'}
+                ? 'Checking provider readiness...'
+                : summary.isReady
+                  ? 'Provider setup looks great!'
+                  : 'No ready models found yet'}
             </h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              {status === 'ok' &&
-                'Your OpenCode config is properly set up with providers and models.'}
-              {status === 'missing-file' && (
-                <>
-                  <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono border border-border">
-                    ~/.config/opencode/opencode.json
-                  </code>{' '}
-                  was not found. Create it with your provider settings.
-                </>
-              )}
-              {status === 'missing-keys' && (
-                <>
-                  Config exists but is missing API keys or model definitions. Add at least one
-                  provider with an{' '}
-                  <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono border border-border">
-                    apiKey
-                  </code>{' '}
-                  and one model.
-                </>
-              )}
+              {loading &&
+                'We are checking the selectable models exposed by your installed providers.'}
+              {!loading && summary.isReady && `Ready models found across ${readyProviderLabels}.`}
+              {!loading &&
+                !summary.isReady &&
+                'Install or sign in to at least one supported provider, then refresh the model list.'}
             </p>
 
-            {status !== 'ok' && !loading && (
+            {!loading && !summary.isReady && (
               <div className="mt-4 space-y-3">
                 <p className="text-xs text-muted-foreground">
-                  Your config file should look something like this:
+                  OpenCode-backed models are still supported, but they are optional if Codex,
+                  Claude Code, or Gemini CLI already has a ready model.
                 </p>
-                <pre className="bg-muted/50 dark:bg-muted text-green-700 dark:text-green-400/80 text-xs rounded-lg p-4 font-mono overflow-x-auto border border-border">
-                  {`{
-  "provider": {
-    "openai": {
-      "options": { "apiKey": "sk-..." },
-      "models": {
-        "gpt-4o": { "name": "GPT-4o" },
-        "gpt-4o-mini": { "name": "GPT-4o Mini" }
-      }
-    }
-  }
-}`}
-                </pre>
               </div>
             )}
           </div>
         </div>
       </GlassCard>
 
-      {status !== 'ok' && !loading && (
+      {!loading && !summary.isReady && (
         <GlassButton
           variant="secondary"
           onClick={onOpenConfig}
@@ -565,25 +524,20 @@ function ConfigStep({
           className="w-full"
         >
           <ExternalLink size={15} />
-          {isOpening
-            ? 'Opening...'
-            : status === 'missing-file'
-              ? 'Create & Open Config File'
-              : 'Open Config File in Editor'}
+          {isOpening ? 'Opening...' : 'Open OpenCode Config'}
         </GlassButton>
       )}
 
-      {status === 'ok' && (
+      {summary.isReady && !loading && (
         <p className="text-center text-sm text-green-700 dark:text-green-400 flex items-center justify-center gap-2">
           <CheckCircle2 size={15} />
-          Config is ready — you can proceed to the next step.
+          Ready models are available. You can proceed to the next step.
         </p>
       )}
 
-      {status !== 'ok' && !loading && (
+      {!loading && !summary.isReady && (
         <p className="text-center text-xs text-muted-foreground">
-          After saving, click &ldquo;Next&rdquo; to re-check. The wizard will verify your config
-          automatically.
+          After updating a provider, go back to this step to re-check automatically.
         </p>
       )}
     </div>
@@ -744,7 +698,7 @@ function ModelStep({
         <p className="text-xs font-medium text-muted-foreground mb-1">Model recommendations:</p>
         <p className="text-xs text-muted-foreground">
           <span className="text-blue-600 dark:text-blue-400">Mentor</span> — Benefits from larger,
-          reasoning-capable models (e.g., GPT-4o, Claude 3.5 Sonnet)
+          reasoning-capable models (e.g., GPT-4o, Claude Sonnet 4.6)
         </p>
         <p className="text-xs text-muted-foreground">
           <span className="text-purple-600 dark:text-purple-400">Executor</span> — Can use a

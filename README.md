@@ -95,12 +95,6 @@ Download the latest release from [GitHub Releases](https://github.com/timwuhaoti
 | **Windows** | `the-pair-{version}-setup.exe` |
 | **Linux**   | `the-pair-{version}.AppImage`  |
 
-### Homebrew (macOS)
-
-```bash
-brew install --cask the-pair
-```
-
 ### From Source
 
 ```bash
@@ -125,14 +119,11 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
 ### 1. Install opencode
 
-```bash
-brew install opencode
-# Or visit: https://opencode.ai/install
-```
+Visit https://opencode.ai/install for installation instructions.
 
 ### 2. Configure AI Models
 
-Set up your AI providers in `~/.config/opencode/opencode.json`:
+If you want OpenCode-backed models, set up your AI providers in `~/.config/opencode/opencode.json`:
 
 ```json
 {
@@ -144,7 +135,7 @@ Set up your AI providers in `~/.config/opencode/opencode.json`:
 ```
 
 > [!TIP]
-> You can also use local models with [Ollama](https://ollama.com) for offline development.
+> Codex, Claude Code, and Gemini CLI are detected from their installed CLIs and sign-in state. You can also use local models with [Ollama](https://ollama.com) for offline development.
 
 ### 3. Launch The Pair
 
@@ -161,12 +152,14 @@ Open from Applications folder or start menu.
 
 ## Configuration
 
-### opencode Configuration
+### Provider Configuration
 
-The Pair uses your existing opencode configuration:
+OpenCode-backed models use your existing opencode configuration:
 
 - **macOS/Linux**: `~/.config/opencode/opencode.json`
 - **Windows**: `%APPDATA%/opencode/opencode.json`
+
+Codex, Claude Code, and Gemini CLI are detected from their local CLI install and account state.
 
 ### Pair Runtime
 

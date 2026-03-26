@@ -36,7 +36,7 @@ export function UpdateControls(): React.ReactNode {
       downloadedBytesRef.current = 0
 
       const timeoutPromise = new Promise<null>((resolve) => {
-        setTimeout(() => resolve(null), 10000)
+        setTimeout(() => resolve(null), 30000)
       })
 
       try {
@@ -45,7 +45,7 @@ export function UpdateControls(): React.ReactNode {
         const update = await Promise.race([check(), timeoutPromise])
 
         if (update === null) {
-          console.error('[Updater] Check timed out after 10 seconds')
+          console.error('[Updater] Check timed out after 30 seconds')
           if (showErrors) {
             setMessage('Update check timed out')
             setPhase('error')

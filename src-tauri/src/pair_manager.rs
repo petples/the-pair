@@ -51,6 +51,8 @@ impl PairManager {
             mentor_model: input.mentor.model.clone(),
             executor_provider: input.executor.provider,
             executor_model: input.executor.model.clone(),
+            pending_mentor_model: None,
+            pending_executor_model: None,
             created_at,
         };
 
@@ -213,14 +215,23 @@ pub async fn pair_assign_task(
             )
         });
         let is_new_run = input.role.is_none();
+        
+        // Use pending models if available, otherwise fall back to default models
+        let effective_mentor_model = pair.pending_mentor_model.as_ref()
+            .unwrap_or(&pair.mentor_model)
+            .clone();
+        let effective_executor_model = pair.pending_executor_model.as_ref()
+            .unwrap_or(&pair.executor_model)
+            .clone();
+        
         ctx_guard.insert(
             pair_id.clone(),
             crate::process_spawner::ProcessContext {
                 directory: pair.directory.clone(),
                 mentor_provider: pair.mentor_provider,
                 executor_provider: pair.executor_provider,
-                mentor_model: pair.mentor_model.clone(),
-                executor_model: pair.executor_model.clone(),
+                mentor_model: effective_mentor_model,
+                executor_model: effective_executor_model,
                 mentor_session_id: if is_new_run {
                     None
                 } else {
@@ -258,6 +269,32 @@ pub async fn pair_assign_task(
     println!("[pair_assign_task] {} turn triggered successfully", role);
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn pair_update_models(
+    state: tauri::State<std::sync::Mutex<PairManager>>,
+    pair_id: String,
+    input: crate::types::UpdatePairModelsInput,
+) -> Result<crate::types::UpdatePairModelsInput, String> {
+    let mut manager = state.lock().unwrap();
+
+    let pair = manager
+        .pairs
+        .get_mut(&pair_id)
+        .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+
+    pair.mentor_model = input.mentor_model.clone();
+    pair.executor_model = input.executor_model.clone();
+    pair.pending_mentor_model = input.pending_mentor_model.clone();
+    pair.pending_executor_model = input.pending_executor_model.clone();
+
+    println!(
+        "[pair_update_models] Updated pair {}: mentor={}, executor={}, pending_mentor={:?}, pending_executor={:?}",
+        pair_id, pair.mentor_model, pair.executor_model, pair.pending_mentor_model, pair.pending_executor_model
+    );
+
+    Ok(input)
 }
 
 #[tauri::command]

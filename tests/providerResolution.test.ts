@@ -23,8 +23,8 @@ const readyOpenCodeModel: AvailableModel = {
 
 const readyClaudeModel: AvailableModel = {
   provider: 'claude',
-  modelId: 'claude-3-5-sonnet',
-  displayName: 'Claude 3.5 Sonnet',
+  modelId: 'sonnet',
+  displayName: 'Claude Sonnet',
   available: true,
   providerLabel: 'Claude Code',
   sourceProvider: 'anthropic',
@@ -46,7 +46,7 @@ test('inferProviderFromModel maps provider-aware ids and legacy model names', ()
 })
 
 test('buildAgentConfig preserves the selected provider and raw model id', () => {
-  const config = buildAgentConfig('mentor', 'claude/claude-3-5-sonnet', [
+  const config = buildAgentConfig('mentor', 'claude/sonnet', [
     readyClaudeModel,
     readyOpenCodeModel
   ])
@@ -54,6 +54,6 @@ test('buildAgentConfig preserves the selected provider and raw model id', () => 
   assert.deepEqual(config, {
     role: 'mentor',
     provider: 'claude',
-    model: 'claude-3-5-sonnet'
+    model: 'sonnet'
   })
 })

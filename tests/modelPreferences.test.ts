@@ -6,6 +6,7 @@ import {
   getPreferredModelId,
   getPreferredQualifiedModel,
   getQualifiedModel,
+  isSelectableForPairExecution,
   savePreferredModelId
 } from '../src/renderer/src/lib/modelPreferences.ts'
 
@@ -66,8 +67,8 @@ const readyOpenCodeModel: AvailableModel = {
 
 const unavailableClaudeModel: AvailableModel = {
   provider: 'claude',
-  modelId: 'claude-3-5-sonnet',
-  displayName: 'Claude 3.5 Sonnet',
+  modelId: 'sonnet',
+  displayName: 'Claude Sonnet',
   available: false,
   providerLabel: 'Claude Code',
   sourceProvider: 'anthropic',
@@ -84,7 +85,7 @@ const unavailableClaudeModel: AvailableModel = {
 
 test('getQualifiedModel keeps OpenCode ids unprefixed and prefixes other providers', () => {
   assert.equal(getQualifiedModel(readyOpenCodeModel), 'gpt-4o-mini')
-  assert.equal(getQualifiedModel(unavailableClaudeModel), 'claude/claude-3-5-sonnet')
+  assert.equal(getQualifiedModel(unavailableClaudeModel), 'claude/sonnet')
 })
 
 test('savePreferredModelId and getPreferredModelId round-trip through localStorage', () => {
@@ -99,7 +100,7 @@ test('savePreferredModelId and getPreferredModelId round-trip through localStora
 
 test('getPreferredQualifiedModel falls back to the first available model when the saved choice is unavailable', () => {
   const restore = installLocalStorage({
-    'the-pair-preferred-executor-model': 'claude/claude-3-5-sonnet'
+    'the-pair-preferred-executor-model': 'claude/sonnet'
   })
 
   try {
@@ -107,6 +108,63 @@ test('getPreferredQualifiedModel falls back to the first available model when th
       getPreferredQualifiedModel('executor', [unavailableClaudeModel, readyOpenCodeModel]),
       'gpt-4o-mini'
     )
+  } finally {
+    restore()
+  }
+})
+
+const viewOnlyGeminiModel: AvailableModel = {
+  provider: 'gemini',
+  modelId: 'gemini-2.5-pro',
+  displayName: 'Gemini 2.5 Pro',
+  available: true,
+  providerLabel: 'Gemini CLI',
+  sourceProvider: 'google',
+  sourceProviderLabel: 'Google',
+  billingKind: 'plan',
+  billingLabel: 'Included with plan',
+  accessLabel: 'Google account',
+  planLabel: 'Individual',
+  availabilityStatus: 'runtime-unsupported',
+  availabilityReason: 'Gemini CLI is detected, but pair execution is not yet supported',
+  supportsPairExecution: false,
+  recommendedRoles: ['mentor', 'executor']
+}
+
+test('isSelectableForPairExecution returns false for view-only models', () => {
+  assert.equal(isSelectableForPairExecution(readyOpenCodeModel), true)
+  assert.equal(isSelectableForPairExecution(unavailableClaudeModel), false)
+  assert.equal(isSelectableForPairExecution(viewOnlyGeminiModel), false)
+})
+
+test('getPreferredQualifiedModel skips view-only models even when they appear first', () => {
+  const restore = installLocalStorage()
+  try {
+    const models = [viewOnlyGeminiModel, readyOpenCodeModel]
+    assert.equal(getPreferredQualifiedModel('mentor', models), 'gpt-4o-mini')
+  } finally {
+    restore()
+  }
+})
+
+test('getPreferredQualifiedModel ignores saved view-only preference and falls back to selectable', () => {
+  const restore = installLocalStorage({
+    'the-pair-preferred-mentor-model': 'gemini/gemini-2.5-pro'
+  })
+
+  try {
+    const models = [viewOnlyGeminiModel, readyOpenCodeModel]
+    assert.equal(getPreferredQualifiedModel('mentor', models), 'gpt-4o-mini')
+  } finally {
+    restore()
+  }
+})
+
+test('getPreferredQualifiedModel returns empty string when no selectable models exist', () => {
+  const restore = installLocalStorage()
+  try {
+    const models = [viewOnlyGeminiModel, unavailableClaudeModel]
+    assert.equal(getPreferredQualifiedModel('executor', models), '')
   } finally {
     restore()
   }

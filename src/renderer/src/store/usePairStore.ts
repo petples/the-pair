@@ -12,6 +12,11 @@ import {
   getModelByQualifiedId,
   inferProviderFromModel
 } from '../lib/providerResolution'
+import {
+  resolveEffectiveModels,
+  buildUpdateModelsPayload,
+  shouldSyncModelsToBackend
+} from '../lib/modelResolution'
 
 export type PairStatus =
   | 'Idle'
@@ -1121,21 +1126,55 @@ export const usePairStore = create<PairStore>((set) => ({
     let role: string | undefined
     let overrides: { mentorModel?: string; executorModel?: string } | undefined
 
+    // Handle multiple calling conventions:
+    // 1. Handoff: assignTask(pairId, spec, 'mentor') or assignTask(pairId, spec, 'executor', overrides)
+    // 2. New task: assignTask(pairId, spec, undefined, overrides) or assignTask(pairId, spec, overrides)
     if (typeof roleOrModelOverrides === 'string') {
+      // Handoff: first optional arg is a role string
       role = roleOrModelOverrides
       overrides = modelOverrides
     } else {
-      overrides = roleOrModelOverrides
+      // New task: first optional arg is overrides object (or undefined)
+      // If both are provided (e.g., assignTask(id, spec, undefined, overrides)),
+      // use the explicit fourth argument
+      overrides = modelOverrides ?? roleOrModelOverrides
     }
 
     console.log('[usePairStore] assignTask called', { pairId, spec, role, overrides })
     set({ isLoading: true, error: null })
 
     try {
+      const currentPair = usePairStore.getState().pairs.find((pair) => pair.id === pairId)
+      if (!currentPair) {
+        throw new Error(`Pair ${pairId} not found`)
+      }
+
+      // For new runs (not handoffs), compute effective models
+      let effectiveMentorModel = currentPair.mentorModel
+      let effectiveExecutorModel = currentPair.executorModel
+
+      if (!role) {
+        // Compute effective models: override > pending > default
+        const effective = resolveEffectiveModels(currentPair, overrides)
+        effectiveMentorModel = effective.mentorModel
+        effectiveExecutorModel = effective.executorModel
+
+        // Only sync to backend when explicit overrides are provided.
+        // Without overrides, the backend already has pending or default models.
+        // This avoids unnecessary IPC and prevents partial state on failure.
+        if (shouldSyncModelsToBackend(overrides)) {
+          await window.api.pair.updateModels(
+            pairId,
+            buildUpdateModelsPayload(currentPair, effective)
+          )
+        }
+      }
+
       console.log('[usePairStore] Calling window.api.pair.assignTask...')
       await window.api.pair.assignTask(pairId, { spec, role })
       console.log('[usePairStore] assignTask call finished')
 
+      // Only update state AFTER backend succeeds
       set((state) => ({
         isLoading: false,
         pairs: state.pairs.map((pair) => {
@@ -1146,16 +1185,10 @@ export const usePairStore = create<PairStore>((set) => ({
             return pair
           }
 
-          // New run: apply model overrides if provided
-          const mentorModel = overrides?.mentorModel ?? pair.pendingMentorModel ?? pair.mentorModel
-          const executorModel =
-            overrides?.executorModel ?? pair.pendingExecutorModel ?? pair.executorModel
-
+          // New run: apply effective models and reset
           return resetPairForNewRun(pair, spec, {
-            mentorModel,
-            executorModel,
-            pendingMentorModel: undefined,
-            pendingExecutorModel: undefined
+            mentorModel: effectiveMentorModel,
+            executorModel: effectiveExecutorModel
           })
         })
       }))

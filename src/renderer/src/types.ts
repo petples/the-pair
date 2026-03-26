@@ -164,14 +164,3 @@ export interface SessionSnapshotRecord extends SessionSnapshotDraft {
     executorSessionId?: string
   }
 }
-
-export interface OpenCodeConfig {
-  provider?: Record<
-    string,
-    {
-      options?: { apiKey?: string; baseURL?: string }
-      models?: Record<string, { name?: string }>
-    }
-  >
-  model?: string
-}

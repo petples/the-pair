@@ -136,6 +136,10 @@ pub struct UpdatePairModelsInput {
     pub mentor_model: String,
     #[serde(rename = "executorModel")]
     pub executor_model: String,
+    #[serde(rename = "pendingMentorModel")]
+    pub pending_mentor_model: Option<String>,
+    #[serde(rename = "pendingExecutorModel")]
+    pub pending_executor_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +194,10 @@ pub struct Pair {
     pub executor_provider: ProviderKind,
     #[serde(rename = "executorModel")]
     pub executor_model: String,
+    #[serde(rename = "pendingMentorModel")]
+    pub pending_mentor_model: Option<String>,
+    #[serde(rename = "pendingExecutorModel")]
+    pub pending_executor_model: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: u64,
 }

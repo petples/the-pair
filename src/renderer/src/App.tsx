@@ -19,6 +19,7 @@ import { AppChrome } from './components/AppChrome'
 import { AssignTaskModal } from './components/AssignTaskModal'
 import { PairSettingsModal } from './components/PairSettingsModal'
 import { ConfirmModal } from './components/ui/ConfirmModal'
+import { isSelectableForPairExecution } from './lib/modelPreferences'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
@@ -677,30 +678,6 @@ function PairDetail({
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Task Context
-            </h3>
-            <div className="glass-card rounded-2xl p-4 space-y-4">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Mission Spec
-                </span>
-                <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                  {pair.spec}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <TaskHistoryPanel
-            runHistory={pair.runHistory}
-            viewingRunId={viewingRunId}
-            onSelectTask={(runId) => setViewingRunId(runId)}
-            onBackToCurrent={() => setViewingRunId(null)}
-            onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
-          />
-
-          <div>
-            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Models
             </h3>
             <div className="glass-card rounded-2xl p-4 space-y-3">
@@ -775,6 +752,14 @@ function PairDetail({
               </div>
             </div>
           </div>
+
+          <TaskHistoryPanel
+            runHistory={pair.runHistory}
+            viewingRunId={viewingRunId}
+            onSelectTask={(runId) => setViewingRunId(runId)}
+            onBackToCurrent={() => setViewingRunId(null)}
+            onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
+          />
         </div>
 
         <div className="flex w-[46%] flex-col bg-muted/10">
@@ -1153,7 +1138,9 @@ function App(): React.ReactNode {
   }, [flushSnapshots])
 
   const selectedPair = pairs.find((p) => p.id === selectedPairId) ?? null
-  const readyModelCount = availableModels.filter((model) => model.available).length
+  const readyModelCount = availableModels.filter((model) =>
+    isSelectableForPairExecution(model)
+  ).length
   const showOnboarding = !isInitializing && pairs.length === 0
   const showRecoveryPrompt =
     !isInitializing && !isRecoveryDismissed && recoverableSessions.length > 0 && pairs.length === 0

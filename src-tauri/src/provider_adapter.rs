@@ -9,6 +9,7 @@ pub enum InputTransport {
     SessionJson,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputTransport {
     Stdio,
@@ -96,7 +97,7 @@ impl ProviderAdapter {
             ProviderKind::Gemini => ProviderRuntimeSpec {
                 executable: "gemini".into(),
                 input_transport: InputTransport::Stdio,
-                output_transport: OutputTransport::Stdio,
+                output_transport: OutputTransport::JsonEvents,
                 session_strategy: SessionStrategy::NewFirst,
                 permission_strategy: PermissionStrategy::ManualConfirm,
                 cwd_strategy: CwdStrategy::Worktree,
@@ -159,6 +160,7 @@ impl ProviderAdapter {
                     request.model.into(),
                     "--output-format".into(),
                     "stream-json".into(),
+                    "--verbose".into(),
                 ];
                 if request.role == "mentor" {
                     args.push("--permission-mode".into());
@@ -183,7 +185,8 @@ impl ProviderAdapter {
                 let args = vec![
                     "--model".into(),
                     request.model.into(),
-                    "--prompt".into(),
+                    "--output-format".into(),
+                    "stream-json".into(),
                     request.message.into(),
                 ];
 
@@ -272,7 +275,7 @@ mod tests {
     fn claude_command_uses_stream_json_and_resume_flags() {
         let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
             provider_kind: ProviderKind::Claude,
-            model: "claude-3-5-sonnet",
+            model: "sonnet",
             session_id: Some("claude-session"),
             role: "mentor",
             pair_id: "pair-1",
@@ -285,14 +288,40 @@ mod tests {
             vec![
                 "-p".to_string(),
                 "--model".to_string(),
-                "claude-3-5-sonnet".to_string(),
+                "sonnet".to_string(),
                 "--output-format".to_string(),
                 "stream-json".to_string(),
+                "--verbose".to_string(),
                 "--permission-mode".to_string(),
                 "plan".to_string(),
                 "--resume".to_string(),
                 "claude-session".to_string(),
                 "plan the work".to_string()
+            ]
+        );
+        assert!(command.last_message_path.is_none());
+    }
+
+    #[test]
+    fn gemini_command_uses_stream_json_headless_flags() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "gemini-2.5-pro",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "explain the current diff",
+        });
+
+        assert_eq!(command.executable, "gemini");
+        assert_eq!(
+            command.args,
+            vec![
+                "--model".to_string(),
+                "gemini-2.5-pro".to_string(),
+                "--output-format".to_string(),
+                "stream-json".to_string(),
+                "explain the current diff".to_string()
             ]
         );
         assert!(command.last_message_path.is_none());

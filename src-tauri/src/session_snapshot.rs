@@ -488,6 +488,8 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
             &snapshot.executor_model,
         ),
         executor_model: snapshot.executor_model.clone(),
+        pending_mentor_model: snapshot.pending_mentor_model.clone(),
+        pending_executor_model: snapshot.pending_executor_model.clone(),
         created_at: snapshot.created_at,
     }
 }

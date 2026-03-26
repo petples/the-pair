@@ -415,9 +415,9 @@ Now properly passing role-specific PIDs to setPids().
 Fixes #38
 
 # Documentation
-docs(readme): add Homebrew installation instructions
+docs(readme): add installation instructions
 
-Add step-by-step guide for publishing to Homebrew Cask
+Add step-by-step guide for publishing releases
 including notarization requirements.
 ```
 

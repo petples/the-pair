@@ -1,7 +1,6 @@
 import React from 'react'
 import { History, RotateCcw } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import type { PairRunSummary } from '../store/usePairStore'
 
@@ -93,7 +92,6 @@ export function TaskHistoryPanel({
                       <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0">
                         #{runHistory.length - idx}
                       </span>
-                      <StatusBadge status={run.status} />
                     </div>
                     <span className="text-[9px] font-mono text-muted-foreground/50 shrink-0">
                       {duration}

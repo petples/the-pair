@@ -1,3 +1,4 @@
+mod config_paths;
 mod file_cache;
 mod git_tracker;
 mod message_broker;
@@ -92,7 +93,7 @@ pub fn run() {
             pair_manager::pair_delete,
             pair_manager::pair_pause,
             pair_manager::pair_assign_task,
-            stubs::pair_update_models,
+            pair_manager::pair_update_models,
             stubs::pair_retry_turn,
             stubs::pair_get_messages,
             stubs::pair_get_state,

@@ -101,14 +101,8 @@
   - Replace `electron-builder` with `tauri build`
   - Keep certificate import and signing identity verification
   - Update artifact paths
-- Update `.github/workflows/update-cask.yml` for Tauri bundle structure
 
-### Task 11: Update Homebrew cask formula
-
-- Verify cask formula works with Tauri-built .dmg
-- Test installation: `brew reinstall the-pair`
-
-### Task 12: Update documentation and cleanup
+### Task 11: Update documentation and cleanup
 
 - Update README.md: mention Tauri instead of Electron
 - Update build instructions

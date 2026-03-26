@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-27
+
+### Changed
+
+- Expanded provider detection and model cataloging across OpenCode, Codex, Claude Code, and Gemini CLI.
+- Reworked onboarding and model selection to validate actual ready models instead of only checking for an OpenCode config file.
+- Refreshed provider-facing copy and model guidance throughout the app to match the new multi-provider flow.
+
+### Fixed
+
+- Corrected OpenCode config path resolution on Windows so the app reads and opens the right file.
+- Improved fallback CLI discovery and added coverage for provider readiness, model preference resolution, and override handling.
+
 ## [1.1.22] - 2026-03-26
 
 ### Fixed
@@ -16,9 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed model and subscription detection on Apple Silicon Macs where Homebrew tools (`claude`, `opencode`, `codex`) were not found when the app was launched from the Dock or Finder, because `/opt/homebrew/bin` is not in the default macOS GUI app PATH
+- Fixed model and subscription detection on Apple Silicon Macs where CLI tools (`claude`, `opencode`, `codex`) were not found when the app was launched from the Dock or Finder
 - Added fallback binary detection that checks known install paths directly when the `which` command fails
-- Fixed PATH setup to always include Homebrew directories even when login shell PATH capture is blocked by corporate security software (e.g. CyberArk EPM)
+- Fixed PATH setup to always include common binary directories even when login shell PATH capture is blocked by corporate security software (e.g. CyberArk EPM)
 - Fixed OpenCode zen-backed models (`opencode/*` provider) being filtered out from the model list even when opencode is installed and authenticated
 
 ## [1.1.20] - 2026-03-26
@@ -128,7 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Added a concrete release checklist for the GitHub Actions and Homebrew publish flow
+- Added a concrete release checklist for the GitHub Actions publish flow
 - Updated package metadata and release hygiene for public-source distribution
 - Wired the default test command to run both JavaScript and Rust unit tests
 
@@ -156,7 +169,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full automation mode with workspace-scoped permissions
 - Human oversight with approval/rejection workflow
 - Cross-platform support (macOS, Windows, Linux)
-- Homebrew Cask distribution for macOS
 - Code signing and notarization for macOS builds
 - Dark/light theme support
 - Model picker with automatic provider detection

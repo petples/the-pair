@@ -21,11 +21,9 @@ Successfully removed all Electron dependencies and code from the repository. The
 - ✅ Updated app identifier from `com.electron.the-pair` to `com.thepair.app`
 - ✅ Verified Tauri config is properly set up
 
-### 3. Homebrew Publishing
+### 3. GitHub Actions Publishing
 
-- ✅ Updated `homebrew-cask/the-pair.rb` with new bundle identifier
 - ✅ Updated `.github/workflows/build-signed-mac.yml` with new bundle ID
-- ✅ Updated `.github/workflows/update-cask.yml` with new bundle ID
 - ✅ Updated `.github/workflows/build.yml` to use Tauri build commands
 
 ### 4. Code Cleanup
@@ -67,7 +65,6 @@ Successfully removed all Electron dependencies and code from the repository. The
 This change affects:
 
 - Tauri app configuration
-- Homebrew cask formula
 - macOS application preferences and cache locations
 - GitHub Actions workflows
 
@@ -86,11 +83,7 @@ This change affects:
    npm run build:mac
    ```
 
-3. **Verify Homebrew publishing:**
-   - Test the updated workflow on next release
-   - Ensure DMG is properly signed with new bundle ID
-
-4. **Update any external references:**
+3. **Update any external references:**
    - Documentation sites
    - Installation guides
    - User migration notes (if users have old version installed)
@@ -114,7 +107,6 @@ Users may need to reconfigure preferences after upgrading.
 - [x] No Electron dependencies in package.json
 - [x] No Electron code in src/ directory
 - [x] Tauri config uses correct bundle identifier
-- [x] Homebrew cask uses correct bundle identifier
 - [x] GitHub Actions workflows use Tauri commands
 - [x] Documentation updated
 - [x] Frontend uses Tauri APIs directly
