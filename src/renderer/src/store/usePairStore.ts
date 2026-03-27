@@ -23,6 +23,7 @@ import {
   buildVerificationRetryPrompt,
   idleVerificationState
 } from '../lib/verificationGate'
+import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
 
 export type PairStatus =
   | 'Idle'
@@ -174,6 +175,7 @@ interface PairCreatedResponse {
 
 interface BackendPairState {
   pairId?: string
+  status?: PairStatus | string
   messages?: Message[]
 }
 
@@ -206,6 +208,7 @@ interface PairStore {
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   restoreSession: (pairId: string, continueRun?: boolean) => Promise<void>
   pausePair: (id: string) => Promise<void>
+  resumePair: (id: string) => Promise<void>
   deletePair: (id: string) => Promise<void>
   updatePairStatus: (id: string, status: PairStatus) => void
   updatePairUsage: (id: string, cpu: number, mem: number) => void
@@ -925,6 +928,21 @@ export const usePairStore = create<PairStore>((set) => ({
       const data = payload as PairHandoffEvent
       console.log('[usePairStore] Handoff event:', data)
 
+      let backendState: BackendPairState | null = null
+      try {
+        backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
+      } catch (error) {
+        console.warn(
+          '[usePairStore] Failed to load backend state before handoff processing',
+          error
+        )
+      }
+
+      if (backendState?.status === 'Finished') {
+        console.log('[usePairStore] Ignoring handoff - backend already finished')
+        return
+      }
+
       const state = usePairStore.getState()
       const pair = state.pairs.find((p) => p.id === data.pairId)
 
@@ -933,16 +951,18 @@ export const usePairStore = create<PairStore>((set) => ({
         return
       }
 
-      if (pair.status === 'Finished') {
+      if (
+        shouldIgnoreHandoffEvent({
+          pairStatus: pair.status,
+          backendStatus: backendState?.status
+        })
+      ) {
         console.log('[usePairStore] Ignoring handoff - pair already finished')
         return
       }
 
       let contextMessages = pair.messages
       try {
-        const backendState = (await window.api.pair.getState(
-          data.pairId
-        )) as BackendPairState | null
         if (backendState?.messages?.length) {
           contextMessages = backendState.messages
         }
@@ -1332,6 +1352,22 @@ export const usePairStore = create<PairStore>((set) => ({
       set({ isLoading: false })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to pause pair'
+      set({
+        isLoading: false,
+        error: message
+      })
+      throw error instanceof Error ? error : new Error(message)
+    }
+  },
+
+  resumePair: async (id) => {
+    set({ isLoading: true, error: null })
+
+    try {
+      await window.api.pair.resume(id)
+      set({ isLoading: false })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to resume pair'
       set({
         isLoading: false,
         error: message

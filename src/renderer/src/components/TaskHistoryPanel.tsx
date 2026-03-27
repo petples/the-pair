@@ -1,10 +1,7 @@
 import React from 'react'
 import { History, RotateCcw } from 'lucide-react'
 import { cn } from '../lib/utils'
-import {
-  getVerificationSummaryChip,
-  type VerificationSummaryTone
-} from '../lib/verificationGate'
+import { getVerificationSummaryChip, type VerificationSummaryTone } from '../lib/verificationGate'
 import { GlassButton } from './ui/GlassButton'
 import type { PairRunSummary } from '../store/usePairStore'
 
@@ -141,8 +138,8 @@ export function TaskHistoryPanel({
 
                 <div
                   className={cn(
-                    'absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity',
-                    isViewing && 'opacity-100'
+                    'absolute right-2 top-2 transition-opacity',
+                    isViewing ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
                   )}
                 >
                   <GlassButton
@@ -154,6 +151,8 @@ export function TaskHistoryPanel({
                     }}
                     icon={<RotateCcw size={9} />}
                     className="h-6 w-6 min-w-0 p-0 px-1.5 [&]:text-[9px]"
+                    aria-label="Restore this task"
+                    title="Restore this task"
                   >
                     {' '}
                   </GlassButton>

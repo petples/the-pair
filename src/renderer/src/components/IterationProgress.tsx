@@ -1,0 +1,52 @@
+import React from 'react'
+import { cn } from '../lib/utils'
+
+interface IterationProgressProps {
+  current: number
+  max: number
+  className?: string
+}
+
+export function IterationProgress({
+  current,
+  max,
+  className
+}: IterationProgressProps): React.ReactNode {
+  const percentage = Math.min((current / max) * 100, 100)
+  const isNearLimit = percentage >= 80
+  const isAtLimit = current >= max
+
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="font-medium text-muted-foreground">Iterations</span>
+        <span
+          className={cn(
+            'font-mono font-semibold',
+            isAtLimit
+              ? 'text-red-600 dark:text-red-400'
+              : isNearLimit
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-foreground/70'
+          )}
+        >
+          {current}/{max}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            'h-full rounded-full transition-all duration-500',
+            isAtLimit ? 'bg-red-500' : isNearLimit ? 'bg-amber-500' : 'bg-primary'
+          )}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      {isAtLimit && (
+        <p className="text-[9px] text-red-600/70 dark:text-red-400/70">
+          Iteration limit reached - manual intervention required
+        </p>
+      )}
+    </div>
+  )
+}

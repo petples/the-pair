@@ -11,6 +11,8 @@ interface GlassButtonProps {
   disabled?: boolean
   type?: 'button' | 'submit'
   icon?: React.ReactNode
+  'aria-label'?: string
+  title?: string
 }
 
 const variantMap = {
@@ -39,7 +41,9 @@ export function GlassButton({
   className,
   disabled = false,
   type = 'button',
-  icon
+  icon,
+  'aria-label': ariaLabel,
+  title
 }: GlassButtonProps): React.ReactNode {
   return (
     <motion.button
@@ -48,6 +52,8 @@ export function GlassButton({
       disabled={disabled}
       whileTap={{ scale: 0.95 }}
       whileHover={{ scale: 1.015 }}
+      aria-label={ariaLabel}
+      title={title}
       className={cn(
         'flex items-center justify-center font-medium transition-all duration-200 border relative overflow-hidden',
         variantMap[variant],

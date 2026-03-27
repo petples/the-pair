@@ -93,6 +93,7 @@ pub fn run() {
             pair_manager::pair_list,
             pair_manager::pair_delete,
             pair_manager::pair_pause,
+            pair_manager::pair_resume,
             pair_manager::pair_assign_task,
             pair_manager::pair_update_models,
             stubs::pair_retry_turn,

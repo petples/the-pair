@@ -36,6 +36,7 @@ interface MeterBarProps {
 
 function MeterBar({ icon, label, value, max, unit, color }: MeterBarProps): React.ReactNode {
   const percent = Math.min((value / max) * 100, 100)
+  const isVisible = percent >= 0.5
 
   const colorMap = {
     blue: {
@@ -77,12 +78,16 @@ function MeterBar({ icon, label, value, max, unit, color }: MeterBarProps): Reac
         </span>
       </div>
       <div className="h-1 rounded-full bg-muted overflow-hidden dark:bg-white/8">
-        <motion.div
-          className={cn('h-full rounded-full shadow-lg', c.bar, c.glow)}
-          initial={{ width: 0 }}
-          animate={{ width: `${percent}%` }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
-        />
+        {isVisible ? (
+          <motion.div
+            className={cn('h-full rounded-full shadow-lg', c.bar, c.glow)}
+            initial={{ width: 0 }}
+            animate={{ width: `${percent}%` }}
+            transition={{ duration: 0.6, ease: 'easeOut' }}
+          />
+        ) : (
+          <div className="h-full w-0" />
+        )}
       </div>
     </div>
   )

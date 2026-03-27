@@ -110,6 +110,27 @@ impl MessageBroker {
     }
 
     #[allow(dead_code)]
+    pub fn get_last_messages(&self, pair_id: &str) -> (Option<Message>, Option<Message>) {
+        let pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get(pair_id) {
+            (
+                state.mentor.last_message.clone(),
+                state.executor.last_message.clone(),
+            )
+        } else {
+            (None, None)
+        }
+    }
+
+    pub fn get_pair_state(&self, pair_id: &str) -> Option<(crate::types::AgentRole, Vec<Message>)> {
+        let pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get(pair_id) {
+            Some((state.turn.clone(), state.messages.clone()))
+        } else {
+            None
+        }
+    }
+
     pub fn add_message(&self, pair_id: &str, mut message: Message) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
@@ -335,9 +356,6 @@ impl MessageBroker {
                     state.executor_activity.updated_at = Self::now();
                 }
             } else {
-                // Increment iteration for executor turn? Or keep same? Let's keep consistent with add_message logic
-                // If it's a handoff, we might want to increment iteration count here or let it be handled elsewhere
-                // For now, let's just set the activities
                 state.executor.status = PairStatus::Executing;
                 state.executor_activity.phase = ActivityPhase::Thinking;
                 state.executor_activity.label = "Executing plan".to_string();
@@ -359,43 +377,151 @@ impl MessageBroker {
         drop(pair_states);
 
         if should_spawn_monitor {
-            let pair_states_clone = self.pair_states.clone();
-            let app_handle_clone = self.app_handle.clone();
-            let pair_id_string = pair_id.to_string();
-            let active_processes_clone = active_processes.clone();
+            Self::spawn_monitor(
+                self.pair_states.clone(),
+                self.app_handle.clone(),
+                pair_id.to_string(),
+                active_processes.clone(),
+            );
+        }
+    }
 
-            tauri::async_runtime::spawn(async move {
-                let mut sys = sysinfo::System::new_all();
-                loop {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                    let mut guard = pair_states_clone.lock().unwrap();
-                    if let Some(state) = guard.get_mut(&pair_id_string) {
-                        if matches!(
-                            state.status,
-                            PairStatus::Finished
-                                | PairStatus::Error
-                                | PairStatus::Idle
-                                | PairStatus::AwaitingHumanReview
-                        ) {
-                            break;
-                        }
-
-                        crate::git_tracker::GitTracker::update_state(state);
-                        crate::resource_monitor::ResourceMonitor::update_state(
-                            state,
-                            &mut sys,
-                            active_processes_clone.clone(),
-                        );
-
-                        if let Some(handle) = &app_handle_clone {
-                            let _ = handle.emit("pair:state", state.clone());
-                        }
-                    } else {
+    fn spawn_monitor(
+        pair_states: Arc<Mutex<HashMap<String, PairState>>>,
+        app_handle: Option<tauri::AppHandle>,
+        pair_id_string: String,
+        active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
+    ) {
+        tauri::async_runtime::spawn(async move {
+            let mut sys = sysinfo::System::new_all();
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                let mut guard = pair_states.lock().unwrap();
+                if let Some(state) = guard.get_mut(&pair_id_string) {
+                    if matches!(
+                        state.status,
+                        PairStatus::Finished
+                            | PairStatus::Error
+                            | PairStatus::Idle
+                            | PairStatus::AwaitingHumanReview
+                    ) {
                         break;
                     }
+
+                    crate::git_tracker::GitTracker::update_state(state);
+                    let active = active_processes.clone();
+                    crate::resource_monitor::ResourceMonitor::update_state(
+                        state,
+                        &mut sys,
+                        active,
+                    );
+
+                    if let Some(handle) = &app_handle {
+                        let _ = handle.emit("pair:state", state.clone());
+                    }
+                } else {
+                    break;
                 }
-            });
-        }
+            }
+        });
+    }
+
+    pub fn resume_run(
+        &self,
+        pair_id: &str,
+        role: &str,
+        active_processes: Arc<Mutex<HashMap<String, tokio::process::Child>>>,
+    ) -> PairStatus {
+        let resolved_status = {
+            let mut pair_states = self.pair_states.lock().unwrap();
+
+            if let Some(state) = pair_states.get_mut(pair_id) {
+                let turn = state.turn.clone();
+                let iteration = state.iteration;
+                let is_planning_turn =
+                    matches!(&turn, AgentRole::Mentor) && (iteration == 1 || iteration == 0);
+
+                let resolved = if role == "mentor" {
+                    if is_planning_turn {
+                        state.iteration = if iteration == 0 { 1 } else { iteration };
+                        PairStatus::Mentoring
+                    } else {
+                        PairStatus::Reviewing
+                    }
+                } else {
+                    PairStatus::Executing
+                };
+
+                state.status = resolved.clone();
+                state.turn = if role == "mentor" {
+                    AgentRole::Mentor
+                } else {
+                    AgentRole::Executor
+                };
+
+                if role == "mentor" {
+                    if is_planning_turn {
+                        state.mentor.status = PairStatus::Executing;
+                        state.mentor_activity.phase = ActivityPhase::Thinking;
+                        state.mentor_activity.label = "Analyzing task".to_string();
+                        state.mentor_activity.detail = Some("Resuming from pause".to_string());
+                        state.mentor_activity.updated_at = Self::now();
+
+                        state.executor.status = PairStatus::Idle;
+                        state.executor_activity.phase = ActivityPhase::Waiting;
+                        state.executor_activity.label = "Executor standing by".to_string();
+                        state.executor_activity.updated_at = Self::now();
+                    } else {
+                        state.mentor.status = PairStatus::Reviewing;
+                        state.mentor_activity.phase = ActivityPhase::Thinking;
+                        state.mentor_activity.label = "Reviewing changes".to_string();
+                        state.mentor_activity.detail = Some("Resuming from pause".to_string());
+                        state.mentor_activity.updated_at = Self::now();
+
+                        state.executor.status = PairStatus::Idle;
+                        state.executor_activity.phase = ActivityPhase::Waiting;
+                        state.executor_activity.label = "Awaiting verification verdict".to_string();
+                        state.executor_activity.detail = Some("Executor paused for review".to_string());
+                        state.executor_activity.updated_at = Self::now();
+                    }
+                } else {
+                    state.executor.status = PairStatus::Executing;
+                    state.executor_activity.phase = ActivityPhase::Thinking;
+                    state.executor_activity.label = "Executing plan".to_string();
+                    state.executor_activity.detail = Some("Resuming from pause".to_string());
+                    state.executor_activity.updated_at = Self::now();
+
+                    state.mentor.status = PairStatus::Idle;
+                    state.mentor_activity.phase = ActivityPhase::Waiting;
+                    state.mentor_activity.label = "Mentor observing".to_string();
+                    state.mentor_activity.updated_at = Self::now();
+                }
+
+                self.notify_state_update(pair_id, state);
+
+                println!(
+                    "[MessageBroker] Resumed run for pair {} as {} (status={:?}, planning={}, iter={})",
+                    pair_id, role, resolved, is_planning_turn, state.iteration
+                );
+
+                resolved
+            } else {
+                if role == "mentor" {
+                    PairStatus::Mentoring
+                } else {
+                    PairStatus::Executing
+                }
+            }
+        };
+
+        Self::spawn_monitor(
+            self.pair_states.clone(),
+            self.app_handle.clone(),
+            pair_id.to_string(),
+            active_processes.clone(),
+        );
+
+        resolved_status
     }
 
     pub fn get_state(&self, pair_id: &str) -> Option<PairState> {
@@ -980,6 +1106,172 @@ mod tests {
         assert_eq!(
             state.messages[0].content,
             "Human approved review. Continuing."
+        );
+    }
+
+    fn paused_mentor_planning_state() -> PairState {
+        let mut state = pair_state(PairStatus::Paused, 1);
+        state.turn = AgentRole::Mentor;
+        state.status = PairStatus::Paused;
+        state.mentor.status = PairStatus::Paused;
+        state.executor.status = PairStatus::Paused;
+        state
+    }
+
+    fn paused_mentor_review_state() -> PairState {
+        let mut state = pair_state(PairStatus::Paused, 2);
+        state.turn = AgentRole::Mentor;
+        state.status = PairStatus::Paused;
+        state.mentor.status = PairStatus::Paused;
+        state.executor.status = PairStatus::Paused;
+        state
+    }
+
+    fn paused_executor_state() -> PairState {
+        let mut state = pair_state(PairStatus::Paused, 2);
+        state.turn = AgentRole::Executor;
+        state.status = PairStatus::Paused;
+        state.mentor.status = PairStatus::Paused;
+        state.executor.status = PairStatus::Paused;
+        state
+    }
+
+    #[test]
+    fn resume_run_restores_paused_mentor_planning_as_mentoring_not_reviewing() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker
+            .restore_state(paused_mentor_planning_state())
+            .unwrap();
+
+        broker.resume_run(
+            "pair-1",
+            "mentor",
+            Arc::new(Mutex::new(HashMap::<String, tokio::process::Child>::new())),
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(
+            state.status,
+            PairStatus::Mentoring,
+            "status should be Mentoring, not Reviewing"
+        );
+        assert_eq!(
+            state.iteration, 1,
+            "iteration should be preserved (1), not incremented"
+        );
+        assert_eq!(state.turn, AgentRole::Mentor, "turn should be Mentor");
+        assert_eq!(
+            state.mentor_activity.label, "Analyzing task",
+            "mentor should be in planning mode"
+        );
+        assert!(matches!(
+            state.mentor_activity.phase,
+            ActivityPhase::Thinking
+        ));
+        assert!(matches!(
+            state.executor_activity.phase,
+            ActivityPhase::Waiting
+        ));
+        assert_eq!(
+            state.executor_activity.label, "Executor standing by",
+            "executor should be standing by"
+        );
+        assert_eq!(
+            state.mentor.status, PairStatus::Executing,
+            "mentor status should be Executing (not flattened to Mentoring)"
+        );
+        assert_eq!(
+            state.executor.status, PairStatus::Idle,
+            "executor status should be Idle (not flattened)"
+        );
+    }
+
+    #[test]
+    fn resume_run_restores_paused_mentor_review_as_reviewing() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.restore_state(paused_mentor_review_state()).unwrap();
+
+        broker.resume_run(
+            "pair-1",
+            "mentor",
+            Arc::new(Mutex::new(HashMap::<String, tokio::process::Child>::new())),
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(
+            state.status,
+            PairStatus::Reviewing,
+            "status should be Reviewing for review turn"
+        );
+        assert_eq!(
+            state.iteration, 2,
+            "iteration should be preserved (2), not incremented"
+        );
+        assert_eq!(
+            state.mentor_activity.label, "Reviewing changes",
+            "mentor should be in review mode"
+        );
+        assert!(matches!(
+            state.executor_activity.phase,
+            ActivityPhase::Waiting
+        ));
+        assert_eq!(
+            state.mentor.status, PairStatus::Reviewing,
+            "mentor status should be Reviewing (not flattened)"
+        );
+        assert_eq!(
+            state.executor.status, PairStatus::Idle,
+            "executor status should be Idle (not flattened)"
+        );
+    }
+
+    #[test]
+    fn resume_run_restores_paused_executor_as_executing() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.restore_state(paused_executor_state()).unwrap();
+
+        broker.resume_run(
+            "pair-1",
+            "executor",
+            Arc::new(Mutex::new(HashMap::<String, tokio::process::Child>::new())),
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(
+            state.status,
+            PairStatus::Executing,
+            "status should be Executing for executor resume"
+        );
+        assert_eq!(
+            state.iteration, 2,
+            "iteration should be preserved (2), not incremented"
+        );
+        assert_eq!(
+            state.executor_activity.label, "Executing plan",
+            "executor should be executing"
+        );
+        assert!(matches!(
+            state.executor_activity.phase,
+            ActivityPhase::Thinking
+        ));
+        assert!(matches!(
+            state.mentor_activity.phase,
+            ActivityPhase::Waiting
+        ));
+        assert_eq!(
+            state.mentor_activity.label, "Mentor observing",
+            "mentor should be observing"
+        );
+        assert_eq!(
+            state.executor.status, PairStatus::Executing,
+            "executor status should be Executing (not flattened)"
+        );
+        assert_eq!(
+            state.mentor.status, PairStatus::Idle,
+            "mentor status should be Idle (not flattened)"
         );
     }
 }

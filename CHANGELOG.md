@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-03-28
+
+### Added
+
+- Added resume functionality for paused pairs with intelligent state restoration that distinguishes between planning and review phases.
+- Added DashboardEmptyState component with clear onboarding and visual explanation of Mentor/Executor roles.
+- Added ErrorDetailPanel with actionable retry/discard options and expandable error details.
+- Added IterationProgress indicator with visual warnings when approaching iteration limits.
+- Added MessageFilterBar to filter console messages by role (All/Mentor/Executor) with message counts.
+- Added ScrollToBottomButton that auto-appears when new console messages arrive.
+- Added handoff guard to prevent race conditions when pairs finish.
+- Added comprehensive unit tests for resume scenarios and handoff guards.
+
+### Changed
+
+- Improved resource meters to hide progress bars when usage is below 0.5%.
+- Enhanced dashboard cards to line-clamp long specs to 3 lines.
+- Refactored monitor spawning logic for better reusability.
+- Improved accessibility with aria-labels and titles on interactive elements.
+
+### Fixed
+
+- Fixed mentor finish signal not being prioritized over verification turns.
+- Fixed handoff events being processed after pair already finished.
+- Fixed iteration count being incorrectly incremented on resume.
+- Fixed resource meter showing empty bars at 0% usage.
+
 ## [1.2.1] - 2026-03-27
 
 ### Added

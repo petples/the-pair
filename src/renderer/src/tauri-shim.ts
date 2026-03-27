@@ -13,6 +13,7 @@ const api = {
     updateModels: (pairId: string, input: unknown) =>
       invoke('pair_update_models', { pairId, input }) as Promise<unknown>,
     pause: (pairId: string) => invoke('pair_pause', { pairId }) as Promise<unknown>,
+    resume: (pairId: string) => invoke('pair_resume', { pairId }) as Promise<unknown>,
     stop: (pairId: string) => invoke('pair_pause', { pairId }) as Promise<unknown>,
     delete: (pairId: string) => invoke('pair_delete', { pairId }) as Promise<unknown>,
     retryTurn: (pairId: string) => invoke('pair_retry_turn', { pairId }) as Promise<unknown>,

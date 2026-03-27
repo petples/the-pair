@@ -218,6 +218,17 @@ fn verification_verdict_requests_finish(verdict: Option<&VerificationVerdict>) -
     )
 }
 
+fn should_parse_verification_verdict(role: &str, has_verification_report: bool) -> bool {
+    role == "mentor" && has_verification_report
+}
+
+fn should_finish_after_mentor_turn(
+    mentor_finish_signaled: bool,
+    _verification_turn: bool,
+) -> bool {
+    mentor_finish_signaled
+}
+
 fn has_signal_token_on_own_line(content: &str, token: &str) -> bool {
     let upper_token = token.to_ascii_uppercase();
 
@@ -569,8 +580,10 @@ impl ProcessSpawner {
                     broker
                         .get_state(&pair_id_clone)
                         .map(|state| {
-                            matches!(state.status, crate::types::PairStatus::Reviewing)
-                                || state.verification.report.is_some()
+                            should_parse_verification_verdict(
+                                &role_clone,
+                                state.verification.report.is_some(),
+                            )
                         })
                         .unwrap_or(false)
                 } else {
@@ -592,7 +605,20 @@ impl ProcessSpawner {
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker_state.lock().unwrap();
 
-                if role_clone == "mentor" && verification_turn {
+                if role_clone == "mentor"
+                    && should_finish_after_mentor_turn(mentor_finish_signaled, verification_turn)
+                {
+                    println!(
+                        "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
+                        pair_id_clone, MENTOR_FINISH_SIGNAL
+                    );
+                    broker.set_pair_status(
+                        &pair_id_clone,
+                        crate::types::PairStatus::Finished,
+                        Some(format!("Mentor signaled {}", MENTOR_FINISH_SIGNAL)),
+                    );
+                    should_handoff = false;
+                } else if role_clone == "mentor" && verification_turn {
                     match parse_verification_verdict(&final_output) {
                         Ok(verdict) => {
                             let verdict_summary = verdict.summary.clone();
@@ -636,17 +662,6 @@ impl ProcessSpawner {
                             );
                         }
                     }
-                } else if role_clone == "mentor" && mentor_finish_signaled {
-                    println!(
-                        "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
-                        pair_id_clone, MENTOR_FINISH_SIGNAL
-                    );
-                    broker.set_pair_status(
-                        &pair_id_clone,
-                        crate::types::PairStatus::Finished,
-                        Some(format!("Mentor signaled {}", MENTOR_FINISH_SIGNAL)),
-                    );
-                    should_handoff = false;
                 } else if no_text_output {
                     println!(
                         "[ProcessSpawner] [{}] {} returned no textual output, pausing for human review",
@@ -800,6 +815,20 @@ mod tests {
         assert!(is_noise_event_type_for_final("thread.started"));
         assert!(is_noise_text_candidate("reconnecting..."));
         assert!(!is_noise_text_candidate("Work finished successfully"));
+    }
+
+    #[test]
+    fn plain_review_turns_are_not_treated_as_verification_turns() {
+        assert!(!should_parse_verification_verdict("mentor", false));
+        assert!(should_parse_verification_verdict("mentor", true));
+        assert!(!should_parse_verification_verdict("executor", true));
+    }
+
+    #[test]
+    fn mentor_finish_signal_wins_over_verification_turns() {
+        assert!(should_finish_after_mentor_turn(true, true));
+        assert!(should_finish_after_mentor_turn(true, false));
+        assert!(!should_finish_after_mentor_turn(false, true));
     }
 
     #[test]

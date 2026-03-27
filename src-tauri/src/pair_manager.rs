@@ -2,7 +2,7 @@ use crate::message_broker::MessageBroker;
 use crate::process_spawner::ProcessSpawner;
 use crate::session_snapshot::delete_pair_snapshot;
 use crate::session_snapshot::persist_current_pair_snapshot;
-use crate::types::{AssignTaskInput, CreatePairInput, Pair, PairStatus};
+use crate::types::{AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -364,11 +364,303 @@ pub fn pair_pause(
     Ok(())
 }
 
+fn find_last_message_by_role(messages: &[Message], role: MessageSender) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.from == role && (m.msg_type == MessageType::Plan || m.msg_type == MessageType::Result))
+        .map(|m| m.content.trim().to_string())
+}
+
+fn build_live_resume_prompt(turn: &str, last_mentor: Option<String>, last_executor: Option<String>) -> String {
+    if turn == "executor" {
+        let mentor_msg = last_mentor.unwrap_or_default();
+        format!(
+            "### ROLE: EXECUTOR\n\
+Continue the previously paused session.\n\
+- DO NOT create a new plan.\n\
+- DO NOT review your own work.\n\
+- Keep going from the restored context.\n\
+- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n\
+- Never output \"TASK_COMPLETE\" - this is reserved for MENTOR only.\n\n\
+--- COMMAND TO EXECUTE ---\n{}\n",
+            mentor_msg
+        )
+    } else {
+        let executor_msg = last_executor.unwrap_or_default();
+        format!(
+            "### ROLE: MENTOR\n\
+Continue the restored review session.\n\
+- DO NOT execute files or commands.\n\
+- Review the executor's work and decide whether the task is complete.\n\n\
+--- REVIEW REQUEST ---\n{}\n",
+            executor_msg
+        )
+    }
+}
+
+async fn resume_pair_core(
+    manager: &std::sync::Mutex<PairManager>,
+    broker: &std::sync::Mutex<MessageBroker>,
+    spawner: &ProcessSpawner,
+    pair_id: &str,
+) -> Result<(String, String), String> {
+    let (role_str, prompt) = {
+        let manager_guard = manager.lock().unwrap();
+        let pair = manager_guard
+            .pairs
+            .get(pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+        if pair.status != PairStatus::Paused {
+            return Err(format!("Pair {} is not paused (status: {:?})", pair_id, pair.status));
+        }
+
+        let broker_guard = broker.lock().unwrap();
+        let (lm, le) = broker_guard.get_last_messages(pair_id);
+        let (turn, messages) = broker_guard
+            .get_pair_state(pair_id)
+            .ok_or_else(|| format!("No broker state found for pair {}", pair_id))?;
+
+        let role_str = match turn {
+            crate::types::AgentRole::Mentor => "mentor",
+            crate::types::AgentRole::Executor => "executor",
+        };
+
+        let last_mentor_msg =
+            find_last_message_by_role(&messages, MessageSender::Mentor).or(lm.map(|m| m.content));
+        let last_executor_msg =
+            find_last_message_by_role(&messages, MessageSender::Executor).or(le.map(|m| m.content));
+        let prompt =
+            build_live_resume_prompt(role_str, last_mentor_msg, last_executor_msg);
+
+        (role_str.to_string(), prompt)
+    };
+
+    let resumed_status = {
+        let broker_guard = broker.lock().unwrap();
+        broker_guard.resume_run(pair_id, &role_str, spawner.active_processes.clone())
+    };
+
+    {
+        let mut manager_guard = manager.lock().unwrap();
+        if let Some(pair) = manager_guard.pairs.get_mut(pair_id) {
+            pair.status = resumed_status.clone();
+        }
+    }
+
+    Ok((role_str, prompt))
+}
+
+#[tauri::command]
+pub async fn pair_resume(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, std::sync::Mutex<PairManager>>,
+    broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
+    spawner: tauri::State<'_, ProcessSpawner>,
+    pair_id: String,
+) -> Result<(), String> {
+    let (role_str, prompt) = resume_pair_core(&state, &broker, &spawner, &pair_id).await?;
+
+    let _ = persist_current_pair_snapshot(&app, &pair_id);
+
+    spawner
+        .trigger_turn(app, pair_id, role_str, prompt)
+        .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message_broker::MessageBroker;
+    use crate::process_spawner::ProcessSpawner;
     use crate::provider_registry::ProviderKind;
-    use crate::types::{AgentConfig, AgentRole, CreatePairInput};
+    use crate::types::{AgentConfig, AgentRole, CreatePairInput, PairStatus};
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn make_test_pair_manager() -> (
+        Arc<Mutex<PairManager>>,
+        Arc<Mutex<MessageBroker>>,
+        ProcessSpawner,
+    ) {
+        let manager = Arc::new(Mutex::new(PairManager::new()));
+        let broker = Arc::new(Mutex::new(MessageBroker::new()));
+        let spawner = ProcessSpawner {
+            active_processes: Arc::new(Mutex::new(HashMap::new())),
+            pair_contexts: Arc::new(Mutex::new(HashMap::new())),
+        };
+        (manager, broker, spawner)
+    }
+
+    fn insert_paused_pair(
+        manager: &std::sync::Arc<std::sync::Mutex<PairManager>>,
+        broker: &std::sync::Arc<std::sync::Mutex<MessageBroker>>,
+        pair_id: &str,
+        turn: AgentRole,
+        iteration: u32,
+    ) {
+        let input = CreatePairInput {
+            name: "Test Pair".to_string(),
+            directory: "/tmp/test".to_string(),
+            spec: "Test task".to_string(),
+            mentor: AgentConfig {
+                role: AgentRole::Mentor,
+                provider: ProviderKind::Opencode,
+                model: "test-mentor".to_string(),
+            },
+            executor: AgentConfig {
+                role: AgentRole::Executor,
+                provider: ProviderKind::Codex,
+                model: "test-executor".to_string(),
+            },
+        };
+        let broker_new = broker.lock().unwrap();
+        manager.lock().unwrap().create_pair(input, &broker_new).unwrap();
+        let created_pair_id = manager.lock().unwrap().list_pairs()[0].pair_id.clone();
+        drop(broker_new);
+
+        manager.lock().unwrap().upsert_pair(crate::types::Pair {
+            pair_id: pair_id.to_string(),
+            name: "Test Pair".to_string(),
+            directory: "/tmp/test".to_string(),
+            status: PairStatus::Paused,
+            mentor_provider: ProviderKind::Opencode,
+            mentor_model: "test-mentor".to_string(),
+            executor_provider: ProviderKind::Codex,
+            executor_model: "test-executor".to_string(),
+            pending_mentor_model: None,
+            pending_executor_model: None,
+            created_at: 0,
+        });
+
+        let broker_guard = broker.lock().unwrap();
+        let state = broker_guard.get_state(&created_pair_id).unwrap();
+        drop(broker_guard);
+        let mut state = state;
+        state.pair_id = pair_id.to_string();
+        state.status = PairStatus::Paused;
+        state.turn = turn;
+        state.iteration = iteration;
+        state.mentor.status = PairStatus::Paused;
+        state.executor.status = PairStatus::Paused;
+        broker.lock().unwrap().restore_state(state).unwrap();
+        manager.lock().unwrap().delete_pair(&created_pair_id).ok();
+    }
+
+    #[tokio::test]
+    async fn pair_resume_command_restores_paused_mentor_planning_as_mentoring_not_reviewing() {
+        let (manager, broker, spawner) = make_test_pair_manager();
+        let pair_id = "test-planning";
+        insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 1);
+
+        let result = resume_pair_core(&manager, &broker, &spawner, pair_id).await;
+        assert!(result.is_ok(), "resume should succeed");
+
+        let pair = manager.lock().unwrap().get_pair(pair_id).unwrap();
+        assert_eq!(
+            pair.status,
+            PairStatus::Mentoring,
+            "pair status should be Mentoring (planning), not Reviewing"
+        );
+
+        let state = broker.lock().unwrap().get_state(pair_id).unwrap();
+        assert_eq!(state.status, PairStatus::Mentoring);
+        assert_eq!(
+            state.iteration, 1,
+            "iteration should be preserved, not incremented"
+        );
+        assert_eq!(state.mentor_activity.label, "Analyzing task");
+        assert_eq!(
+            state.mentor.status, PairStatus::Executing,
+            "mentor status should be Executing (not flattened to Mentoring)"
+        );
+        assert_eq!(
+            state.executor.status, PairStatus::Idle,
+            "executor status should be Idle (not overwritten by set_pair_status)"
+        );
+    }
+
+    #[tokio::test]
+    async fn pair_resume_command_restores_paused_mentor_review_as_reviewing() {
+        let (manager, broker, spawner) = make_test_pair_manager();
+        let pair_id = "test-review";
+        insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 2);
+
+        let result = resume_pair_core(&manager, &broker, &spawner, pair_id).await;
+        assert!(result.is_ok(), "resume should succeed");
+
+        let pair = manager.lock().unwrap().get_pair(pair_id).unwrap();
+        assert_eq!(
+            pair.status,
+            PairStatus::Reviewing,
+            "pair status should be Reviewing (not Mentoring) for review turn"
+        );
+
+        let state = broker.lock().unwrap().get_state(pair_id).unwrap();
+        assert_eq!(state.status, PairStatus::Reviewing);
+        assert_eq!(
+            state.iteration, 2,
+            "iteration should be preserved, not incremented"
+        );
+        assert_eq!(state.mentor_activity.label, "Reviewing changes");
+        assert_eq!(
+            state.mentor.status, PairStatus::Reviewing,
+            "mentor status should be Reviewing (not flattened)"
+        );
+        assert_eq!(
+            state.executor.status, PairStatus::Idle,
+            "executor status should be Idle (not overwritten by set_pair_status)"
+        );
+    }
+
+    #[tokio::test]
+    async fn pair_resume_command_restores_paused_executor_as_executing() {
+        let (manager, broker, spawner) = make_test_pair_manager();
+        let pair_id = "test-executor";
+        insert_paused_pair(&manager, &broker, pair_id, AgentRole::Executor, 2);
+
+        let result = resume_pair_core(&manager, &broker, &spawner, pair_id).await;
+        assert!(result.is_ok(), "resume should succeed");
+
+        let pair = manager.lock().unwrap().get_pair(pair_id).unwrap();
+        assert_eq!(
+            pair.status,
+            PairStatus::Executing,
+            "pair status should be Executing"
+        );
+
+        let state = broker.lock().unwrap().get_state(pair_id).unwrap();
+        assert_eq!(state.status, PairStatus::Executing);
+        assert_eq!(state.iteration, 2, "iteration should be preserved");
+        assert_eq!(state.executor_activity.label, "Executing plan");
+        assert_eq!(state.mentor_activity.label, "Mentor observing");
+        assert_eq!(
+            state.executor.status, PairStatus::Executing,
+            "executor status should be Executing (not flattened)"
+        );
+        assert_eq!(
+            state.mentor.status, PairStatus::Idle,
+            "mentor status should be Idle (not overwritten by set_pair_status)"
+        );
+    }
+
+    #[tokio::test]
+    async fn pair_resume_command_preserves_iteration_across_resume() {
+        let (manager, broker, spawner) = make_test_pair_manager();
+        let pair_id = "test-iteration";
+        insert_paused_pair(&manager, &broker, pair_id, AgentRole::Mentor, 5);
+
+        let result = resume_pair_core(&manager, &broker, &spawner, pair_id).await;
+        assert!(result.is_ok());
+
+        let state = broker.lock().unwrap().get_state(pair_id).unwrap();
+        assert_eq!(
+            state.iteration, 5,
+            "iteration should remain 5, not reset or incremented"
+        );
+    }
 
     #[test]
     fn build_mentor_planning_prompt_requires_actionable_steps_and_keeps_task_in_view() {
