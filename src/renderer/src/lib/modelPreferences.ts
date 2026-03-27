@@ -49,3 +49,13 @@ export function getPreferredQualifiedModel(
   const defaultEntry = models.find((model) => isSelectableForPairExecution(model))
   return defaultEntry ? getQualifiedModel(defaultEntry) : ''
 }
+
+export function getPreferredPairModelSelection(models: AvailableModel[]): {
+  mentorModel: string
+  executorModel: string
+} {
+  return {
+    mentorModel: getPreferredQualifiedModel('mentor', models),
+    executorModel: getPreferredQualifiedModel('executor', models)
+  }
+}

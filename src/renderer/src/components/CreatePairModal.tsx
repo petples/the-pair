@@ -8,6 +8,7 @@ import { ModelPicker } from './ModelPicker'
 import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
+import { derivePairNameFromDirectory } from '../lib/workspace'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -94,6 +95,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     })
     if (selected) {
       setDirectory(selected)
+      setName((currentName) =>
+        currentName.trim().length > 0 ? currentName : derivePairNameFromDirectory(selected)
+      )
     }
   }
 

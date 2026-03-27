@@ -198,9 +198,10 @@ pub async fn file_read_content(
 ) -> Result<String, String> {
     let directory = resolve_directory(&app, options.pair_id, options.directory)?;
 
-    let full_path = resolve_workspace_file_path(Path::new(&directory), Path::new(&options.file_path))?;
-    let metadata = fs::metadata(&full_path)
-        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let full_path =
+        resolve_workspace_file_path(Path::new(&directory), Path::new(&options.file_path))?;
+    let metadata =
+        fs::metadata(&full_path).map_err(|e| format!("Failed to read file metadata: {}", e))?;
 
     if metadata.len() > MAX_FILE_SIZE {
         return Err(format!(
@@ -210,8 +211,8 @@ pub async fn file_read_content(
         ));
     }
 
-    let content = fs::read_to_string(&full_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let content =
+        fs::read_to_string(&full_path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     Ok(content)
 }
@@ -224,10 +225,8 @@ mod tests {
 
     #[test]
     fn resolve_workspace_file_path_keeps_files_inside_the_workspace() {
-        let root = std::env::temp_dir().join(format!(
-            "the-pair-file-cache-test-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("the-pair-file-cache-test-{}", std::process::id()));
         let nested_dir = root.join("src");
         let file_path = nested_dir.join("main.rs");
 

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-03-27
+
+### Added
+
+- Added an automated verification gate that runs workspace-specific checks and routes mentor verdicts through a strict JSON review loop.
+- Added verification status chips and a dedicated gate panel so the dashboard, recovery modal, and task history can surface review progress at a glance.
+
+### Changed
+
+- Preserved verification state across snapshots, recoverable sessions, and archived run history.
+- Refined onboarding with a compact layout, automatic pair-name suggestions from the selected workspace, and role-specific model defaults.
+- Expanded the mentor and executor handoff prompts so verification retries keep iterating autonomously without dropping context.
+
+### Fixed
+
+- Tightened provider-specific output handling so Claude final results and stderr logs are treated separately from streaming noise.
+- Kept legacy snapshots and recoverable session records readable after the verification state schema change.
+
 ## [1.2.0] - 2026-03-27
 
 ### Changed
@@ -182,6 +200,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Secure handling of API keys via opencode configuration
 
 [1.1.18]: https://github.com/timwuhaotian/the-pair/compare/v1.1.17...v1.1.18
+[1.2.1]: https://github.com/timwuhaotian/the-pair/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/timwuhaotian/the-pair/compare/v1.1.22...v1.2.0
 [1.1.17]: https://github.com/timwuhaotian/the-pair/compare/v1.1.16...v1.1.17
 [1.1.10]: https://github.com/timwuhaotian/the-pair/compare/v1.1.9...v1.1.10
 [1.1.15]: https://github.com/timwuhaotian/the-pair/compare/v1.1.14...v1.1.15

@@ -52,7 +52,8 @@ impl ModelCatalog {
         let native_source_labels: HashSet<String> = profiles
             .iter()
             .filter(|profile| {
-                !profile.current_models.is_empty() && !matches!(profile.kind, ProviderKind::Opencode)
+                !profile.current_models.is_empty()
+                    && !matches!(profile.kind, ProviderKind::Opencode)
             })
             .map(|profile| match profile.kind {
                 ProviderKind::Codex => "OpenAI".to_string(),

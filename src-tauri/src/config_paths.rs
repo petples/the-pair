@@ -12,11 +12,10 @@ pub fn build_opencode_config_path(base: impl AsRef<Path>, is_windows: bool) -> P
 pub fn opencode_config_path() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
-        let base = std::env::var_os("APPDATA")
-            .or_else(|| {
-                std::env::var_os("USERPROFILE")
-                    .map(|home| PathBuf::from(home).join("AppData/Roaming").into_os_string())
-            })?;
+        let base = std::env::var_os("APPDATA").or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .map(|home| PathBuf::from(home).join("AppData/Roaming").into_os_string())
+        })?;
         return Some(build_opencode_config_path(PathBuf::from(base), true));
     }
 

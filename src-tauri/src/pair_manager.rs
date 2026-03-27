@@ -215,15 +215,19 @@ pub async fn pair_assign_task(
             )
         });
         let is_new_run = input.role.is_none();
-        
+
         // Use pending models if available, otherwise fall back to default models
-        let effective_mentor_model = pair.pending_mentor_model.as_ref()
+        let effective_mentor_model = pair
+            .pending_mentor_model
+            .as_ref()
             .unwrap_or(&pair.mentor_model)
             .clone();
-        let effective_executor_model = pair.pending_executor_model.as_ref()
+        let effective_executor_model = pair
+            .pending_executor_model
+            .as_ref()
             .unwrap_or(&pair.executor_model)
             .clone();
-        
+
         ctx_guard.insert(
             pair_id.clone(),
             crate::process_spawner::ProcessContext {

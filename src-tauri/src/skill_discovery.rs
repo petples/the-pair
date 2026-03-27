@@ -58,7 +58,11 @@ fn discover_skills_impl(project_dir: Option<&str>) -> Vec<SkillInfo> {
     let mut all_skills = Vec::new();
 
     if let Some(home) = dirs::home_dir() {
-        for subdir in [".config/opencode/skills", ".claude/skills", ".agents/skills"] {
+        for subdir in [
+            ".config/opencode/skills",
+            ".claude/skills",
+            ".agents/skills",
+        ] {
             let dir = home.join(subdir);
             all_skills.extend(scan_skills_dir(dir));
         }

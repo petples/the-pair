@@ -1,4 +1,5 @@
 use crate::provider_registry::ProviderKind;
+use crate::verification_gate::VerificationState;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -177,6 +178,10 @@ pub struct PairState {
     pub automation_mode: String,
     #[serde(rename = "gitReviewAvailable")]
     pub git_review_available: bool,
+    #[serde(rename = "finishedAt")]
+    pub finished_at: Option<u64>,
+    #[serde(default)]
+    pub verification: VerificationState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

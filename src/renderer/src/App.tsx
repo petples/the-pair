@@ -9,6 +9,7 @@ import { useThemeStore } from './store/useThemeStore'
 import { CreatePairModal } from './components/CreatePairModal'
 import { StatusBadge } from './components/StatusBadge'
 import { TaskHistoryPanel } from './components/TaskHistoryPanel'
+import { VerificationGatePanel } from './components/VerificationGatePanel'
 import { OnboardingWizard } from './components/OnboardingWizard'
 import { SessionRecoveryModal } from './components/SessionRecoveryModal'
 import { GlassCard } from './components/ui/GlassCard'
@@ -20,6 +21,10 @@ import { AssignTaskModal } from './components/AssignTaskModal'
 import { PairSettingsModal } from './components/PairSettingsModal'
 import { ConfirmModal } from './components/ui/ConfirmModal'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
+import {
+  getVerificationSummaryChip,
+  type VerificationSummaryTone
+} from './lib/verificationGate'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
@@ -33,6 +38,14 @@ function isPairRunning(status: Pair['status']): boolean {
 
 function isAgentExecuting(phase: string): boolean {
   return phase === 'thinking' || phase === 'using_tools' || phase === 'responding'
+}
+
+const verificationToneClasses: Record<VerificationSummaryTone, string> = {
+  neutral: 'border-border/50 bg-background/50 text-muted-foreground',
+  blue: 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  amber: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  green: 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300',
+  red: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
 }
 
 function buildConsoleMessages(messages: Message[]): Message[] {
@@ -217,112 +230,127 @@ function Dashboard({
           animate="visible"
         >
           <AnimatePresence>
-            {pairs.map((pair) => (
-              <motion.div
-                key={pair.id}
-                variants={fadeInUp}
-                initial="hidden"
-                animate="visible"
-                exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-                layout
-                className="group"
-              >
-                <GlassCard
-                  hoverable
-                  onClick={() => onSelectPair(pair)}
-                  glow={getPairGlow(pair.status)}
-                  className="flex min-h-[220px] flex-col gap-4 p-5"
+            {pairs.map((pair) => {
+              const verificationSummary = getVerificationSummaryChip(pair.verification)
+
+              return (
+                <motion.div
+                  key={pair.id}
+                  variants={fadeInUp}
+                  initial="hidden"
+                  animate="visible"
+                  exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+                  layout
+                  className="group"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="truncate text-base font-semibold leading-tight text-foreground">
-                        {pair.name}
-                      </h3>
-                      <p
-                        className="mt-1 truncate font-mono text-xs text-muted-foreground"
-                        title={pair.directory}
-                      >
-                        {pair.directory}
-                      </p>
+                  <GlassCard
+                    hoverable
+                    onClick={() => onSelectPair(pair)}
+                    glow={getPairGlow(pair.status)}
+                    className="flex min-h-[220px] flex-col gap-4 p-5"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="truncate text-base font-semibold leading-tight text-foreground">
+                          {pair.name}
+                        </h3>
+                        <p
+                          className="mt-1 truncate font-mono text-xs text-muted-foreground"
+                          title={pair.directory}
+                        >
+                          {pair.directory}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={pair.status} />
+                        <GlassButton
+                          variant="destructive"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onDeletePair(pair)
+                          }}
+                          disabled={deletingPairId === pair.id}
+                          icon={<Trash2 size={12} />}
+                          className="opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                        >
+                          {deletingPairId === pair.id ? 'Deleting...' : 'Delete'}
+                        </GlassButton>
+                      </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <StatusBadge status={pair.status} />
-                      <GlassButton
-                        variant="destructive"
-                        size="sm"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          onDeletePair(pair)
-                        }}
-                        disabled={deletingPairId === pair.id}
-                        icon={<Trash2 size={12} />}
-                        className="opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                      >
-                        {deletingPairId === pair.id ? 'Deleting...' : 'Delete'}
-                      </GlassButton>
-                    </div>
-                  </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      Run {pair.runCount}
-                    </span>
-                    <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                      {pair.runHistory.length} archived
-                    </span>
-                    {pair.status === 'Paused' ? (
-                      <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
-                        Paused
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Run {pair.runCount}
                       </span>
-                    ) : (
-                      !isPairRunning(pair.status) && (
-                        <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
-                          Ready for new task
+                      <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        {pair.runHistory.length} archived
+                      </span>
+                      {pair.status === 'Paused' ? (
+                        <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
+                          Paused
                         </span>
-                      )
-                    )}
-                    {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
-                      <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
-                        Models queued
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex-1 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                    {pair.spec}
-                  </div>
-
-                  <div className="mt-auto space-y-3 border-t border-border/50 pt-4">
-                    <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-                        <RefreshCw
-                          size={12}
+                      ) : (
+                        !isPairRunning(pair.status) && (
+                          <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
+                            Ready for new task
+                          </span>
+                        )
+                      )}
+                      {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
+                        <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                          Models queued
+                        </span>
+                      )}
+                      {verificationSummary ? (
+                        <span
                           className={cn(
-                            pair.status === 'Executing' || pair.status === 'Mentoring'
-                              ? 'animate-spin text-blue-500'
-                              : 'text-muted-foreground/50'
+                            'max-w-[220px] truncate rounded-full border px-2 py-1 text-[9px] font-medium',
+                            verificationToneClasses[verificationSummary.tone]
                           )}
-                        />
-                        <span>
-                          {pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'turn idle'}
+                          title={verificationSummary.text}
+                        >
+                          {verificationSummary.text}
                         </span>
-                      </div>
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="text-[10px] font-medium text-blue-600">MENTOR</span>
-                        <span className="truncate font-mono text-[10px] text-muted-foreground">
-                          {(pair.pendingMentorModel ?? pair.mentorModel).split('/').pop()}
-                        </span>
-                        <span className="text-[10px] font-medium text-purple-600">EXEC</span>
-                        <span className="truncate font-mono text-[10px] text-muted-foreground">
-                          {(pair.pendingExecutorModel ?? pair.executorModel).split('/').pop()}
-                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="flex-1 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      {pair.spec}
+                    </div>
+
+                    <div className="mt-auto space-y-3 border-t border-border/50 pt-4">
+                      <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                          <RefreshCw
+                            size={12}
+                            className={cn(
+                              pair.status === 'Executing' || pair.status === 'Mentoring'
+                                ? 'animate-spin text-blue-500'
+                                : 'text-muted-foreground/50'
+                            )}
+                          />
+                          <span>
+                            {pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'turn idle'}
+                          </span>
+                        </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="text-[10px] font-medium text-blue-600">MENTOR</span>
+                          <span className="truncate font-mono text-[10px] text-muted-foreground">
+                            {(pair.pendingMentorModel ?? pair.mentorModel).split('/').pop()}
+                          </span>
+                          <span className="text-[10px] font-medium text-purple-600">EXEC</span>
+                          <span className="truncate font-mono text-[10px] text-muted-foreground">
+                            {(pair.pendingExecutorModel ?? pair.executorModel).split('/').pop()}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </GlassCard>
-              </motion.div>
-            ))}
+                  </GlassCard>
+                </motion.div>
+              )
+            })}
           </AnimatePresence>
         </motion.div>
       </div>
@@ -585,13 +613,12 @@ function PairDetail({
   const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
   const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
   const isRunning = isPairRunning(pair.status) || mentorIsExecuting || executorIsExecuting
+  const viewingRun = viewingRunId
+    ? pair.runHistory.find((run) => run.id === viewingRunId) ?? null
+    : null
   const consoleMessages = useMemo(() => {
-    if (viewingRunId) {
-      const run = pair.runHistory.find((r) => r.id === viewingRunId)
-      return run ? buildConsoleMessages(run.messages) : []
-    }
-    return buildConsoleMessages(pair.messages)
-  }, [pair.messages, pair.runHistory, viewingRunId])
+    return viewingRun ? buildConsoleMessages(viewingRun.messages) : buildConsoleMessages(pair.messages)
+  }, [pair.messages, viewingRun])
   const reviewReason =
     pair.status === 'Awaiting Human Review'
       ? (pair.mentorActivity.detail ??
@@ -607,6 +634,7 @@ function PairDetail({
           ? pair.mentorActivity.detail || 'Thinking...'
           : pair.executorActivity.detail || 'Working...')
   const visibleStatusText = useMinimumVisibleText(liveStatusText, pair.id)
+  const activeVerification = viewingRun?.verification ?? pair.verification
 
   return (
     <div className="flex h-full flex-col">
@@ -760,6 +788,8 @@ function PairDetail({
             onBackToCurrent={() => setViewingRunId(null)}
             onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
           />
+
+          <VerificationGatePanel verification={activeVerification} />
         </div>
 
         <div className="flex w-[46%] flex-col bg-muted/10">

@@ -247,7 +247,10 @@ fn resolve_claude_model_labels(home: &std::path::Path) -> ClaudeModelLabels {
     )
 }
 
-fn claude_model_catalog(subscription_label: &str, labels: &ClaudeModelLabels) -> Vec<DetectedModelOption> {
+fn claude_model_catalog(
+    subscription_label: &str,
+    labels: &ClaudeModelLabels,
+) -> Vec<DetectedModelOption> {
     vec![
         DetectedModelOption {
             model_id: "default".to_string(),
@@ -340,8 +343,8 @@ impl ProviderRegistry {
         let mut authenticated = false;
 
         // 1. Detect from ~/.config/opencode/opencode.json (user custom models)
-        let config_path =
-            opencode_config_path().unwrap_or_else(|| homedir().join(".config/opencode/opencode.json"));
+        let config_path = opencode_config_path()
+            .unwrap_or_else(|| homedir().join(".config/opencode/opencode.json"));
         if config_path.exists() {
             authenticated = true;
             if let Some(config) = safe_read_json::<OpenCodeConfig>(config_path) {
@@ -739,7 +742,10 @@ fi
         assert!(profile.installed);
         assert!(!profile.authenticated);
         assert!(
-            profile.current_models.iter().any(|model| model.model_id == "sonnet"),
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "sonnet"),
             "logged-out Claude Code should still expose the native model catalog"
         );
     }

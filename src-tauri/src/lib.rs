@@ -13,6 +13,7 @@ mod session_snapshot;
 mod skill_discovery;
 mod stubs;
 mod types;
+mod verification_gate;
 
 use message_broker::MessageBroker;
 use pair_manager::PairManager;
@@ -109,6 +110,7 @@ pub fn run() {
             session_snapshot::list_recoverable_sessions,
             session_snapshot::delete_recoverable_session,
             session_snapshot::restore_session,
+            verification_gate::pair_run_verification,
             skill_discovery::discover_skills,
             app_restart
         ])

@@ -2,16 +2,15 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
   CheckCircle2,
-  ChevronRight,
-  ChevronLeft,
   FolderOpen,
   ExternalLink,
   Zap,
   Brain,
   Rocket,
-  Sparkles,
   Sun,
-  Moon
+  Moon,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { usePairStore } from '../store/usePairStore'
@@ -22,29 +21,19 @@ import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
-import { getPreferredQualifiedModel } from '../lib/modelPreferences'
+import { getPreferredPairModelSelection } from '../lib/modelPreferences'
+import { derivePairNameFromDirectory } from '../lib/workspace'
+import { shouldUseCompactOnboardingLayout } from '../lib/onboardingLayout'
 import { buildProviderSetupSummary } from '../lib/providerSetup'
 import type { ProviderSetupSummary } from '../lib/providerSetup'
+import appIcon from '../assets/app-icon.png'
 
 interface OnboardingWizardProps {
   onComplete: () => void
 }
 
-const STEPS = [
-  { id: 'setup', label: 'Setup' },
-  { id: 'models', label: 'Models' },
-  { id: 'review', label: 'Review & Launch' }
-]
-
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.ReactNode {
-  const [currentStep, setCurrentStep] = useState(0)
   const [appVersion, setAppVersion] = useState<string>('1.0.1')
-
-  useEffect(() => {
-    window.api?.config?.getVersion?.().then((v: string) => {
-      setAppVersion(v && v !== '0.0.0' ? v : '1.0.1')
-    })
-  }, [])
   const [isCheckingProviders, setIsCheckingProviders] = useState(true)
   const [directory, setDirectory] = useState('')
   const [name, setName] = useState('')
@@ -56,6 +45,26 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const [error, setError] = useState<string | null>(null)
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === 'undefined' ? 900 : window.innerHeight
+  )
+  const isCompactLayout = shouldUseCompactOnboardingLayout(viewportHeight)
+
+  useEffect(() => {
+    window.api?.config?.getVersion?.().then((v: string) => {
+      setAppVersion(v && v !== '0.0.0' ? v : '1.0.1')
+    })
+  }, [])
+
+  useEffect(() => {
+    const updateViewportHeight = (): void => {
+      setViewportHeight(window.innerHeight)
+    }
+
+    updateViewportHeight()
+    window.addEventListener('resize', updateViewportHeight)
+    return () => window.removeEventListener('resize', updateViewportHeight)
+  }, [])
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
     setFileContexts((prev) => {
@@ -84,9 +93,6 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   )
 
   useEffect(() => {
-    if (currentStep !== 0) {
-      return
-    }
     let cancelled = false
     setIsCheckingProviders(true)
     void (async () => {
@@ -99,14 +105,15 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     return () => {
       cancelled = true
     }
-  }, [currentStep, loadAvailableModels])
+  }, [loadAvailableModels])
 
   useEffect(() => {
-    if (availableModels.length > 0 && mentorModel === '') {
-      setMentorModel(getPreferredQualifiedModel('mentor', availableModels))
-      setExecutorModel(getPreferredQualifiedModel('executor', availableModels))
+    if (availableModels.length > 0 && mentorModel === '' && executorModel === '') {
+      const defaults = getPreferredPairModelSelection(availableModels)
+      setMentorModel(defaults.mentorModel)
+      setExecutorModel(defaults.executorModel)
     }
-  }, [availableModels, mentorModel])
+  }, [availableModels, executorModel, mentorModel])
 
   const handleOpenConfig = async (): Promise<void> => {
     setIsOpeningFile(true)
@@ -127,9 +134,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       console.log('[OnboardingWizard] Result:', selected)
       if (selected) {
         setDirectory(selected)
+        setName((currentName) =>
+          currentName.trim().length > 0 ? currentName : derivePairNameFromDirectory(selected)
+        )
       }
     } catch (err) {
       console.error('[OnboardingWizard] Error choosing directory:', err)
+    }
+  }
+
+  const handleRefreshProviders = async (): Promise<void> => {
+    setIsCheckingProviders(true)
+    try {
+      await loadAvailableModels()
+    } finally {
+      setIsCheckingProviders(false)
     }
   }
 
@@ -162,608 +181,531 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     }
   }
 
-  const canNext = (): boolean => {
-    switch (currentStep) {
-      case 0:
-        return (
-          providerSummary.isReady &&
-          directory.trim().length > 0 &&
-          name.trim().length > 0 &&
-          spec.trim().length > 0
-        )
-      case 1:
-        return mentorModel.length > 0 && executorModel.length > 0
-      default:
-        return true
-    }
-  }
-
-  const renderStep = (): React.ReactNode => {
-    switch (currentStep) {
-      case 0:
-        return (
-          <ProviderStep
-            summary={providerSummary}
-            loading={isCheckingProviders}
-            onOpenConfig={handleOpenConfig}
-            isOpening={isOpeningFile}
-            directory={directory}
-            onSelectDirectory={handleSelectDirectory}
-            name={name}
-            spec={spec}
-            onNameChange={setName}
-            onSpecChange={setSpec}
-            textareaRef={textareaRef}
-            onFileSelect={handleFileSelect}
-            onSkillSelect={handleSkillSelect}
-          />
-        )
-      case 1:
-        return (
-          <ModelStep
-            availableModels={availableModels}
-            mentorModel={mentorModel}
-            executorModel={executorModel}
-            onMentorChange={setMentorModel}
-            onExecutorChange={setExecutorModel}
-          />
-        )
-      case 2:
-        return (
-          <ReviewStep
-            name={name}
-            spec={spec}
-            directory={directory}
-            mentorModel={mentorModel}
-            executorModel={executorModel}
-            error={error}
-          />
-        )
-      default:
-        return null
-    }
-  }
+  const canLaunch = useMemo(() => {
+    return (
+      providerSummary.isReady &&
+      directory.trim().length > 0 &&
+      name.trim().length > 0 &&
+      spec.trim().length > 0 &&
+      mentorModel.length > 0 &&
+      executorModel.length > 0
+    )
+  }, [providerSummary.isReady, directory, name, spec, mentorModel, executorModel])
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background grain-overlay">
-      <div className="glass-toolbar app-drag shrink-0 px-6 py-4">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-muted border border-border flex items-center justify-center">
-                <Sparkles size={15} className="text-foreground/70" />
+      <div
+        className={cn(
+          'glass-toolbar app-drag shrink-0 border-b border-border/40',
+          isCompactLayout ? 'px-6 py-3.5 lg:px-8 lg:py-4' : 'px-8 py-5 lg:px-10 lg:py-6'
+        )}
+      >
+        <div
+          className={cn(
+            'mx-auto flex max-w-7xl items-center justify-between gap-6',
+            isCompactLayout && 'gap-4'
+          )}
+        >
+          <div className={cn('flex min-w-0 items-center gap-4', isCompactLayout && 'gap-3')}>
+            <img
+              src={appIcon}
+              alt="The Pair"
+              className={cn(
+                'h-10 w-10 rounded-lg object-contain',
+                isCompactLayout && 'h-9 w-9'
+              )}
+            />
+            <div className="min-w-0">
+              <div className={cn('flex items-center gap-3', isCompactLayout && 'gap-2')}>
+                <span
+                  className={cn(
+                    'truncate text-[11px] uppercase tracking-[0.24em] text-muted-foreground',
+                    isCompactLayout && 'text-[10px]'
+                  )}
+                >
+                  Setup Wizard
+                </span>
+                <span
+                  className={cn(
+                    'shrink-0 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground',
+                    isCompactLayout && 'px-2 py-0.5'
+                  )}
+                >
+                  Workspace setup
+                </span>
               </div>
-              <span className="font-semibold text-sm text-foreground tracking-tight">The Pair</span>
-              <span className="rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                v{appVersion}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest">
-                Setup Wizard
-              </span>
-              <button
-                onClick={toggleTheme}
-                className="app-no-drag p-2 rounded-lg hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
-                title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              <div
+                className={cn(
+                  'mt-1.5 flex items-center gap-3',
+                  isCompactLayout && 'mt-1 gap-2'
+                )}
               >
-                {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
-              </button>
+                <span
+                  className={cn(
+                    'truncate text-lg font-semibold tracking-tight text-foreground',
+                    isCompactLayout && 'text-[17px]'
+                  )}
+                >
+                  The Pair
+                </span>
+                <span className="shrink-0 rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  v{appVersion}
+                </span>
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            {STEPS.map((step, idx) => (
-              <React.Fragment key={step.id}>
-                <div className="flex items-center gap-2">
-                  <div
-                    className={cn(
-                      'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium transition-all',
-                      idx < currentStep
-                        ? 'bg-green-500/20 text-green-700 dark:text-green-400 border border-green-500/30'
-                        : idx === currentStep
-                          ? 'bg-primary text-primary-foreground border border-primary'
-                          : 'bg-muted text-muted-foreground border border-border'
-                    )}
-                  >
-                    {idx < currentStep ? <CheckCircle2 size={12} /> : idx + 1}
-                  </div>
-                  <span
-                    className={cn(
-                      'text-[10px] hidden sm:block',
-                      idx === currentStep ? 'text-foreground font-medium' : 'text-muted-foreground'
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                </div>
-                {idx < STEPS.length - 1 && (
-                  <div
-                    className={cn(
-                      'flex-1 h-px min-w-3 max-w-10',
-                      idx < currentStep ? 'bg-green-500/30' : 'bg-border'
-                    )}
-                  />
-                )}
-              </React.Fragment>
-            ))}
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={toggleTheme}
+              className="app-no-drag rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            >
+              {theme === 'light' ? <Moon size={15} /> : <Sun size={15} />}
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-5">{renderStep()}</div>
+      <div className={cn('flex-1 min-h-0', isCompactLayout ? 'overflow-hidden' : 'overflow-y-auto')}>
+        <div
+          className={cn(
+            'mx-auto max-w-7xl px-8 py-8 lg:px-10 lg:py-10',
+            isCompactLayout && 'px-6 py-5 lg:px-8 lg:py-6'
+          )}
+        >
+          <div
+            className={cn(
+              'grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2 xl:gap-8',
+              isCompactLayout && 'gap-4 xl:gap-4'
+            )}
+          >
+            <WelcomeCard
+              summary={providerSummary}
+              loading={isCheckingProviders}
+              onOpenConfig={handleOpenConfig}
+              onRefresh={handleRefreshProviders}
+              isOpening={isOpeningFile}
+              isCompactLayout={isCompactLayout}
+            />
+
+            <DirectoryCard
+              directory={directory}
+              onSelectDirectory={handleSelectDirectory}
+              isCompactLayout={isCompactLayout}
+            />
+
+            <TaskSpecCard
+              name={name}
+              spec={spec}
+              directory={directory}
+              onNameChange={setName}
+              onSpecChange={setSpec}
+              textareaRef={textareaRef}
+              onFileSelect={handleFileSelect}
+              onSkillSelect={handleSkillSelect}
+              isCompactLayout={isCompactLayout}
+            />
+
+            <ModelCard
+              availableModels={availableModels}
+              mentorModel={mentorModel}
+              executorModel={executorModel}
+              onMentorChange={setMentorModel}
+              onExecutorChange={setExecutorModel}
+              isCompactLayout={isCompactLayout}
+            />
+          </div>
+        </div>
       </div>
 
-      <div className="glass-toolbar shrink-0 px-6 py-4">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <GlassButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setCurrentStep((s) => Math.max(0, s - 1))}
-            disabled={currentStep === 0}
-            icon={<ChevronLeft size={14} />}
+      <div
+        className={cn(
+          'glass-toolbar shrink-0 border-t border-border/40',
+          isCompactLayout ? 'px-6 py-3.5 lg:px-8 lg:py-4' : 'px-8 py-5 lg:px-10'
+        )}
+      >
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-center">
+          {error && (
+            <div className="mb-3 flex items-center justify-center gap-2 text-sm text-destructive">
+              <AlertCircle size={14} />
+              {error}
+            </div>
+          )}
+          <div
+            className={cn(
+              'inline-flex max-w-[320px] flex-col items-center gap-1.5 rounded-2xl border border-border/60 bg-background/40 px-4 py-3 text-center shadow-sm backdrop-blur-sm',
+              isCompactLayout && 'max-w-[300px] px-3 py-2.5'
+            )}
           >
-            Back
-          </GlassButton>
-
-          {currentStep < STEPS.length - 1 ? (
-            <GlassButton
-              variant="primary"
-              size="sm"
-              onClick={() => setCurrentStep((s) => Math.min(STEPS.length - 1, s + 1))}
-              disabled={!canNext()}
-              icon={<ChevronRight size={14} />}
-              className={cn(!canNext() ? 'opacity-30' : '')}
-            >
-              Next
-            </GlassButton>
-          ) : (
+            <p className={cn('text-[10px] leading-tight text-muted-foreground lg:text-[11px]')}>
+              {providerSummary.isReady
+                ? `${providerSummary.readyModelCount} model${providerSummary.readyModelCount !== 1 ? 's' : ''} ready across ${providerSummary.readyProviderLabels.length} provider${providerSummary.readyProviderLabels.length !== 1 ? 's' : ''}`
+                : 'Configure at least one provider to continue'}
+            </p>
             <GlassButton
               variant="approve"
-              size="sm"
+              size="md"
               onClick={handleLaunch}
-              disabled={!canNext() || isCreating}
-              icon={<Rocket size={14} />}
-              className={cn(!canNext() || isCreating ? 'opacity-30' : '')}
+              disabled={!canLaunch || isCreating}
+              icon={<Rocket size={15} />}
+              className={cn(
+                'min-w-[168px]',
+                isCompactLayout && 'min-w-[156px]',
+                !canLaunch || isCreating ? 'opacity-40' : ''
+              )}
             >
               {isCreating ? 'Launching...' : 'Launch Pair'}
             </GlassButton>
-          )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
-function ProviderStep({
+function WelcomeCard({
   summary,
   loading,
   onOpenConfig,
+  onRefresh,
   isOpening,
+  isCompactLayout
+}: {
+  summary: ProviderSetupSummary
+  loading: boolean
+  onOpenConfig: () => void
+  onRefresh: () => void
+  isOpening: boolean
+  isCompactLayout: boolean
+}): React.ReactNode {
+  const healthState = useMemo(() => {
+    if (loading) return 'checking'
+    if (summary.isReady) return 'healthy'
+    if (summary.readyModelCount > 0) return 'warning'
+    return 'error'
+  }, [loading, summary])
+
+  const healthConfig = {
+    checking: {
+      icon: (
+        <div className="w-5 h-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+      ),
+      label: 'Checking provider health...',
+      description: 'Scanning for installed providers and available models.',
+      bgClass: 'bg-muted/30',
+      borderClass: 'border-border',
+      textClass: 'text-muted-foreground'
+    },
+    healthy: {
+      icon: <CheckCircle2 size={20} className="text-green-600 dark:text-green-400" />,
+      label: 'All systems ready',
+      description: `${summary.readyModelCount} model${summary.readyModelCount !== 1 ? 's' : ''} available across ${summary.readyProviderLabels.join(', ')}.`,
+      bgClass: 'bg-green-500/10 dark:bg-green-500/15',
+      borderClass: 'border-green-500/20',
+      textClass: 'text-green-700 dark:text-green-400'
+    },
+    warning: {
+      icon: <AlertCircle size={20} className="text-amber-600 dark:text-amber-400" />,
+      label: 'Partial configuration',
+      description: `${summary.readyModelCount} model${summary.readyModelCount !== 1 ? 's' : ''} ready. Some providers may need attention.`,
+      bgClass: 'bg-amber-500/10 dark:bg-amber-500/15',
+      borderClass: 'border-amber-500/20',
+      textClass: 'text-amber-700 dark:text-amber-400'
+    },
+    error: {
+      icon: <AlertCircle size={20} className="text-red-600 dark:text-red-400" />,
+      label: 'No providers configured',
+      description: 'Install or sign in to at least one supported provider.',
+      bgClass: 'bg-red-500/10 dark:bg-red-500/15',
+      borderClass: 'border-red-500/20',
+      textClass: 'text-red-700 dark:text-red-400'
+    }
+  }
+
+  const config = healthConfig[healthState]
+
+  return (
+    <GlassCard
+      className={cn(
+        'flex h-full min-h-[240px] flex-col justify-between p-6 space-y-5',
+        isCompactLayout && 'min-h-[200px] p-5'
+      )}
+    >
+      <CardHeader
+        eyebrow="SYSTEM HEALTH"
+        title="Provider Health"
+        description="Scan installed providers and keep the model list ready before launch."
+      />
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border',
+            config.bgClass,
+            config.borderClass
+          )}
+        >
+          {config.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className={cn('font-semibold text-sm', config.textClass)}>{config.label}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+            {config.description}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <GlassButton
+          variant="ghost"
+          size="sm"
+          onClick={onRefresh}
+          disabled={loading || isOpening}
+          icon={<RefreshCw size={12} className={loading ? 'animate-spin' : ''} />}
+        >
+          Refresh
+        </GlassButton>
+        {!summary.isReady && !loading && (
+          <GlassButton
+            variant="secondary"
+            size="sm"
+            onClick={onOpenConfig}
+            disabled={isOpening}
+            icon={<ExternalLink size={12} />}
+          >
+            {isOpening ? 'Opening...' : 'Open Config'}
+          </GlassButton>
+        )}
+      </div>
+    </GlassCard>
+  )
+}
+
+function DirectoryCard({
   directory,
   onSelectDirectory,
-  name,
-  spec,
-  onNameChange,
-  onSpecChange,
-  textareaRef,
-  onFileSelect,
-  onSkillSelect
+  isCompactLayout
 }: {
-  summary: ProviderSetupSummary
-  loading: boolean
-  onOpenConfig: () => void
-  isOpening: boolean
   directory: string
   onSelectDirectory: () => void
-  name: string
-  spec: string
-  onNameChange: (v: string) => void
-  onSpecChange: (v: string) => void
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>
-  onFileSelect: (path: string, content: string) => void
-  onSkillSelect: (skillName: string) => void
+  isCompactLayout: boolean
 }): React.ReactNode {
   return (
-    <div className="space-y-6 py-1">
-      <div className="text-center space-y-4">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-muted to-muted/50 border border-border flex items-center justify-center mx-auto">
-          <Sparkles size={28} className="text-foreground/60" />
-        </div>
-        <h1 className="text-4xl font-bold tracking-tight text-foreground">
-          Welcome to <span className="text-foreground/70">The Pair</span>
-        </h1>
-        <p className="text-muted-foreground text-base max-w-md mx-auto leading-relaxed">
-          Set up the workspace once, then let the Mentor plan and the Executor build. We keep the
-          first pass short so you can launch faster.
-        </p>
-      </div>
-
-      <ProviderStatusCard
-        summary={summary}
-        loading={loading}
-        onOpenConfig={onOpenConfig}
-        isOpening={isOpening}
+    <GlassCard
+      className={cn(
+        'flex h-full min-h-[240px] flex-col justify-between p-6 space-y-5',
+        isCompactLayout && 'min-h-[200px] p-5'
+      )}
+    >
+      <CardHeader
+        eyebrow="WORKSPACE"
+        title="Choose Workspace"
+        description="Select the project folder for The Pair to work in."
       />
-
-      <DirectoryStep directory={directory} onSelectDirectory={onSelectDirectory} />
-
-      <GlassCard className="p-5 space-y-4">
-        <div>
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
-            Task
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Give this pair a name and one clear task. Model selection comes next.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">Pair Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => onNameChange(e.target.value)}
-              placeholder="e.g., Add user authentication"
-              className="w-full rounded-xl glass-card px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">
-              Task Specification
-            </label>
-            <textarea
-              ref={textareaRef}
-              value={spec}
-              onChange={(e) => onSpecChange(e.target.value)}
-              placeholder="Describe the desired outcome as directly as possible... Use @filename to reference files."
-              rows={5}
-              className="w-full resize-none rounded-xl glass-card px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-            {directory && (
-              <div className="absolute top-8 right-2 flex items-center gap-1">
-                <SkillPicker projectDir={directory} onSelect={onSkillSelect} />
-                <FileMention
-                  textareaRef={textareaRef}
-                  onChange={onSpecChange}
-                  directory={directory}
-                  onFileSelect={onFileSelect}
-                />
-              </div>
-            )}
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              {spec.length} characters · a concrete target works better than a vague intention ·
-              Type @ to reference files
-            </p>
-          </div>
-        </div>
-      </GlassCard>
-    </div>
-  )
-}
-
-function ProviderStatusCard({
-  summary,
-  loading,
-  onOpenConfig,
-  isOpening
-}: {
-  summary: ProviderSetupSummary
-  loading: boolean
-  onOpenConfig: () => void
-  isOpening: boolean
-}): React.ReactNode {
-  const readyProviderLabels = summary.readyProviderLabels.join(', ')
-
-  return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">AI Provider Setup</h2>
-        <p className="text-muted-foreground">
-          The Pair checks your installed providers and selectable models across OpenCode, Codex,
-          Claude Code, and Gemini CLI.
-        </p>
-      </div>
-
-      <GlassCard className="p-6">
-        <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border',
-              loading
-                ? 'bg-muted border-border'
-                : summary.isReady
-                  ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/20'
-                  : 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/20'
-            )}
-          >
-            {loading ? (
-              <div className="w-4 h-4 border border-muted-foreground/20 border-t-muted-foreground rounded-full animate-spin" />
-            ) : summary.isReady ? (
-              <CheckCircle2 size={20} className="text-green-600 dark:text-green-400" />
-            ) : (
-              <ExternalLink size={20} className="text-amber-600 dark:text-amber-400" />
-            )}
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold mb-1 text-foreground">
-              {loading
-                ? 'Checking provider readiness...'
-                : summary.isReady
-                  ? 'Provider setup looks great!'
-                  : 'No ready models found yet'}
-            </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              {loading &&
-                'We are checking the selectable models exposed by your installed providers.'}
-              {!loading && summary.isReady && `Ready models found across ${readyProviderLabels}.`}
-              {!loading &&
-                !summary.isReady &&
-                'Install or sign in to at least one supported provider, then refresh the model list.'}
-            </p>
-
-            {!loading && !summary.isReady && (
-              <div className="mt-4 space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  OpenCode-backed models are still supported, but they are optional if Codex,
-                  Claude Code, or Gemini CLI already has a ready model.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </GlassCard>
-
-      {!loading && !summary.isReady && (
-        <GlassButton
-          variant="secondary"
-          onClick={onOpenConfig}
-          disabled={isOpening}
-          className="w-full"
-        >
-          <ExternalLink size={15} />
-          {isOpening ? 'Opening...' : 'Open OpenCode Config'}
-        </GlassButton>
-      )}
-
-      {summary.isReady && !loading && (
-        <p className="text-center text-sm text-green-700 dark:text-green-400 flex items-center justify-center gap-2">
-          <CheckCircle2 size={15} />
-          Ready models are available. You can proceed to the next step.
-        </p>
-      )}
-
-      {!loading && !summary.isReady && (
-        <p className="text-center text-xs text-muted-foreground">
-          After updating a provider, go back to this step to re-check automatically.
-        </p>
-      )}
-    </div>
-  )
-}
-
-function DirectoryStep({
-  directory,
-  onSelectDirectory
-}: {
-  directory: string
-  onSelectDirectory: () => void
-}): React.ReactNode {
-  return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Choose a Project</h2>
-        <p className="text-muted-foreground">
-          Select the codebase or project folder that The Pair will work in.
-        </p>
-      </div>
 
       <GlassButton
         variant="secondary"
         onClick={onSelectDirectory}
-        className="w-full h-auto py-10 flex flex-col items-center gap-4"
+        className={cn(
+          'w-full h-auto flex flex-col items-center gap-3 py-6',
+          isCompactLayout && 'gap-2.5 py-4'
+        )}
       >
-        <div className="w-14 h-14 rounded-2xl bg-muted border border-border flex items-center justify-center">
-          <FolderOpen size={26} className="text-foreground/40" />
+        <div
+          className={cn(
+            'flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted',
+            isCompactLayout && 'h-10 w-10'
+          )}
+        >
+          <FolderOpen size={22} className="text-foreground/40" />
         </div>
         <div className="text-center space-y-1">
           <p className="font-medium text-sm text-foreground">
             {directory ? 'Change project directory' : 'Click to select a folder'}
           </p>
           {directory && (
-            <p className="text-xs text-muted-foreground font-mono bg-muted px-3 py-1.5 rounded-lg inline-block mt-2">
+            <p className="text-xs text-muted-foreground font-mono bg-muted px-3 py-1.5 rounded-lg inline-block mt-1">
               {directory}
             </p>
           )}
           {!directory && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Choose any folder — The Pair will read, analyze, and modify files there.
             </p>
           )}
         </div>
       </GlassButton>
-    </div>
+    </GlassCard>
   )
 }
 
-function ModelStep({
+function TaskSpecCard({
+  name,
+  spec,
+  directory,
+  onNameChange,
+  onSpecChange,
+  textareaRef,
+  onFileSelect,
+  onSkillSelect,
+  isCompactLayout
+}: {
+  name: string
+  spec: string
+  directory: string
+  onNameChange: (v: string) => void
+  onSpecChange: (v: string) => void
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>
+  onFileSelect: (path: string, content: string) => void
+  onSkillSelect: (skillName: string) => void
+  isCompactLayout: boolean
+}): React.ReactNode {
+  return (
+    <GlassCard
+      className={cn(
+        'flex h-full min-h-[250px] flex-col justify-between p-6 space-y-5',
+        isCompactLayout && 'min-h-[220px] p-5'
+      )}
+    >
+      <CardHeader
+        eyebrow="TASK"
+        title="Task Specification"
+        description="Give this pair a name and describe the desired outcome."
+      />
+
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-foreground">Pair Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="e.g., Add user authentication"
+            className="w-full rounded-xl glass-card px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+
+        <div className="relative">
+          <label className="mb-1.5 block text-xs font-medium text-foreground">
+            Task Description
+          </label>
+          <textarea
+            ref={textareaRef}
+            value={spec}
+            onChange={(e) => onSpecChange(e.target.value)}
+            placeholder="Describe the desired outcome as directly as possible... Use @filename to reference files."
+            rows={4}
+            className="w-full resize-none rounded-xl glass-card px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          {directory && (
+            <div className="absolute right-2 top-7 flex items-center gap-1">
+              <SkillPicker projectDir={directory} onSelect={onSkillSelect} />
+              <FileMention
+                textareaRef={textareaRef}
+                onChange={onSpecChange}
+                directory={directory}
+                onFileSelect={onFileSelect}
+              />
+            </div>
+          )}
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            {spec.length} characters · Type @ to reference files
+          </p>
+        </div>
+      </div>
+    </GlassCard>
+  )
+}
+
+function ModelCard({
   availableModels,
   mentorModel,
   executorModel,
   onMentorChange,
-  onExecutorChange
+  onExecutorChange,
+  isCompactLayout
 }: {
   availableModels: AvailableModel[]
   mentorModel: string
   executorModel: string
   onMentorChange: (m: string) => void
   onExecutorChange: (m: string) => void
+  isCompactLayout: boolean
 }): React.ReactNode {
-  const [showAdvanced, setShowAdvanced] = useState(false)
-
   return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Select Your Models</h2>
-        <p className="text-muted-foreground">
-          The recommended defaults are already filled in. Expand the selector only if you want to
-          change them.
-        </p>
-      </div>
-
-      <GlassCard className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
-              Recommended setup
-            </p>
-            <p className="mt-1 text-sm text-foreground/80">
-              Mentor and Executor are prefilled from your detected models.
-            </p>
-          </div>
-          <GlassButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowAdvanced((s) => !s)}
-            icon={showAdvanced ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-          >
-            {showAdvanced ? 'Hide advanced' : 'Customize'}
-          </GlassButton>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-blue-500/15 bg-blue-500/5 p-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Brain size={14} className="text-blue-600 dark:text-blue-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                Mentor
-              </span>
-            </div>
-            <p className="truncate font-mono text-xs text-foreground">{mentorModel}</p>
-          </div>
-          <div className="rounded-2xl border border-purple-500/15 bg-purple-500/5 p-3">
-            <div className="mb-1 flex items-center gap-2">
-              <Zap size={14} className="text-purple-600 dark:text-purple-400" />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
-                Executor
-              </span>
-            </div>
-            <p className="truncate font-mono text-xs text-foreground">{executorModel}</p>
-          </div>
-        </div>
-      </GlassCard>
-
-      {showAdvanced && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <GlassCard className="space-y-3 p-5">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10">
-                <Brain size={15} className="text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Mentor</h3>
-                <p className="text-xs text-muted-foreground">Analyzes & plans</p>
-              </div>
-            </div>
-            <ModelPicker
-              value={mentorModel}
-              models={availableModels}
-              onChange={onMentorChange}
-              role="mentor"
-            />
-          </GlassCard>
-
-          <GlassCard className="space-y-3 p-5">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-purple-500/20 bg-purple-500/10">
-                <Zap size={15} className="text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Executor</h3>
-                <p className="text-xs text-muted-foreground">Writes & executes</p>
-              </div>
-            </div>
-            <ModelPicker
-              value={executorModel}
-              models={availableModels}
-              onChange={onExecutorChange}
-              role="executor"
-            />
-          </GlassCard>
-        </div>
+    <GlassCard
+      className={cn(
+        'flex h-full min-h-[250px] flex-col justify-between space-y-5 p-6',
+        isCompactLayout && 'min-h-[220px] p-5'
       )}
+    >
+      <CardHeader
+        eyebrow="MODELS"
+        title="Model Selection"
+        description="Each role gets its own picker. Click a row to search and change the default."
+      />
 
-      <GlassCard className="p-4 space-y-2">
-        <p className="text-xs font-medium text-muted-foreground mb-1">Model recommendations:</p>
-        <p className="text-xs text-muted-foreground">
-          <span className="text-blue-600 dark:text-blue-400">Mentor</span> — Benefits from larger,
-          reasoning-capable models (e.g., GPT-4o, Claude Sonnet 4.6)
-        </p>
-        <p className="text-xs text-muted-foreground">
-          <span className="text-purple-600 dark:text-purple-400">Executor</span> — Can use a
-          smaller/faster model for code writing tasks (e.g., GPT-4o-mini)
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Greyed-out entries stay visible so you can see which providers are detected, which ones
-          are paid via plan or token, and what still needs auth or runtime support.
-        </p>
-      </GlassCard>
-    </div>
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-blue-500/20 bg-blue-500/10">
+              <Brain size={13} className="text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-foreground">Mentor</h4>
+              <p className="text-[10px] text-muted-foreground">Analyzes and plans</p>
+            </div>
+          </div>
+          <ModelPicker
+            value={mentorModel}
+            models={availableModels}
+            onChange={onMentorChange}
+            role="mentor"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-purple-500/20 bg-purple-500/10">
+              <Zap size={13} className="text-purple-600 dark:text-purple-400" />
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-foreground">Executor</h4>
+              <p className="text-[10px] text-muted-foreground">Writes and executes</p>
+            </div>
+          </div>
+          <ModelPicker
+            value={executorModel}
+            models={availableModels}
+            onChange={onExecutorChange}
+            role="executor"
+          />
+        </div>
+      </div>
+    </GlassCard>
   )
 }
 
-function ReviewStep({
-  name,
-  spec,
-  directory,
-  mentorModel,
-  executorModel,
-  error
+function CardHeader({
+  eyebrow,
+  title,
+  description
 }: {
-  name: string
-  spec: string
-  directory: string
-  mentorModel: string
-  executorModel: string
-  error: string | null
+  eyebrow: string
+  title: string
+  description: string
 }): React.ReactNode {
   return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">Review & Launch</h2>
-        <p className="text-muted-foreground">One last check before starting the pair.</p>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+          {eyebrow}
+        </span>
+        <span className="h-px flex-1 bg-border/70" />
       </div>
-
-      <GlassCard className="p-4 space-y-2">
-        <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-widest">
-          Summary
-        </p>
-        <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
-          <span className="text-muted-foreground">Pair Name</span>
-          <span className="font-mono text-foreground truncate" title={name}>
-            {name}
-          </span>
-          <span className="text-muted-foreground">Project</span>
-          <span className="font-mono text-foreground truncate" title={directory}>
-            {directory.split('/').pop()}
-          </span>
-          <span className="text-muted-foreground">Task</span>
-          <span className="font-mono text-foreground truncate" title={spec}>
-            {spec}
-          </span>
-          <span className="text-blue-600 dark:text-blue-400">Mentor</span>
-          <span className="font-mono text-foreground">{mentorModel}</span>
-          <span className="text-purple-600 dark:text-purple-400">Executor</span>
-          <span className="font-mono text-foreground">{executorModel}</span>
-        </div>
-      </GlassCard>
-
-      {error && (
-        <div className="text-sm text-destructive glass-card p-3 rounded-xl border border-destructive/20">
-          {error}
-        </div>
-      )}
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+        <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
+      </div>
     </div>
   )
 }

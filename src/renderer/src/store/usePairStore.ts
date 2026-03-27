@@ -5,7 +5,8 @@ import type {
   PairModelSelection,
   RecoverableSessionSummary,
   SessionSnapshotDraft,
-  SessionSnapshotRecord
+  SessionSnapshotRecord,
+  VerificationState
 } from '../types'
 import {
   buildAgentConfig,
@@ -17,6 +18,11 @@ import {
   buildUpdateModelsPayload,
   shouldSyncModelsToBackend
 } from '../lib/modelResolution'
+import {
+  buildVerificationReviewPrompt,
+  buildVerificationRetryPrompt,
+  idleVerificationState
+} from '../lib/verificationGate'
 
 export type PairStatus =
   | 'Idle'
@@ -95,6 +101,7 @@ export interface PairRunSummary {
   executorModel: string
   iterations: number
   messages: Message[]
+  verification: VerificationState
 }
 
 export interface Pair {
@@ -130,6 +137,7 @@ export interface Pair {
   runHistory: PairRunSummary[]
   currentRunStartedAt: number
   currentRunFinishedAt?: number
+  verification: VerificationState
 }
 
 interface PairStateSnapshot {
@@ -138,6 +146,7 @@ interface PairStateSnapshot {
   iteration?: number
   maxIterations?: number
   turn?: 'mentor' | 'executor' | string
+  finishedAt?: number
   mentorStatus?: PairStatus
   executorStatus?: PairStatus
   mentorActivity?: AgentActivity
@@ -146,6 +155,7 @@ interface PairStateSnapshot {
   modifiedFiles?: ModifiedFile[]
   gitTracking?: GitTracking
   automationMode?: AutomationMode
+  verification?: VerificationState
 }
 
 interface PairMessageEvent {
@@ -264,6 +274,7 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     runHistory: pair.runHistory,
     currentRunStartedAt: pair.currentRunStartedAt,
     currentRunFinishedAt: pair.currentRunFinishedAt,
+    verification: pair.verification,
     createdAt: pair.createdAt
   }
 }
@@ -304,7 +315,8 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     runCount: snapshot.runCount,
     runHistory: snapshot.runHistory,
     currentRunStartedAt: snapshot.currentRunStartedAt,
-    currentRunFinishedAt: snapshot.currentRunFinishedAt
+    currentRunFinishedAt: snapshot.currentRunFinishedAt,
+    verification: snapshot.verification ?? idleVerificationState()
   }
 }
 
@@ -319,7 +331,8 @@ function shouldSaveSnapshot(previous: Pair, next: Pair): boolean {
     previous.pendingMentorModel !== next.pendingMentorModel ||
     previous.pendingExecutorModel !== next.pendingExecutorModel ||
     previous.mentorModel !== next.mentorModel ||
-    previous.executorModel !== next.executorModel
+    previous.executorModel !== next.executorModel ||
+    previous.verification.updatedAt !== next.verification.updatedAt
   )
 }
 
@@ -473,7 +486,8 @@ function createRunSummary(pair: Pair): PairRunSummary | null {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
     iterations: pair.iterations,
-    messages: pair.messages
+    messages: pair.messages,
+    verification: pair.verification
   }
 }
 
@@ -513,7 +527,8 @@ function resetPairForNewRun(pair: Pair, nextSpec: string, selection: PairModelSe
     runHistory: archivedRun ? [...pair.runHistory, archivedRun] : pair.runHistory,
     currentRunStartedAt: now,
     currentRunFinishedAt: undefined,
-    currentTurnCard: undefined
+    currentTurnCard: undefined,
+    verification: idleVerificationState()
   }
 }
 
@@ -580,7 +595,8 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
-    currentRunFinishedAt: closedNow ? Date.now() : pair.currentRunFinishedAt
+    currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt),
+    verification: state.verification ?? pair.verification
   }
 }
 
@@ -917,6 +933,11 @@ export const usePairStore = create<PairStore>((set) => ({
         return
       }
 
+      if (pair.status === 'Finished') {
+        console.log('[usePairStore] Ignoring handoff - pair already finished')
+        return
+      }
+
       let contextMessages = pair.messages
       try {
         const backendState = (await window.api.pair.getState(
@@ -934,58 +955,75 @@ export const usePairStore = create<PairStore>((set) => ({
 
       // Build context-aware message for the next agent
       let message = ''
+      const lastMentorMessage = [...contextMessages]
+        .reverse()
+        .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'result'))
+      const lastExecutorMessage = [...contextMessages]
+        .reverse()
+        .find((m) => m.from === 'executor' && (m.type === 'plan' || m.type === 'result'))
+
       if (data.nextRole === 'executor') {
-        const lastMentorMessage = [...contextMessages]
-          .reverse()
-          .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'result'))
-
-        if (!lastMentorMessage || !hasExecutablePlanShape(lastMentorMessage.content)) {
-          const mentorRepairPrompt =
-            '### ROLE: MENTOR\n' +
-            'Your previous output was not an executable PLAN for the EXECUTOR.\n' +
-            '- DO NOT execute.\n' +
-            '- Return only a concrete PLAN with numbered steps.\n' +
-            '- Each step must be directly executable by the EXECUTOR.\n\n' +
-            'Please provide the corrected PLAN now.'
-
-          const { assignTask } = state
-          await assignTask(data.pairId, mentorRepairPrompt, 'mentor')
-          return
-        }
-
-        message =
-          '### ROLE: EXECUTOR\n' +
-          'Your mission is ONLY to EXECUTE the plan provided below. \n' +
-          '- DO NOT create new plans.\n' +
-          '- DO NOT review your own work.\n' +
-          '- JUST EXECUTE THE STEPS and report results.\n\n' +
-          '--- COMMAND TO EXECUTE ---\n'
-
-        if (lastMentorMessage) {
-          message += lastMentorMessage.content
+        if (pair.verification.report) {
+          message = buildVerificationRetryPrompt(pair.verification.report, {
+            taskSpec: pair.spec,
+            executorResult: lastExecutorMessage?.content,
+            mentorOutput: lastMentorMessage?.content,
+            verdict: pair.verification.verdict ?? undefined
+          })
         } else {
-          message +=
-            'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
+          if (!lastMentorMessage || !hasExecutablePlanShape(lastMentorMessage.content)) {
+            const mentorRepairPrompt =
+              '### ROLE: MENTOR\n' +
+              'Your previous output was not an executable PLAN for the EXECUTOR.\n' +
+              '- DO NOT execute.\n' +
+              '- Return only a concrete PLAN with numbered steps.\n' +
+              '- Each step must be directly executable by the EXECUTOR.\n\n' +
+              'Please provide the corrected PLAN now.'
+
+            const { assignTask } = state
+            await assignTask(data.pairId, mentorRepairPrompt, 'mentor')
+            return
+          }
+
+          message =
+            '### ROLE: EXECUTOR\n' +
+            'Your mission is ONLY to EXECUTE the plan provided below. \n' +
+            '- DO NOT create new plans.\n' +
+            '- DO NOT review your own work.\n' +
+            '- JUST EXECUTE THE STEPS and report results.\n' +
+            '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
+            '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
+            '--- COMMAND TO EXECUTE ---\n'
+
+          if (lastMentorMessage) {
+            message += lastMentorMessage.content
+          } else {
+            message +=
+              'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
+          }
         }
       } else {
-        const lastExecutorMessage = [...contextMessages]
-          .reverse()
-          .find((m) => m.from === 'executor' && (m.type === 'plan' || m.type === 'result'))
+        if (pair.verification.report) {
+          message = buildVerificationReviewPrompt(pair.verification.report, {
+            taskSpec: pair.spec,
+            executorResult: lastExecutorMessage?.content
+          })
+        } else {
+          message =
+            '### ROLE: MENTOR\n' +
+            'Your mission is ONLY to PLAN and REVIEW. \n' +
+            '- DO NOT execute any code or tools that modify files.\n' +
+            '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
+            '--- REVIEW REQUEST ---\n' +
+            'The executor has finished a turn. Review their results below:\n\n'
 
-        message =
-          '### ROLE: MENTOR\n' +
-          'Your mission is ONLY to PLAN and REVIEW. \n' +
-          '- DO NOT execute any code or tools that modify files.\n' +
-          '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
-          '--- REVIEW REQUEST ---\n' +
-          'The executor has finished a turn. Review their results below:\n\n'
+          if (lastExecutorMessage) {
+            message += lastExecutorMessage.content + '\n\n'
+          }
 
-        if (lastExecutorMessage) {
-          message += lastExecutorMessage.content + '\n\n'
+          message +=
+            'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
         }
-
-        message +=
-          'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
       }
 
       const { assignTask } = state
@@ -1098,7 +1136,8 @@ export const usePairStore = create<PairStore>((set) => ({
         runCount: 1,
         runHistory: [],
         currentRunStartedAt: now,
-        currentTurnCard: undefined
+        currentTurnCard: undefined,
+        verification: idleVerificationState()
       }
 
       set((state) => ({

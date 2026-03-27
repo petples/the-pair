@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import type { AvailableModel } from '../src/renderer/src/types.ts'
 import {
+  getPreferredPairModelSelection,
   getPreferredModelId,
   getPreferredQualifiedModel,
   getQualifiedModel,
@@ -165,6 +166,23 @@ test('getPreferredQualifiedModel returns empty string when no selectable models 
   try {
     const models = [viewOnlyGeminiModel, unavailableClaudeModel]
     assert.equal(getPreferredQualifiedModel('executor', models), '')
+  } finally {
+    restore()
+  }
+})
+
+test('getPreferredPairModelSelection returns the saved mentor and executor defaults', () => {
+  const restore = installLocalStorage({
+    'the-pair-preferred-mentor-model': 'gpt-4o-mini',
+    'the-pair-preferred-executor-model': 'claude/sonnet'
+  })
+
+  try {
+    const selection = getPreferredPairModelSelection([readyOpenCodeModel, unavailableClaudeModel])
+    assert.deepEqual(selection, {
+      mentorModel: 'gpt-4o-mini',
+      executorModel: 'gpt-4o-mini'
+    })
   } finally {
     restore()
   }

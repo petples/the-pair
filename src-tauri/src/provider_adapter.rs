@@ -160,7 +160,6 @@ impl ProviderAdapter {
                     request.model.into(),
                     "--output-format".into(),
                     "stream-json".into(),
-                    "--verbose".into(),
                 ];
                 if request.role == "mentor" {
                     args.push("--permission-mode".into());
@@ -291,7 +290,6 @@ mod tests {
                 "sonnet".to_string(),
                 "--output-format".to_string(),
                 "stream-json".to_string(),
-                "--verbose".to_string(),
                 "--permission-mode".to_string(),
                 "plan".to_string(),
                 "--resume".to_string(),

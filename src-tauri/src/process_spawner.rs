@@ -1,6 +1,9 @@
 use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::ProviderKind;
 use crate::session_snapshot::persist_current_pair_snapshot;
+use crate::verification_gate::{
+    parse_verification_verdict, VerificationNextAction, VerificationVerdict, VerificationVerdictStatus,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -109,6 +112,46 @@ fn extract_event_texts(event: &serde_json::Value) -> Vec<String> {
     out
 }
 
+fn extract_claude_final_output(event: &serde_json::Value) -> Option<String> {
+    let event_type = event.get("type").and_then(|value| value.as_str())?;
+    if event_type != "result" {
+        return None;
+    }
+
+    event
+        .get("result")
+        .and_then(|value| value.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn collect_json_candidates_for_provider(
+    provider_kind: ProviderKind,
+    event: &serde_json::Value,
+    out: &mut Vec<String>,
+) {
+    if provider_kind == ProviderKind::Claude {
+        if let Some(text) = extract_claude_final_output(event) {
+            push_trimmed(out, &text);
+        }
+        return;
+    }
+
+    let event_type = event
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if is_noise_event_type_for_final(event_type) {
+        return;
+    }
+
+    for text in extract_event_texts(event) {
+        if !is_noise_text_candidate(&text) {
+            push_trimmed(out, &text);
+        }
+    }
+}
+
 fn collapse_candidates(candidates: &[String]) -> Option<String> {
     if candidates.is_empty() {
         return None;
@@ -162,6 +205,17 @@ fn is_noise_text_candidate(text: &str) -> bool {
         || lower.contains("stream disconnected before completion")
         || lower.contains("failed to lookup address information")
         || lower.contains("falling back from websockets")
+}
+
+fn verification_verdict_requests_finish(verdict: Option<&VerificationVerdict>) -> bool {
+    matches!(
+        verdict,
+        Some(VerificationVerdict {
+            status: VerificationVerdictStatus::Pass,
+            next_action: VerificationNextAction::Finish,
+            ..
+        })
+    )
 }
 
 fn has_signal_token_on_own_line(content: &str, token: &str) -> bool {
@@ -287,11 +341,13 @@ impl ProcessSpawner {
         let codex_last_message_path_clone = codex_last_message_path.clone();
         let app_clone = app.clone();
         let active_processes_for_cleanup = self.active_processes.clone();
+        let provider_kind_clone = provider_kind;
 
         // Stderr watcher
         let pair_id_clone_err = pair_id.clone();
         let role_clone_err = role.clone();
         let app_clone_err = app.clone();
+        let provider_kind_clone_err = provider_kind;
         tokio::spawn(async move {
             use crate::message_broker::MessageBroker;
             use tauri::Manager;
@@ -302,13 +358,15 @@ impl ProcessSpawner {
                     pair_id_clone_err, role_clone_err, line
                 );
 
-                if let Some(broker) = app_clone_err.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
-                    broker.add_log_line(
-                        &pair_id_clone_err,
-                        &role_clone_err,
-                        &format!("[STDERR] {}", line),
-                    );
+                if provider_kind_clone_err != ProviderKind::Claude {
+                    if let Some(broker) = app_clone_err.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker.add_log_line(
+                            &pair_id_clone_err,
+                            &role_clone_err,
+                            &format!("[STDERR] {}", line),
+                        );
+                    }
                 }
             }
         });
@@ -353,14 +411,11 @@ impl ProcessSpawner {
                         );
                     }
 
-                    if !is_noise_event_type_for_final(event_type) {
-                        let event_texts = extract_event_texts(&event);
-                        for text in event_texts {
-                            if !is_noise_text_candidate(&text) {
-                                json_candidates.push(text);
-                            }
-                        }
-                    }
+                    collect_json_candidates_for_provider(
+                        provider_kind_clone,
+                        &event,
+                        &mut json_candidates,
+                    );
 
                     if let Some(sid) = extract_session_id(&event) {
                         let mut should_persist_snapshot = false;
@@ -413,9 +468,11 @@ impl ProcessSpawner {
                 }
 
                 // Keep detailed logs, but avoid polluting plain output fallback with JSON internals.
-                if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker.lock().unwrap();
-                    broker.add_log_line(&pair_id_clone, &role_clone, &line);
+                if provider_kind_clone != ProviderKind::Claude {
+                    if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker.add_log_line(&pair_id_clone, &role_clone, &line);
+                    }
                 }
 
                 if !is_internal_json && !line.trim().is_empty() {
@@ -506,11 +563,80 @@ impl ProcessSpawner {
             let mut should_handoff = true;
             let mentor_finish_signaled = role_clone == "mentor"
                 && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
+            let verification_turn = if role_clone == "mentor" {
+                if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker_state.lock().unwrap();
+                    broker
+                        .get_state(&pair_id_clone)
+                        .map(|state| {
+                            matches!(state.status, crate::types::PairStatus::Reviewing)
+                                || state.verification.report.is_some()
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if role_clone == "executor"
+                && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL)
+            {
+                println!(
+                    "[ProcessSpawner] [{}] WARNING: Executor attempted TASK_COMPLETE (ignored - only Mentor can finish)",
+                    pair_id_clone
+                );
+            }
 
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker_state.lock().unwrap();
 
-                if role_clone == "mentor" && mentor_finish_signaled {
+                if role_clone == "mentor" && verification_turn {
+                    match parse_verification_verdict(&final_output) {
+                        Ok(verdict) => {
+                            let verdict_summary = verdict.summary.clone();
+                            let should_finish = verification_verdict_requests_finish(Some(&verdict));
+
+                            if let Err(error) = broker.set_verification_verdict(
+                                &pair_id_clone,
+                                final_output.clone(),
+                                verdict,
+                            ) {
+                                println!(
+                                    "[ProcessSpawner] [{}] Failed to persist verification verdict: {}",
+                                    pair_id_clone, error
+                                );
+                                if should_finish {
+                                    broker.set_pair_status(
+                                        &pair_id_clone,
+                                        crate::types::PairStatus::Finished,
+                                        Some(verdict_summary),
+                                    );
+                                    should_handoff = false;
+                                }
+                            } else if should_finish {
+                                broker.set_pair_status(
+                                    &pair_id_clone,
+                                    crate::types::PairStatus::Finished,
+                                    Some(verdict_summary),
+                                );
+                                should_handoff = false;
+                            } else {
+                                println!(
+                                    "[ProcessSpawner] [{}] Verification requested another executor iteration; retrying automatically",
+                                    pair_id_clone
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            println!(
+                                "[ProcessSpawner] [{}] Failed to parse verification verdict: {}; retrying automatically",
+                                pair_id_clone, error
+                            );
+                        }
+                    }
+                } else if role_clone == "mentor" && mentor_finish_signaled {
                     println!(
                         "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
                         pair_id_clone, MENTOR_FINISH_SIGNAL
@@ -585,6 +711,7 @@ impl ProcessSpawner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_registry::ProviderKind;
     use serde_json::json;
 
     #[test]
@@ -673,5 +800,60 @@ mod tests {
         assert!(is_noise_event_type_for_final("thread.started"));
         assert!(is_noise_text_candidate("reconnecting..."));
         assert!(!is_noise_text_candidate("Work finished successfully"));
+    }
+
+    #[test]
+    fn claude_result_events_are_used_for_final_output_only() {
+        let thinking_event = json!({
+            "type": "content_block_delta",
+            "delta": {
+                "type": "thinking_delta",
+                "thinking": "I should not leak this"
+            }
+        });
+        let result_event = json!({
+            "type": "result",
+            "result": "Final answer only"
+        });
+
+        let mut candidates = Vec::new();
+        collect_json_candidates_for_provider(
+            ProviderKind::Claude,
+            &thinking_event,
+            &mut candidates,
+        );
+        collect_json_candidates_for_provider(ProviderKind::Claude, &result_event, &mut candidates);
+
+        assert_eq!(candidates, vec!["Final answer only".to_string()]);
+    }
+
+    #[test]
+    fn verification_verdict_requests_finish_only_for_pass_finish() {
+        let finish_verdict = VerificationVerdict {
+            status: VerificationVerdictStatus::Pass,
+            risk_level: crate::verification_gate::VerificationRiskLevel::High,
+            evidence: vec!["checks passed".to_string()],
+            next_action: VerificationNextAction::Finish,
+            summary: "done".to_string(),
+        };
+        let continue_verdict = VerificationVerdict {
+            status: VerificationVerdictStatus::Pass,
+            risk_level: crate::verification_gate::VerificationRiskLevel::High,
+            evidence: vec!["checks passed".to_string()],
+            next_action: VerificationNextAction::Continue,
+            summary: "keep going".to_string(),
+        };
+        let fail_verdict = VerificationVerdict {
+            status: VerificationVerdictStatus::Fail,
+            risk_level: crate::verification_gate::VerificationRiskLevel::High,
+            evidence: vec!["tests failed".to_string()],
+            next_action: VerificationNextAction::Continue,
+            summary: "needs another pass".to_string(),
+        };
+
+        assert!(verification_verdict_requests_finish(Some(&finish_verdict)));
+        assert!(!verification_verdict_requests_finish(Some(&continue_verdict)));
+        assert!(!verification_verdict_requests_finish(Some(&fail_verdict)));
+        assert!(!verification_verdict_requests_finish(None));
     }
 }

@@ -5,8 +5,6 @@
 
 # The Pair
 
-<p>Release builds require the updater signing secret to be configured in GitHub Actions.</p>
-
 **Automated pair programming — grab a coffee while two AI agents cross-check each other's work**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
@@ -234,6 +232,9 @@ Start → Initialize & Baseline → Mentoring Phase → Executing Phase → Revi
 - **npm** or **pnpm**
 - **Git**
 - **Rustup** for desktop builds
+
+> [!NOTE]
+> Release builds require the updater signing secret to be configured in GitHub Actions.
 
 Run a quick environment check before building:
 

@@ -2,6 +2,10 @@ use crate::types::{
     ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput, GitTracking, Message,
     MessageSender, MessageType, PairResources, PairState, PairStatus, ResourceInfo,
 };
+use crate::verification_gate::{
+    VerificationGateReport, VerificationPhase, VerificationState, VerificationVerdict,
+    VerificationVerdictStatus,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -95,6 +99,8 @@ impl MessageBroker {
             },
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
+            finished_at: None,
+            verification: crate::verification_gate::VerificationState::idle(),
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -293,24 +299,41 @@ impl MessageBroker {
             };
 
             if role == "mentor" {
-                if matches!(
+                let is_planning_turn = matches!(
                     previous_status,
                     PairStatus::Idle | PairStatus::Finished | PairStatus::Error
-                ) || state.iteration == 0
-                {
+                ) || state.iteration == 0;
+
+                if is_planning_turn {
                     state.iteration = 1;
+                    state.status = PairStatus::Mentoring;
+                    state.verification = crate::verification_gate::VerificationState::idle();
+                    state.mentor.status = PairStatus::Executing;
+                    state.mentor_activity.phase = ActivityPhase::Thinking;
+                    state.mentor_activity.label = "Analyzing task".to_string();
+                    state.mentor_activity.detail = Some("Preparing first instruction".to_string());
+                    state.mentor_activity.updated_at = Self::now();
+
+                    state.executor.status = PairStatus::Idle;
+                    state.executor_activity.phase = ActivityPhase::Waiting;
+                    state.executor_activity.label = "Executor standing by".to_string();
+                    state.executor_activity.updated_at = Self::now();
                 } else {
                     state.iteration = state.iteration.saturating_add(1);
-                }
-                state.mentor.status = PairStatus::Executing;
-                state.mentor_activity.phase = ActivityPhase::Thinking;
-                state.mentor_activity.label = "Analyzing task".to_string();
-                state.mentor_activity.detail = Some("Preparing first instruction".to_string());
-                state.mentor_activity.updated_at = Self::now();
+                    state.status = PairStatus::Reviewing;
+                    state.mentor.status = PairStatus::Reviewing;
+                    state.mentor_activity.phase = ActivityPhase::Thinking;
+                    state.mentor_activity.label = "Reviewing changes".to_string();
+                    state.mentor_activity.detail =
+                        Some("Checking the verification gate".to_string());
+                    state.mentor_activity.updated_at = Self::now();
 
-                state.executor_activity.phase = ActivityPhase::Waiting;
-                state.executor_activity.label = "Executor standing by".to_string();
-                state.executor_activity.updated_at = Self::now();
+                    state.executor.status = PairStatus::Idle;
+                    state.executor_activity.phase = ActivityPhase::Waiting;
+                    state.executor_activity.label = "Awaiting verification verdict".to_string();
+                    state.executor_activity.detail = Some("Executor paused for review".to_string());
+                    state.executor_activity.updated_at = Self::now();
+                }
             } else {
                 // Increment iteration for executor turn? Or keep same? Let's keep consistent with add_message logic
                 // If it's a handoff, we might want to increment iteration count here or let it be handled elsewhere
@@ -421,8 +444,13 @@ impl MessageBroker {
             state.mentor.status = status.clone();
             state.executor.status = status.clone();
 
+            if status != PairStatus::Finished {
+                state.finished_at = None;
+            }
+
             match status {
                 PairStatus::Finished => {
+                    state.finished_at = Some(Self::now());
                     state.mentor_activity.phase = ActivityPhase::Idle;
                     state.mentor_activity.label = "Mission finished".to_string();
                     state.mentor_activity.detail = detail.clone();
@@ -441,6 +469,17 @@ impl MessageBroker {
 
                     state.executor_activity.phase = ActivityPhase::Waiting;
                     state.executor_activity.label = "Awaiting human review".to_string();
+                    state.executor_activity.detail = None;
+                    state.executor_activity.updated_at = Self::now();
+                }
+                PairStatus::Reviewing => {
+                    state.mentor_activity.phase = ActivityPhase::Thinking;
+                    state.mentor_activity.label = "Reviewing changes".to_string();
+                    state.mentor_activity.detail = detail.clone();
+                    state.mentor_activity.updated_at = Self::now();
+
+                    state.executor_activity.phase = ActivityPhase::Waiting;
+                    state.executor_activity.label = "Awaiting verification verdict".to_string();
                     state.executor_activity.detail = None;
                     state.executor_activity.updated_at = Self::now();
                 }
@@ -471,6 +510,85 @@ impl MessageBroker {
 
             self.notify_state_update(pair_id, state);
         }
+    }
+
+    pub fn set_verification_report(
+        &self,
+        pair_id: &str,
+        report: VerificationGateReport,
+    ) -> Result<(), String> {
+        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
+        let state = pair_states
+            .get_mut(pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+
+        let now = Self::now();
+        state.status = PairStatus::Reviewing;
+        state.mentor.status = PairStatus::Reviewing;
+        state.executor.status = PairStatus::Reviewing;
+        state.mentor_activity.phase = ActivityPhase::Thinking;
+        state.mentor_activity.label = "Reviewing changes".to_string();
+        state.mentor_activity.detail = Some("Checking the verification gate".to_string());
+        state.mentor_activity.updated_at = now;
+        state.executor_activity.phase = ActivityPhase::Waiting;
+        state.executor_activity.label = "Awaiting verification verdict".to_string();
+        state.executor_activity.detail = None;
+        state.executor_activity.updated_at = now;
+        state.verification = VerificationState {
+            phase: VerificationPhase::AwaitingVerdict,
+            risk_level: report.risk_level.clone(),
+            report: Some(report),
+            verdict: None,
+            raw_verdict: None,
+            error: None,
+            started_at: Some(now),
+            updated_at: now,
+        };
+
+        self.notify_state_update(pair_id, state);
+        Ok(())
+    }
+
+    pub fn set_verification_verdict(
+        &self,
+        pair_id: &str,
+        raw_verdict: String,
+        verdict: VerificationVerdict,
+    ) -> Result<(), String> {
+        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
+        let state = pair_states
+            .get_mut(pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+
+        let now = Self::now();
+        state.verification.phase = match verdict.status {
+            VerificationVerdictStatus::Pass => VerificationPhase::Passed,
+            VerificationVerdictStatus::Fail => VerificationPhase::Failed,
+        };
+        state.verification.risk_level = verdict.risk_level.clone();
+        state.verification.verdict = Some(verdict);
+        state.verification.raw_verdict = Some(raw_verdict);
+        state.verification.error = None;
+        state.verification.updated_at = now;
+
+        self.notify_state_update(pair_id, state);
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn set_verification_error(&self, pair_id: &str, error: String) -> Result<(), String> {
+        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
+        let state = pair_states
+            .get_mut(pair_id)
+            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
+
+        let now = Self::now();
+        state.verification.phase = VerificationPhase::Failed;
+        state.verification.error = Some(error);
+        state.verification.updated_at = now;
+
+        self.notify_state_update(pair_id, state);
+        Ok(())
     }
 
     fn notify_state_update(&self, _pair_id: &str, state: &PairState) {
@@ -520,6 +638,7 @@ mod tests {
         GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
         ResourceInfo,
     };
+    use crate::verification_gate::{VerificationNextAction, VerificationRiskLevel};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
@@ -579,6 +698,8 @@ mod tests {
             },
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
+            finished_at: None,
+            verification: crate::verification_gate::VerificationState::idle(),
         }
     }
 
@@ -630,6 +751,33 @@ mod tests {
     }
 
     #[test]
+    fn prepare_run_switches_mentor_turns_after_executor_work_into_reviewing() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker
+            .restore_state(pair_state(PairStatus::Executing, 1))
+            .unwrap();
+
+        broker.prepare_run(
+            "pair-1",
+            "mentor",
+            Arc::new(Mutex::new(HashMap::<String, tokio::process::Child>::new())),
+        );
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.status, PairStatus::Reviewing);
+        assert_eq!(state.mentor_activity.label, "Reviewing changes");
+        assert_eq!(
+            state.mentor_activity.detail.as_deref(),
+            Some("Checking the verification gate")
+        );
+        assert!(matches!(
+            state.mentor_activity.phase,
+            ActivityPhase::Thinking
+        ));
+    }
+
+    #[test]
     fn set_pair_status_marks_paused_pairs_as_idle_with_pause_copy() {
         let broker = MessageBroker::new();
         broker.initialize_pair("pair-1", sample_input()).unwrap();
@@ -649,10 +797,95 @@ mod tests {
         assert_eq!(state.executor.status, PairStatus::Paused);
         assert_eq!(state.mentor_activity.label, "Paused");
         assert_eq!(state.executor_activity.label, "Paused");
-        assert_eq!(state.mentor_activity.detail.as_deref(), Some("Paused by user"));
-        assert_eq!(state.executor_activity.detail.as_deref(), Some("Paused by user"));
+        assert_eq!(
+            state.mentor_activity.detail.as_deref(),
+            Some("Paused by user")
+        );
+        assert_eq!(
+            state.executor_activity.detail.as_deref(),
+            Some("Paused by user")
+        );
         assert!(matches!(state.mentor_activity.phase, ActivityPhase::Idle));
         assert!(matches!(state.executor_activity.phase, ActivityPhase::Idle));
+    }
+
+    #[test]
+    fn verification_updates_persist_report_and_verdict() {
+        let broker = MessageBroker::new();
+        broker.initialize_pair("pair-1", sample_input()).unwrap();
+
+        let report = VerificationGateReport {
+            risk_level: VerificationRiskLevel::High,
+            checks: vec![crate::verification_gate::VerificationCheckRun {
+                name: "test".to_string(),
+                command: "npm run test".to_string(),
+                status: crate::verification_gate::VerificationCheckStatus::Passed,
+                exit_code: Some(0),
+                duration_ms: 250,
+                stdout: "ok".to_string(),
+                stderr: String::new(),
+                summary: "test passed".to_string(),
+            }],
+            summary: "all checks completed".to_string(),
+            started_at: 11,
+            finished_at: 22,
+        };
+
+        broker
+            .set_verification_report("pair-1", report.clone())
+            .unwrap();
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(state.status, PairStatus::Reviewing);
+        assert_eq!(
+            state.verification.phase,
+            crate::verification_gate::VerificationPhase::AwaitingVerdict
+        );
+        assert_eq!(state.verification.risk_level, VerificationRiskLevel::High);
+        assert_eq!(
+            state
+                .verification
+                .report
+                .as_ref()
+                .map(|value| value.summary.as_str()),
+            Some("all checks completed")
+        );
+
+        let verdict = VerificationVerdict {
+            status: VerificationVerdictStatus::Pass,
+            risk_level: VerificationRiskLevel::High,
+            evidence: vec!["npm run test passed".to_string()],
+            next_action: VerificationNextAction::Continue,
+            summary: "looks good".to_string(),
+        };
+
+        broker
+            .set_verification_verdict(
+                "pair-1",
+                r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"continue","summary":"looks good"}"#.to_string(),
+                verdict,
+            )
+            .unwrap();
+
+        let state = broker.get_state("pair-1").expect("pair state should exist");
+        assert_eq!(
+            state.verification.phase,
+            crate::verification_gate::VerificationPhase::Passed
+        );
+        assert_eq!(
+            state
+                .verification
+                .verdict
+                .as_ref()
+                .map(|value| value.summary.as_str()),
+            Some("looks good")
+        );
+        assert_eq!(
+            state.verification.raw_verdict.as_deref(),
+            Some(
+                r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"continue","summary":"looks good"}"#
+            )
+        );
     }
 
     #[test]

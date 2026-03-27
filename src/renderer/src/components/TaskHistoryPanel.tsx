@@ -1,6 +1,10 @@
 import React from 'react'
 import { History, RotateCcw } from 'lucide-react'
 import { cn } from '../lib/utils'
+import {
+  getVerificationSummaryChip,
+  type VerificationSummaryTone
+} from '../lib/verificationGate'
 import { GlassButton } from './ui/GlassButton'
 import type { PairRunSummary } from '../store/usePairStore'
 
@@ -25,6 +29,14 @@ function getDuration(startedAt: number, finishedAt?: number): string {
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`
   const hours = Math.floor(minutes / 60)
   return `${hours}h ${minutes % 60}m`
+}
+
+const verificationToneClasses: Record<VerificationSummaryTone, string> = {
+  neutral: 'border-border/50 bg-background/50 text-muted-foreground',
+  blue: 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  amber: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  green: 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300',
+  red: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
 }
 
 export function TaskHistoryPanel({
@@ -74,6 +86,7 @@ export function TaskHistoryPanel({
             const isViewing = viewingRunId === run.id
             const duration = getDuration(run.startedAt, run.finishedAt)
             const modelShort = (model: string) => model.split('/').pop() ?? model
+            const verificationSummary = getVerificationSummaryChip(run.verification)
 
             return (
               <div
@@ -111,6 +124,17 @@ export function TaskHistoryPanel({
                     <span className="text-purple-500/70 font-medium">
                       {modelShort(run.executorModel)}
                     </span>
+                    {verificationSummary ? (
+                      <span
+                        className={cn(
+                          'max-w-[180px] truncate rounded-full border px-2 py-0.5 font-medium',
+                          verificationToneClasses[verificationSummary.tone]
+                        )}
+                        title={verificationSummary.text}
+                      >
+                        {verificationSummary.text}
+                      </span>
+                    ) : null}
                     <span className="ml-auto">{formatDate(run.startedAt)}</span>
                   </div>
                 </button>

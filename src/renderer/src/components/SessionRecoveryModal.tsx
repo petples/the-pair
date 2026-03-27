@@ -2,6 +2,10 @@ import React, { useState } from 'react'
 import { AlertTriangle, Clock3, FolderOpen, RotateCcw, Sparkles, Trash2, Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { RecoverableSessionSummary } from '../types'
+import {
+  getVerificationSummaryChip,
+  type VerificationSummaryTone
+} from '../lib/verificationGate'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
@@ -18,6 +22,14 @@ interface SessionRecoveryModalProps {
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleString()
+}
+
+const verificationToneClasses: Record<VerificationSummaryTone, string> = {
+  neutral: 'border-border/50 bg-background/50 text-muted-foreground',
+  blue: 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  amber: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  green: 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300',
+  red: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
 }
 
 function DeleteConfirmationModal({
@@ -90,6 +102,7 @@ function SessionCard({
 }): React.ReactNode {
   const isMentor = session.turn === 'mentor'
   const canResume = session.status !== 'Finished'
+  const verificationSummary = getVerificationSummaryChip(session.verification)
 
   return (
     <div
@@ -146,6 +159,17 @@ function SessionCard({
           <div className="flex items-center gap-2">
             <h3 className="truncate text-base font-semibold text-foreground">{session.name}</h3>
             <StatusBadge status={session.status} />
+            {verificationSummary ? (
+              <span
+                className={cn(
+                  'max-w-[220px] truncate rounded-full border px-2 py-1 text-[9px] font-medium',
+                  verificationToneClasses[verificationSummary.tone]
+                )}
+                title={verificationSummary.text}
+              >
+                {verificationSummary.text}
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/30 px-2 py-1">

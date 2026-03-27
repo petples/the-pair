@@ -4,6 +4,8 @@ import { Pair } from '../store/usePairStore'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { UpdateControls } from './UpdateControls'
+import { cn } from '../lib/utils'
+import { getVerificationSummaryChip } from '../lib/verificationGate'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -38,8 +40,19 @@ export function AppChrome({
   onOpenSettings
 }: AppChromeProps): React.ReactNode {
   const pairBusy = selectedPair ? isBusy(selectedPair.status) : false
+  const verificationSummary = selectedPair
+    ? getVerificationSummaryChip(selectedPair.verification)
+    : null
 
   const [appVersion, setAppVersion] = useState<string | null>(null)
+
+  const verificationToneClasses = {
+    neutral: 'border-border/50 bg-background/50 text-muted-foreground',
+    blue: 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+    amber: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+    green: 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300',
+    red: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
+  } satisfies Record<NonNullable<typeof verificationSummary>['tone'], string>
 
   useEffect(() => {
     window.api?.config
@@ -73,7 +86,7 @@ export function AppChrome({
           )}
 
           <div className="min-w-0 flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
                 {selectedPair ? selectedPair.name : 'The Pair'}
               </h1>
@@ -81,6 +94,17 @@ export function AppChrome({
                 v{appVersion ?? '...'}
               </span>
               {selectedPair ? <StatusBadge status={selectedPair.status} /> : null}
+              {verificationSummary ? (
+                <span
+                  className={cn(
+                    'max-w-[240px] truncate rounded-full border px-2 py-1 text-[10px] font-medium',
+                    verificationToneClasses[verificationSummary.tone]
+                  )}
+                  title={verificationSummary.text}
+                >
+                  {verificationSummary.text}
+                </span>
+              ) : null}
               {selectedPair?.pendingMentorModel || selectedPair?.pendingExecutorModel ? (
                 <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
                   Models queued

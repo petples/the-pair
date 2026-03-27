@@ -1,3 +1,17 @@
+import type { VerificationState } from './lib/verificationGate'
+
+export type {
+  VerificationRiskLevel,
+  VerificationVerdictStatus,
+  VerificationNextAction,
+  VerificationCheckStatus,
+  VerificationPhase,
+  VerificationCheckRun,
+  VerificationGateReport,
+  VerificationVerdict,
+  VerificationState
+} from './lib/verificationGate'
+
 export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
 
 export type PairStatus =
@@ -84,6 +98,7 @@ export interface PairRunSummary {
     attachments?: { path: string; description: string }[]
     iteration: number
   }>
+  verification: VerificationState
 }
 
 export interface SessionSnapshotDraft {
@@ -132,6 +147,7 @@ export interface SessionSnapshotDraft {
   runHistory: PairRunSummary[]
   currentRunStartedAt: number
   currentRunFinishedAt?: number
+  verification: VerificationState
   createdAt: number
 }
 
@@ -152,6 +168,7 @@ export interface RecoverableSessionSummary {
   savedAt: number
   createdAt: number
   currentTurnCard?: SnapshotTurnCard
+  verification: VerificationState
   hasMentorSession: boolean
   hasExecutorSession: boolean
 }
