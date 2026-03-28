@@ -300,8 +300,7 @@ function WelcomeCard({
   loading,
   onOpenConfig,
   onRefresh,
-  isOpening,
-  isCompactLayout
+  isOpening
 }: {
   summary: ProviderSetupSummary
   loading: boolean
@@ -405,12 +404,10 @@ function WelcomeCard({
 
 function DirectoryCard({
   directory,
-  onSelectDirectory,
-  isCompactLayout
+  onSelectDirectory
 }: {
   directory: string
   onSelectDirectory: () => void
-  isCompactLayout: boolean
 }): React.ReactNode {
   return (
     <GlassCard className="flex h-full flex-col p-4 space-y-3">
@@ -456,8 +453,7 @@ function TaskSpecCard({
   onSpecChange,
   textareaRef,
   onFileSelect,
-  onSkillSelect,
-  isCompactLayout
+  onSkillSelect
 }: {
   name: string
   spec: string
@@ -490,9 +486,7 @@ function TaskSpecCard({
         </div>
 
         <div className="relative flex-1">
-          <label className="mb-1 block text-xs font-medium text-foreground">
-            Task Description
-          </label>
+          <label className="mb-1 block text-xs font-medium text-foreground">Task Description</label>
           <textarea
             ref={textareaRef}
             value={spec}
@@ -526,15 +520,13 @@ function ModelCard({
   mentorModel,
   executorModel,
   onMentorChange,
-  onExecutorChange,
-  isCompactLayout
+  onExecutorChange
 }: {
   availableModels: AvailableModel[]
   mentorModel: string
   executorModel: string
   onMentorChange: (m: string) => void
   onExecutorChange: (m: string) => void
-  isCompactLayout: boolean
 }): React.ReactNode {
   return (
     <GlassCard className="flex h-full flex-col space-y-3 p-4">

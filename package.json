@@ -60,7 +60,8 @@
     "build:mac": "npm run tauri:build:mac",
     "build:mac:release": "npm run tauri:build:mac -- --bundles app",
     "build:win": "npm run tauri:build:win",
-    "build:linux": "npm run tauri:build:linux"
+    "build:linux": "npm run tauri:build:linux",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",
@@ -92,11 +93,22 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.20.0",
     "vite": "^7.2.6"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --cache --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,css}": [
+      "prettier --write"
+    ]
   }
 }
