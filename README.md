@@ -298,13 +298,33 @@ A: Single-agent tools rely on one model to write and self-review code, which can
 
 A: The Pair runs entirely locally. Only the AI model API calls require internet (or local model setup via Ollama).
 
+**Q: Which AI providers are supported?**
+
+A: The Pair supports four providers out of the box: **opencode** (any compatible model), **Claude Code CLI**, **OpenAI Codex CLI**, and **Gemini CLI**. Codex, Claude, and Gemini are detected automatically from their installed CLIs. You can mix providers — e.g., Claude as Mentor and Codex as Executor.
+
 **Q: Can I use my own AI models?**
 
-A: Yes, The Pair is model-agnostic and works with any opencode-compatible provider (OpenAI, Anthropic, Ollama, etc.).
+A: Yes, The Pair is model-agnostic. Opencode-backed models work with any compatible provider (OpenAI, Anthropic, Ollama, etc.). For Claude, Codex, and Gemini, simply install their CLI and sign in.
+
+**Q: Can I control how much the agents "think"?**
+
+A: Yes. The Pair supports **reasoning effort controls** for models that offer it (Claude, Codex o-series, Gemini 2.5). You can set low/medium/high effort per role — Mentor and Executor independently — from pair creation or settings.
+
+**Q: How do I track token usage and costs?**
+
+A: Token usage is tracked in real-time per agent turn. Live output token counts appear inline in the agent console so you can monitor spend as agents work.
 
 **Q: What happens if an agent gets stuck in a loop?**
 
 A: The Pair implements iteration limits. After a configured number of iterations, agents pause for human intervention.
+
+**Q: What if the app crashes or I close it mid-session?**
+
+A: Session snapshots are saved automatically. On relaunch, The Pair detects interrupted sessions and offers to restore them with full conversation history, so agents can continue from where they left off.
+
+**Q: Does The Pair auto-update?**
+
+A: Yes. The Pair checks for new versions on launch and notifies you with a one-click update flow. No manual download needed.
 
 ---
 
