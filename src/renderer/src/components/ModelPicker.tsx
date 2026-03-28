@@ -7,6 +7,7 @@ import {
   isSelectableForPairExecution,
   savePreferredModelId
 } from '../lib/modelPreferences'
+import { ReasoningEffortPicker } from './ReasoningEffortPicker'
 
 const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
 const MAX_RECENT_MODELS = 4
@@ -46,6 +47,8 @@ export interface ModelPickerProps {
   variant?: 'card' | 'inline'
   /** Open the dropdown upward instead of downward */
   dropUp?: boolean
+  reasoningEffort?: string
+  onReasoningEffortChange?: (value: string | undefined) => void
 }
 
 function getRoleTone(role: 'mentor' | 'executor') {
@@ -118,7 +121,9 @@ export function ModelPicker({
   onChange,
   role,
   variant = 'inline',
-  dropUp = false
+  dropUp = false,
+  reasoningEffort,
+  onReasoningEffortChange
 }: ModelPickerProps): React.ReactNode {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -185,6 +190,14 @@ export function ModelPicker({
     onChange(modelId)
     setIsDropdownOpen(false)
     setSearchQuery('')
+
+    const levels = model.reasoningEffortLevels
+    if (levels && levels.length > 0 && onReasoningEffortChange) {
+      const defaultLevel = levels.includes('medium') ? 'medium' : levels[0]
+      onReasoningEffortChange(defaultLevel)
+    } else if (onReasoningEffortChange) {
+      onReasoningEffortChange(undefined)
+    }
   }
 
   const selectedModel = useMemo(
@@ -253,7 +266,12 @@ export function ModelPicker({
         </button>
 
         {isDropdownOpen && (
-          <div className={cn('absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border bg-background/95 shadow-xl backdrop-blur-lg', dropUp ? 'bottom-full mb-1' : 'top-full mt-1')}>
+          <div
+            className={cn(
+              'absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border bg-background/95 shadow-xl backdrop-blur-lg',
+              dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
+            )}
+          >
             <div className="p-2">
               <div className="relative">
                 <Search
@@ -337,9 +355,7 @@ export function ModelPicker({
                           )}
                         </div>
                       </div>
-                      {selected && (
-                        <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />
-                      )}
+                      {selected && <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />}
                     </button>
                   )
                 })
@@ -348,18 +364,23 @@ export function ModelPicker({
           </div>
         )}
       </div>
+
+      {selectedModel?.reasoningEffortLevels &&
+        selectedModel.reasoningEffortLevels.length > 0 &&
+        onReasoningEffortChange && (
+          <ReasoningEffortPicker
+            levels={selectedModel.reasoningEffortLevels}
+            value={reasoningEffort}
+            onChange={onReasoningEffortChange}
+            role={role}
+          />
+        )}
     </div>
   )
 
   if (variant === 'card') {
     return (
-      <div
-        className={cn(
-          'flex flex-col rounded-2xl border p-4',
-          tone.border,
-          'bg-background/40'
-        )}
-      >
+      <div className={cn('flex flex-col rounded-2xl border p-4', tone.border, 'bg-background/40')}>
         {/* Card header */}
         <div className="mb-3 flex items-center gap-2.5">
           <div

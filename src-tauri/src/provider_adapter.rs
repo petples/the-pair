@@ -56,6 +56,7 @@ pub struct ProviderTurnRequest<'a> {
     pub role: &'a str,
     pub pair_id: &'a str,
     pub message: &'a str,
+    pub reasoning_effort: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +136,10 @@ impl ProviderAdapter {
                     args.push("--sandbox".into());
                     args.push("read-only".into());
                 }
+                if let Some(effort) = request.reasoning_effort {
+                    args.push("--reasoning-effort".into());
+                    args.push(effort.into());
+                }
 
                 let last_message_path = std::env::temp_dir().join(format!(
                     "the-pair-{}-{}-{}.txt",
@@ -173,6 +178,10 @@ impl ProviderAdapter {
                     args.push("--resume".into());
                     args.push(sid.into());
                 }
+                if let Some(effort) = request.reasoning_effort {
+                    args.push("--reasoning-effort".into());
+                    args.push(effort.into());
+                }
                 args.push(request.message.into());
 
                 ProviderTurnCommand {
@@ -182,13 +191,24 @@ impl ProviderAdapter {
                 }
             }
             ProviderKind::Gemini => {
-                let args = vec![
+                let mut args = vec![
                     "--model".into(),
                     request.model.into(),
                     "--output-format".into(),
                     "stream-json".into(),
-                    request.message.into(),
                 ];
+                if let Some(effort) = request.reasoning_effort {
+                    let budget = match effort {
+                        "none" => "0",
+                        "low" => "1024",
+                        "medium" => "8192",
+                        "high" => "32768",
+                        _ => "8192",
+                    };
+                    args.push("--thinking-budget".into());
+                    args.push(budget.into());
+                }
+                args.push(request.message.into());
 
                 ProviderTurnCommand {
                     executable: "gemini".into(),
@@ -247,6 +267,7 @@ mod tests {
             role: "executor",
             pair_id: "pair-1",
             message: "hello world",
+            reasoning_effort: None,
         });
 
         assert_eq!(command.executable, "codex");
@@ -280,6 +301,7 @@ mod tests {
             role: "mentor",
             pair_id: "pair-1",
             message: "plan the work",
+            reasoning_effort: None,
         });
 
         assert_eq!(command.executable, "claude");
@@ -311,6 +333,7 @@ mod tests {
             role: "executor",
             pair_id: "pair-1",
             message: "explain the current diff",
+            reasoning_effort: None,
         });
 
         assert_eq!(command.executable, "gemini");
@@ -341,5 +364,85 @@ mod tests {
             ProviderAdapter::infer_provider_kind("gemini-2.5-pro"),
             ProviderKind::Gemini
         );
+    }
+
+    #[test]
+    fn claude_command_injects_reasoning_effort_flag() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Claude,
+            model: "sonnet",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("high"),
+        });
+
+        assert!(command.args.contains(&"--reasoning-effort".to_string()));
+        assert!(command.args.contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn gemini_command_maps_reasoning_effort_to_thinking_budget() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "gemini-2.5-pro",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("high"),
+        });
+
+        assert!(command.args.contains(&"--thinking-budget".to_string()));
+        assert!(command.args.contains(&"32768".to_string()));
+    }
+
+    #[test]
+    fn gemini_command_maps_reasoning_effort_none_to_zero_budget() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Gemini,
+            model: "gemini-2.5-pro",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("none"),
+        });
+
+        assert!(command.args.contains(&"--thinking-budget".to_string()));
+        assert!(command.args.contains(&"0".to_string()));
+    }
+
+    #[test]
+    fn codex_command_injects_reasoning_effort_flag() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Codex,
+            model: "o3",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("medium"),
+        });
+
+        assert!(command.args.contains(&"--reasoning-effort".to_string()));
+        assert!(command.args.contains(&"medium".to_string()));
+    }
+
+    #[test]
+    fn opencode_command_does_not_add_reasoning_effort() {
+        let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
+            provider_kind: ProviderKind::Opencode,
+            model: "openai/gpt-4o-mini",
+            session_id: None,
+            role: "executor",
+            pair_id: "pair-1",
+            message: "do the work",
+            reasoning_effort: Some("high"),
+        });
+
+        assert!(!command.args.contains(&"--reasoning-effort".to_string()));
+        assert!(!command.args.contains(&"high".to_string()));
     }
 }

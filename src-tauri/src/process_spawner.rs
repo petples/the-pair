@@ -1,9 +1,7 @@
 use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::ProviderKind;
 use crate::session_snapshot::persist_current_pair_snapshot;
-use crate::verification_gate::{
-    parse_verification_verdict, VerificationNextAction, VerificationVerdict, VerificationVerdictStatus,
-};
+use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -27,6 +25,8 @@ pub struct ProcessContext {
     pub executor_model: String,
     pub mentor_session_id: Option<String>,
     pub executor_session_id: Option<String>,
+    pub mentor_reasoning_effort: Option<String>,
+    pub executor_reasoning_effort: Option<String>,
 }
 
 const MENTOR_FINISH_SIGNAL: &str = "TASK_COMPLETE";
@@ -110,6 +110,145 @@ fn extract_event_texts(event: &serde_json::Value) -> Vec<String> {
     let mut out = Vec::new();
     collect_text_candidates(event, &mut out);
     out
+}
+
+fn extract_token_usage_from_claude(event: &serde_json::Value) -> Option<TurnTokenUsage> {
+    let event_type = event.get("type").and_then(|v| v.as_str())?;
+    
+    let (usage_obj, is_final) = match event_type {
+        "result" => {
+            let usage = event.get("usage")?;
+            (usage, true)
+        }
+        "content_block_delta" | "content_block_stop" => {
+            let usage = event.get("usage")?;
+            (usage, false)
+        }
+        _ => return None,
+    };
+
+    let output_tokens = usage_obj
+        .get("output_tokens")
+        .and_then(|v| v.as_u64())
+        .or_else(|| usage_obj.get("completion_tokens").and_then(|v| v.as_u64()))?;
+
+    let input_tokens = usage_obj
+        .get("input_tokens")
+        .and_then(|v| v.as_u64())
+        .or_else(|| usage_obj.get("prompt_tokens").and_then(|v| v.as_u64()));
+
+    Some(TurnTokenUsage {
+        output_tokens,
+        input_tokens,
+        last_updated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+        source: if is_final {
+            TokenUsageSource::Final
+        } else {
+            TokenUsageSource::Live
+        },
+        provider: Some("claude".to_string()),
+    })
+}
+
+fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnTokenUsage> {
+    let usage = event.get("usage")?;
+    
+    let output_tokens = usage
+        .get("completion_tokens")
+        .and_then(|v| v.as_u64())
+        .or_else(|| usage.get("output_tokens").and_then(|v| v.as_u64()))?;
+
+    let input_tokens = usage
+        .get("prompt_tokens")
+        .and_then(|v| v.as_u64())
+        .or_else(|| usage.get("input_tokens").and_then(|v| v.as_u64()));
+
+    Some(TurnTokenUsage {
+        output_tokens,
+        input_tokens,
+        last_updated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+        source: TokenUsageSource::Final,
+        provider: Some("codex".to_string()),
+    })
+}
+
+fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTokenUsage> {
+    let usage = event.get("usage")?;
+    
+    let output_tokens = usage
+        .get("output_tokens")
+        .or_else(|| usage.get("completion_tokens"))
+        .and_then(|v| v.as_u64())?;
+
+    let input_tokens = usage
+        .get("input_tokens")
+        .or_else(|| usage.get("prompt_tokens"))
+        .and_then(|v| v.as_u64());
+
+    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let is_final = event_type == "result" || event_type == "complete" || event_type == "done";
+
+    Some(TurnTokenUsage {
+        output_tokens,
+        input_tokens,
+        last_updated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+        source: if is_final {
+            TokenUsageSource::Final
+        } else {
+            TokenUsageSource::Live
+        },
+        provider: Some("opencode".to_string()),
+    })
+}
+
+fn extract_token_usage_from_gemini(event: &serde_json::Value) -> Option<TurnTokenUsage> {
+    let usage = event.get("usageMetadata")?;
+    
+    let output_tokens = usage
+        .get("candidatesTokenCount")
+        .or_else(|| usage.get("output_tokens"))
+        .and_then(|v| v.as_u64())?;
+
+    let input_tokens = usage
+        .get("promptTokenCount")
+        .or_else(|| usage.get("input_tokens"))
+        .and_then(|v| v.as_u64());
+
+    let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    let is_final = event_type == "result" || event_type == "complete" || event_type == "done";
+
+    Some(TurnTokenUsage {
+        output_tokens,
+        input_tokens,
+        last_updated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+        source: if is_final {
+            TokenUsageSource::Final
+        } else {
+            TokenUsageSource::Live
+        },
+        provider: Some("gemini".to_string()),
+    })
+}
+
+fn extract_token_usage(provider_kind: ProviderKind, event: &serde_json::Value) -> Option<TurnTokenUsage> {
+    match provider_kind {
+        ProviderKind::Claude => extract_token_usage_from_claude(event),
+        ProviderKind::Codex => extract_token_usage_from_codex(event),
+        ProviderKind::Opencode => extract_token_usage_from_opencode(event),
+        ProviderKind::Gemini => extract_token_usage_from_gemini(event),
+    }
 }
 
 fn extract_claude_final_output(event: &serde_json::Value) -> Option<String> {
@@ -207,25 +346,7 @@ fn is_noise_text_candidate(text: &str) -> bool {
         || lower.contains("falling back from websockets")
 }
 
-fn verification_verdict_requests_finish(verdict: Option<&VerificationVerdict>) -> bool {
-    matches!(
-        verdict,
-        Some(VerificationVerdict {
-            status: VerificationVerdictStatus::Pass,
-            next_action: VerificationNextAction::Finish,
-            ..
-        })
-    )
-}
-
-fn should_parse_verification_verdict(role: &str, has_verification_report: bool) -> bool {
-    role == "mentor" && has_verification_report
-}
-
-fn should_finish_after_mentor_turn(
-    mentor_finish_signaled: bool,
-    _verification_turn: bool,
-) -> bool {
+fn should_finish_after_mentor_turn(mentor_finish_signaled: bool) -> bool {
     mentor_finish_signaled
 }
 
@@ -290,6 +411,8 @@ impl ProcessSpawner {
                 c.executor_model.clone(),
                 c.mentor_session_id.clone(),
                 c.executor_session_id.clone(),
+                c.mentor_reasoning_effort.clone(),
+                c.executor_reasoning_effort.clone(),
             )
         };
 
@@ -301,18 +424,22 @@ impl ProcessSpawner {
             executor_model,
             mentor_sid,
             executor_sid,
+            mentor_reasoning_effort,
+            executor_reasoning_effort,
         ) = ctx;
-        let (model, session_id, provider_kind) = if role == "mentor" {
+        let (model, session_id, provider_kind, reasoning_effort) = if role == "mentor" {
             (
                 mentor_model.as_str(),
                 mentor_sid.as_deref(),
                 mentor_provider,
+                mentor_reasoning_effort.as_deref(),
             )
         } else {
             (
                 executor_model.as_str(),
                 executor_sid.as_deref(),
                 executor_provider,
+                executor_reasoning_effort.as_deref(),
             )
         };
 
@@ -323,6 +450,7 @@ impl ProcessSpawner {
             role: &role,
             pair_id: &pair_id,
             message: &message,
+            reasoning_effort,
         });
         let spec = ProviderAdapter::runtime_spec(provider_kind);
         let executable = command.executable.clone();
@@ -387,9 +515,16 @@ impl ProcessSpawner {
             use crate::types::{ActivityPhase, Message, MessageSender, MessageType};
             use tauri::Manager;
 
+            // Reset token usage at the start of the turn
+            if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                let broker = broker.lock().unwrap();
+                broker.reset_token_usage(&pair_id_clone, &role_clone);
+            }
+
             let mut first_output = true;
             let mut accumulated_plain_output = String::new();
             let mut json_candidates: Vec<String> = Vec::new();
+            let mut last_token_usage: Option<TurnTokenUsage> = None;
 
             // Get current iteration from state
             let current_iteration =
@@ -427,6 +562,14 @@ impl ProcessSpawner {
                         &event,
                         &mut json_candidates,
                     );
+
+                    if let Some(usage) = extract_token_usage(provider_kind_clone, &event) {
+                        last_token_usage = Some(usage.clone());
+                        if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                            let broker = broker.lock().unwrap();
+                            broker.update_token_usage(&pair_id_clone, &role_clone, usage);
+                        }
+                    }
 
                     if let Some(sid) = extract_session_id(&event) {
                         let mut should_persist_snapshot = false;
@@ -550,6 +693,7 @@ impl ProcessSpawner {
                         msg_type: outgoing_type,
                         content: final_output.clone(),
                         iteration: current_iteration,
+                        token_usage: last_token_usage.clone(),
                     },
                 );
             }
@@ -574,24 +718,6 @@ impl ProcessSpawner {
             let mut should_handoff = true;
             let mentor_finish_signaled = role_clone == "mentor"
                 && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
-            let verification_turn = if role_clone == "mentor" {
-                if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
-                    let broker = broker_state.lock().unwrap();
-                    broker
-                        .get_state(&pair_id_clone)
-                        .map(|state| {
-                            should_parse_verification_verdict(
-                                &role_clone,
-                                state.verification.report.is_some(),
-                            )
-                        })
-                        .unwrap_or(false)
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
 
             if role_clone == "executor"
                 && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL)
@@ -606,7 +732,7 @@ impl ProcessSpawner {
                 let broker = broker_state.lock().unwrap();
 
                 if role_clone == "mentor"
-                    && should_finish_after_mentor_turn(mentor_finish_signaled, verification_turn)
+                    && should_finish_after_mentor_turn(mentor_finish_signaled)
                 {
                     println!(
                         "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
@@ -618,50 +744,6 @@ impl ProcessSpawner {
                         Some(format!("Mentor signaled {}", MENTOR_FINISH_SIGNAL)),
                     );
                     should_handoff = false;
-                } else if role_clone == "mentor" && verification_turn {
-                    match parse_verification_verdict(&final_output) {
-                        Ok(verdict) => {
-                            let verdict_summary = verdict.summary.clone();
-                            let should_finish = verification_verdict_requests_finish(Some(&verdict));
-
-                            if let Err(error) = broker.set_verification_verdict(
-                                &pair_id_clone,
-                                final_output.clone(),
-                                verdict,
-                            ) {
-                                println!(
-                                    "[ProcessSpawner] [{}] Failed to persist verification verdict: {}",
-                                    pair_id_clone, error
-                                );
-                                if should_finish {
-                                    broker.set_pair_status(
-                                        &pair_id_clone,
-                                        crate::types::PairStatus::Finished,
-                                        Some(verdict_summary),
-                                    );
-                                    should_handoff = false;
-                                }
-                            } else if should_finish {
-                                broker.set_pair_status(
-                                    &pair_id_clone,
-                                    crate::types::PairStatus::Finished,
-                                    Some(verdict_summary),
-                                );
-                                should_handoff = false;
-                            } else {
-                                println!(
-                                    "[ProcessSpawner] [{}] Verification requested another executor iteration; retrying automatically",
-                                    pair_id_clone
-                                );
-                            }
-                        }
-                        Err(error) => {
-                            println!(
-                                "[ProcessSpawner] [{}] Failed to parse verification verdict: {}; retrying automatically",
-                                pair_id_clone, error
-                            );
-                        }
-                    }
                 } else if no_text_output {
                     println!(
                         "[ProcessSpawner] [{}] {} returned no textual output, pausing for human review",
@@ -669,7 +751,7 @@ impl ProcessSpawner {
                     );
                     broker.set_pair_status(
                         &pair_id_clone,
-                        crate::types::PairStatus::AwaitingHumanReview,
+                        crate::types::PairStatus::Paused,
                         Some(format!("{} returned no textual output", role_clone)),
                     );
                     should_handoff = false;
@@ -682,7 +764,7 @@ impl ProcessSpawner {
                             );
                             broker.set_pair_status(
                                 &pair_id_clone,
-                                crate::types::PairStatus::AwaitingHumanReview,
+                                crate::types::PairStatus::Paused,
                                 Some(
                                     "Max iterations reached. Awaiting human intervention."
                                         .to_string(),
@@ -818,17 +900,9 @@ mod tests {
     }
 
     #[test]
-    fn plain_review_turns_are_not_treated_as_verification_turns() {
-        assert!(!should_parse_verification_verdict("mentor", false));
-        assert!(should_parse_verification_verdict("mentor", true));
-        assert!(!should_parse_verification_verdict("executor", true));
-    }
-
-    #[test]
-    fn mentor_finish_signal_wins_over_verification_turns() {
-        assert!(should_finish_after_mentor_turn(true, true));
-        assert!(should_finish_after_mentor_turn(true, false));
-        assert!(!should_finish_after_mentor_turn(false, true));
+    fn mentor_finish_signal_always_finishes() {
+        assert!(should_finish_after_mentor_turn(true));
+        assert!(!should_finish_after_mentor_turn(false));
     }
 
     #[test]
@@ -857,32 +931,273 @@ mod tests {
     }
 
     #[test]
-    fn verification_verdict_requests_finish_only_for_pass_finish() {
-        let finish_verdict = VerificationVerdict {
-            status: VerificationVerdictStatus::Pass,
-            risk_level: crate::verification_gate::VerificationRiskLevel::High,
-            evidence: vec!["checks passed".to_string()],
-            next_action: VerificationNextAction::Finish,
-            summary: "done".to_string(),
-        };
-        let continue_verdict = VerificationVerdict {
-            status: VerificationVerdictStatus::Pass,
-            risk_level: crate::verification_gate::VerificationRiskLevel::High,
-            evidence: vec!["checks passed".to_string()],
-            next_action: VerificationNextAction::Continue,
-            summary: "keep going".to_string(),
-        };
-        let fail_verdict = VerificationVerdict {
-            status: VerificationVerdictStatus::Fail,
-            risk_level: crate::verification_gate::VerificationRiskLevel::High,
-            evidence: vec!["tests failed".to_string()],
-            next_action: VerificationNextAction::Continue,
-            summary: "needs another pass".to_string(),
-        };
+    fn extract_token_usage_from_claude_parses_result_and_streaming_events() {
+        let result_event = json!({
+            "type": "result",
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 250
+            }
+        });
 
-        assert!(verification_verdict_requests_finish(Some(&finish_verdict)));
-        assert!(!verification_verdict_requests_finish(Some(&continue_verdict)));
-        assert!(!verification_verdict_requests_finish(Some(&fail_verdict)));
-        assert!(!verification_verdict_requests_finish(None));
+        let usage = extract_token_usage_from_claude(&result_event).expect("should parse claude result");
+        assert_eq!(usage.output_tokens, 250);
+        assert_eq!(usage.input_tokens, Some(100));
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+
+        let streaming_event = json!({
+            "type": "content_block_delta",
+            "usage": {
+                "input_tokens": 50,
+                "output_tokens": 75
+            }
+        });
+
+        let usage = extract_token_usage_from_claude(&streaming_event).expect("should parse claude streaming");
+        assert_eq!(usage.output_tokens, 75);
+        assert!(matches!(usage.source, TokenUsageSource::Live));
+    }
+
+    #[test]
+    fn extract_token_usage_from_codex_extracts_from_usage_field() {
+        let event = json!({
+            "type": "message",
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 350
+            }
+        });
+
+        let usage = extract_token_usage_from_codex(&event).expect("should parse codex usage");
+        assert_eq!(usage.output_tokens, 350);
+        assert_eq!(usage.input_tokens, Some(200));
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn extract_token_usage_from_opencode_detects_live_vs_final() {
+        let live_event = json!({
+            "type": "stream",
+            "usage": {
+                "input_tokens": 80,
+                "output_tokens": 120
+            }
+        });
+
+        let usage = extract_token_usage_from_opencode(&live_event).expect("should parse opencode live");
+        assert_eq!(usage.output_tokens, 120);
+        assert!(matches!(usage.source, TokenUsageSource::Live));
+
+        let final_event = json!({
+            "type": "result",
+            "usage": {
+                "input_tokens": 80,
+                "output_tokens": 150
+            }
+        });
+
+        let usage = extract_token_usage_from_opencode(&final_event).expect("should parse opencode final");
+        assert_eq!(usage.output_tokens, 150);
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn extract_token_usage_from_gemini_parses_usage_metadata() {
+        let event = json!({
+            "type": "result",
+            "usageMetadata": {
+                "promptTokenCount": 300,
+                "candidatesTokenCount": 450
+            }
+        });
+
+        let usage = extract_token_usage_from_gemini(&event).expect("should parse gemini usage");
+        assert_eq!(usage.output_tokens, 450);
+        assert_eq!(usage.input_tokens, Some(300));
+        assert!(matches!(usage.source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn extract_token_usage_returns_none_for_events_without_usage() {
+        let no_usage = json!({
+            "type": "content_block_delta",
+            "delta": { "text": "hello" }
+        });
+
+        assert!(extract_token_usage_from_claude(&no_usage).is_none());
+        assert!(extract_token_usage_from_codex(&no_usage).is_none());
+        assert!(extract_token_usage_from_opencode(&no_usage).is_none());
+        assert!(extract_token_usage_from_gemini(&no_usage).is_none());
+    }
+
+    #[test]
+    fn extract_token_usage_dispatches_to_correct_provider_parser() {
+        let claude_event = json!({
+            "type": "result",
+            "usage": { "output_tokens": 100 }
+        });
+        let usage = extract_token_usage(ProviderKind::Claude, &claude_event).expect("claude dispatch");
+        assert_eq!(usage.output_tokens, 100);
+
+        let codex_event = json!({
+            "usage": { "completion_tokens": 200 }
+        });
+        let usage = extract_token_usage(ProviderKind::Codex, &codex_event).expect("codex dispatch");
+        assert_eq!(usage.output_tokens, 200);
+
+        let opencode_event = json!({
+            "type": "result",
+            "usage": { "output_tokens": 300 }
+        });
+        let usage = extract_token_usage(ProviderKind::Opencode, &opencode_event).expect("opencode dispatch");
+        assert_eq!(usage.output_tokens, 300);
+
+        let gemini_event = json!({
+            "type": "result",
+            "usageMetadata": { "candidatesTokenCount": 400 }
+        });
+        let usage = extract_token_usage(ProviderKind::Gemini, &gemini_event).expect("gemini dispatch");
+        assert_eq!(usage.output_tokens, 400);
+    }
+
+    #[test]
+    fn token_usage_live_to_final_transition_preserves_latest_value() {
+        let live_event = json!({
+            "type": "content_block_delta",
+            "usage": {
+                "input_tokens": 50,
+                "output_tokens": 120
+            }
+        });
+
+        let final_event = json!({
+            "type": "result",
+            "usage": {
+                "input_tokens": 50,
+                "output_tokens": 150
+            }
+        });
+
+        let live_usage = extract_token_usage(ProviderKind::Claude, &live_event).expect("live usage");
+        assert_eq!(live_usage.output_tokens, 120);
+        assert!(matches!(live_usage.source, TokenUsageSource::Live));
+
+        let final_usage = extract_token_usage(ProviderKind::Claude, &final_event).expect("final usage");
+        assert_eq!(final_usage.output_tokens, 150);
+        assert!(matches!(final_usage.source, TokenUsageSource::Final));
+        assert!(final_usage.output_tokens >= live_usage.output_tokens);
+    }
+
+    #[test]
+    fn token_usage_provider_specific_fields_are_correctly_mapped() {
+        let claude_with_alternate_fields = json!({
+            "type": "result",
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 200
+            }
+        });
+        let claude_usage = extract_token_usage_from_claude(&claude_with_alternate_fields)
+            .expect("claude alternate field names");
+        assert_eq!(claude_usage.input_tokens, Some(100));
+        assert_eq!(claude_usage.output_tokens, 200);
+
+        let codex_with_alternate_fields = json!({
+            "usage": {
+                "input_tokens": 150,
+                "output_tokens": 250
+            }
+        });
+        let codex_usage = extract_token_usage_from_codex(&codex_with_alternate_fields)
+            .expect("codex alternate field names");
+        assert_eq!(codex_usage.input_tokens, Some(150));
+        assert_eq!(codex_usage.output_tokens, 250);
+
+        let gemini_with_alternate_fields = json!({
+            "type": "result",
+            "usageMetadata": {
+                "input_tokens": 175,
+                "output_tokens": 275
+            }
+        });
+        let gemini_usage = extract_token_usage_from_gemini(&gemini_with_alternate_fields)
+            .expect("gemini alternate field names");
+        assert_eq!(gemini_usage.input_tokens, Some(175));
+        assert_eq!(gemini_usage.output_tokens, 275);
+    }
+
+    #[test]
+    fn last_token_usage_state_transition_across_stream_events() {
+        fn update_last_token_usage(
+            current: Option<TurnTokenUsage>,
+            event: &serde_json::Value,
+            provider: ProviderKind,
+        ) -> Option<TurnTokenUsage> {
+            extract_token_usage(provider, event).or(current)
+        }
+
+        let mut last_token_usage: Option<TurnTokenUsage> = None;
+
+        let event1 = json!({
+            "type": "content_block_delta",
+            "usage": { "output_tokens": 100, "input_tokens": 50 }
+        });
+        last_token_usage = update_last_token_usage(last_token_usage, &event1, ProviderKind::Claude);
+        assert!(last_token_usage.is_some());
+        assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 100);
+
+        let event2 = json!({
+            "type": "content_block_delta",
+            "usage": { "output_tokens": 200, "input_tokens": 50 }
+        });
+        last_token_usage = update_last_token_usage(last_token_usage, &event2, ProviderKind::Claude);
+        assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 200);
+
+        let event_no_usage = json!({
+            "type": "content_block_delta",
+            "delta": { "text": "some text" }
+        });
+        let before_no_usage = last_token_usage.clone();
+        last_token_usage = update_last_token_usage(last_token_usage, &event_no_usage, ProviderKind::Claude);
+        assert_eq!(last_token_usage, before_no_usage, "should preserve last usage when event has no usage");
+
+        let final_event = json!({
+            "type": "result",
+            "usage": { "output_tokens": 350, "input_tokens": 50 }
+        });
+        last_token_usage = update_last_token_usage(last_token_usage, &final_event, ProviderKind::Claude);
+        assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 350);
+        assert!(matches!(last_token_usage.as_ref().unwrap().source, TokenUsageSource::Final));
+    }
+
+    #[test]
+    fn last_token_usage_uses_latest_when_final_event_has_no_usage() {
+        fn update_last_token_usage(
+            current: Option<TurnTokenUsage>,
+            event: &serde_json::Value,
+            provider: ProviderKind,
+        ) -> Option<TurnTokenUsage> {
+            extract_token_usage(provider, event).or(current)
+        }
+
+        let mut last_token_usage: Option<TurnTokenUsage> = None;
+
+        let live_event = json!({
+            "type": "stream",
+            "usage": { "output_tokens": 500, "input_tokens": 100 }
+        });
+        last_token_usage = update_last_token_usage(last_token_usage, &live_event, ProviderKind::Opencode);
+        assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 500);
+
+        let final_no_usage = json!({
+            "type": "result",
+            "content": "done"
+        });
+        last_token_usage = update_last_token_usage(last_token_usage, &final_no_usage, ProviderKind::Opencode);
+        assert!(
+            last_token_usage.is_some(),
+            "last live usage should be preserved when final event lacks usage"
+        );
+        assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 500);
     }
 }

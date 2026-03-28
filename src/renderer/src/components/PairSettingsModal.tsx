@@ -24,7 +24,9 @@ export function PairSettingsModal({
   const { availableModels, updatePairModels, isLoading, error } = usePairStore()
   const [selection, setSelection] = useState<PairModelSelection>(() => ({
     mentorModel: pair?.pendingMentorModel ?? pair?.mentorModel ?? '',
-    executorModel: pair?.pendingExecutorModel ?? pair?.executorModel ?? ''
+    executorModel: pair?.pendingExecutorModel ?? pair?.executorModel ?? '',
+    mentorReasoningEffort: pair?.mentorReasoningEffort,
+    executorReasoningEffort: pair?.executorReasoningEffort
   }))
 
   const queuedForNextTask = useMemo(
@@ -77,15 +79,21 @@ export function PairSettingsModal({
             onChange={(mentorModel) => setSelection((current) => ({ ...current, mentorModel }))}
             role="mentor"
             variant="card"
+            reasoningEffort={selection.mentorReasoningEffort}
+            onReasoningEffortChange={(mentorReasoningEffort) =>
+              setSelection((current) => ({ ...current, mentorReasoningEffort }))
+            }
           />
           <ModelPicker
             value={selection.executorModel}
             models={availableModels}
-            onChange={(executorModel) =>
-              setSelection((current) => ({ ...current, executorModel }))
-            }
+            onChange={(executorModel) => setSelection((current) => ({ ...current, executorModel }))}
             role="executor"
             variant="card"
+            reasoningEffort={selection.executorReasoningEffort}
+            onReasoningEffortChange={(executorReasoningEffort) =>
+              setSelection((current) => ({ ...current, executorReasoningEffort }))
+            }
           />
         </div>
 

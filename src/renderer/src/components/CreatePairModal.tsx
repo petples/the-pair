@@ -23,6 +23,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [spec, setSpec] = useState('')
   const [mentorModel, setMentorModel] = useState('')
   const [executorModel, setExecutorModel] = useState('')
+  const [mentorReasoningEffort, setMentorReasoningEffort] = useState<string | undefined>()
+  const [executorReasoningEffort, setExecutorReasoningEffort] = useState<string | undefined>()
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -60,17 +62,25 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       if (referencedFiles.length > 0) {
         const contextHeader =
           '--- REFERENCED FILES ---\n' +
-          referencedFiles
-            .map(([path, content]) => `@${path}:\n${content}`)
-            .join('\n\n') +
+          referencedFiles.map(([path, content]) => `@${path}:\n${content}`).join('\n\n') +
           '\n\n--- TASK ---\n'
         finalSpec = contextHeader + finalSpec
       }
-      await createPair({ name, directory, spec: finalSpec, mentorModel, executorModel })
+      await createPair({
+        name,
+        directory,
+        spec: finalSpec,
+        mentorModel,
+        executorModel,
+        mentorReasoningEffort,
+        executorReasoningEffort
+      })
       setName('')
       setDirectory('')
       setSpec('')
       setFileContexts(new Map())
+      setMentorReasoningEffort(undefined)
+      setExecutorReasoningEffort(undefined)
       onClose()
     } catch {
       // Store already exposes the error copy
@@ -146,6 +156,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             onChange={setMentorModel}
             role="mentor"
             variant="card"
+            reasoningEffort={mentorReasoningEffort}
+            onReasoningEffortChange={setMentorReasoningEffort}
           />
           <ModelPicker
             value={executorModel}
@@ -153,6 +165,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             onChange={setExecutorModel}
             role="executor"
             variant="card"
+            reasoningEffort={executorReasoningEffort}
+            onReasoningEffortChange={setExecutorReasoningEffort}
           />
         </div>
 

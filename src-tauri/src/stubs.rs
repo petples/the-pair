@@ -56,11 +56,6 @@ pub fn pair_get_state(
     Ok(broker.get_state(&pair_id))
 }
 
-#[allow(dead_code)]
-pub fn pair_human_feedback() -> Result<(), String> {
-    Ok(())
-}
-
 #[tauri::command]
 pub fn config_open_file() -> Result<(), String> {
     let path = opencode_config_path().ok_or("Could not determine home directory")?;

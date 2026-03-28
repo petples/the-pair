@@ -78,6 +78,12 @@ export const overlayVariants: Variants = {
   visible: { opacity: 1, transition: { duration: 0.2 } }
 }
 
+export const turnCardFinalize: Variants = {
+  live: { opacity: 1 },
+  finalizing: { opacity: 0, transition: { duration: 0.12, ease: 'easeIn' } },
+  final: { opacity: 1, transition: { duration: 0.2, delay: 0.08, ease: 'easeOut' } }
+}
+
 export const modalVariants: Variants = {
   hidden: { opacity: 0, scale: 0.96, y: 8 },
   visible: {

@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { getVersion } from '@tauri-apps/api/app'
 
 const api = {
   app: {
@@ -20,8 +19,6 @@ const api = {
     list: () => invoke('pair_list') as Promise<unknown>,
     getMessages: (pairId: string) => invoke('pair_get_messages', { pairId }) as Promise<unknown>,
     getState: (pairId: string) => invoke('pair_get_state', { pairId }) as Promise<unknown>,
-    humanFeedback: (pairId: string, approved: boolean) =>
-      invoke('pair_human_feedback', { pairId, approved }) as Promise<unknown>,
     onCreated: (callback: (data: unknown) => void) =>
       listen('pair:created', (e) => callback(e.payload)) as Promise<unknown>,
     onStopped: (callback: (data: unknown) => void) =>
@@ -36,6 +33,7 @@ const api = {
   session: {
     saveSnapshot: (input: unknown) =>
       invoke('session_save_snapshot', { input }) as Promise<unknown>,
+    loadAllPairs: () => invoke('load_all_pairs') as Promise<unknown>,
     listRecoverable: () => invoke('list_recoverable_sessions') as Promise<unknown>,
     deleteRecoverable: (pairId: string) =>
       invoke('delete_recoverable_session', { pairId }) as Promise<unknown>,
@@ -47,7 +45,7 @@ const api = {
     getProviders: () => invoke('config_get_providers') as Promise<unknown>,
     read: () => invoke('config_read') as Promise<unknown>,
     openFile: () => invoke('config_open_file') as Promise<unknown>,
-    getVersion: () => getVersion() as Promise<string>
+    getVersion: () => Promise.resolve(__APP_VERSION__)
   },
   file: {
     listFiles: (options: { pairId?: string; directory?: string }) =>

@@ -9,22 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added per-role reasoning effort controls to model selection and pair settings.
-- Added live token usage tracking for agent turns and snapshots.
-- Added a dedicated update notification modal and centralized update store.
-- Added finish chime feedback when a pair reaches `Finished`.
+- **Reasoning effort controls**: Per-role reasoning effort picker (`ReasoningEffortPicker` component) integrated into model selection for both pair creation (`CreatePairModal`) and pair settings (`PairSettingsModal`). Supports low/medium/high for Claude and Codex o-series models, none/low/medium/high for Gemini 2.5/2.0-flash models.
+- **Token usage tracking**: Live per-turn token usage (`TurnTokenUsage` type) extracted from provider JSON event streams for Claude, Codex, Gemini, and OpenCode. Output tokens, input tokens, provider source, and live/final status are tracked per agent turn.
+- **Token chip display**: New `TokenChip` component showing live output token counts inline in the agent console during execution.
+- **Update notification modal**: Dedicated `UpdateNotification` component replacing the inline updater controls with a standalone modal for update announcements.
+- **Centralized update store**: New `useUpdateStore` (Zustand) managing update check, download, and install state, replacing the previous component-local state management.
+- **Error boundary**: `ErrorBoundary` component wrapping the app to catch and gracefully display React render errors.
+- **Sound feedback**: `playFinishChime()` utility that plays an audio chime when a pair reaches the `Finished` status.
+- **Snapshot diff utility**: `shouldSaveSnapshot()` moved to dedicated `snapshotDiff.ts` module with unit tests, comparing status, turn, iteration, models, reasoning effort, and token usage changes.
+- **Token usage utilities**: `tokenUsage.ts` module with `resolveCurrentTurnTokenUsage`, `syncTokenUsage`, and `turnCardToMessage` helpers, plus 275 lines of unit tests covering edge cases.
+- **Compact ResourceMeter**: `ResourceMeter` component now supports `compact` and `hideLabels` props for use in space-constrained layouts.
+- **usePrevious hook**: Generic `usePrevious<T>` utility for detecting value changes across renders.
+- **Model catalog reasoning levels**: `AvailableModel` entries now include `reasoningEffortLevels` metadata so the frontend knows which models support reasoning effort configuration.
+- **Provider reasoning effort passthrough**: Provider adapter passes `--reasoning-effort` flag to Claude and Codex CLI, `--thinking-budget` to Gemini CLI (mapped from effort levels), with full test coverage.
 
 ### Changed
 
-- Refactored pair state persistence to track turn-card content, token usage, and model defaults.
-- Simplified session restore flows by loading active pair snapshots directly from the backend.
-- Reworked the updater UI so checks and installs are coordinated through app state.
-- Updated onboarding and dashboard presentation to match the new pair workflow.
+- **Removed verification gate**: Deleted the entire `verification_gate.rs` backend module (668 lines), `VerificationGatePanel` component (265 lines), `verificationGate.ts` frontend library (473 lines), `ReleaseNotesModal`, and associated tests. The verification gate workflow has been replaced by simpler mentor review logic.
+- **Simplified pair status machine**: Removed `Awaiting Human Review` status. The flow is now `Idle → Mentoring → Executing → Reviewing → (loop or Finished)`, with no separate human review gate.
+- **Simplified session recovery**: `SessionRecoveryModal` no longer gates resume behind `canResume` status checks; sessions can always resume with a new task.
+- **Streamlined dashboard cards**: Reduced pair cards from `min-h-[220px]` to `min-h-[140px]` with tighter spacing (9–10px text, 1.5px gaps). Active pair count shown inline with a pulsing badge in the heading.
+- **Improved updater architecture**: `UpdateControls` rewritten from 154 lines of component-local state to a thin 34-line wrapper delegating to `useUpdateStore`, with event-driven check/install flow via Tauri events.
+- **Enhanced process spawning**: `ProcessSpawner` now extracts token usage from provider-specific JSON event formats (Claude `result`/`content_block_delta` events, Codex `usage` objects, Gemini `usageMetadata`, OpenCode generic usage). Token usage is pushed to `MessageBroker` via new `update_token_usage`/`reset_token_usage` methods.
+- **Session snapshot schema**: Snapshots now persist `mentor_reasoning_effort`, `executor_reasoning_effort`, per-turn `token_usage`, and run-level `total_output_tokens`. The `verification` field has been removed from all snapshot types.
+- **Pair state persistence**: `Pair` objects now track `mentorReasoningEffort`, `executorReasoningEffort`, `mentorTokenUsage`, and `executorTokenUsage` instead of `verification` state.
+- **Agent state tracking**: `AgentState` now carries an optional `tokenUsage` field. `Message` records include optional per-message `tokenUsage`.
+- **Message broker**: Removed all verification-related methods (`set_verification_report`, verification verdict parsing, verification review/retry prompts). Added `update_token_usage` and `reset_token_usage` methods. Agent activity labels changed from "Awaiting verification verdict" to "Executor standing by" / "Checking the work".
 
 ### Fixed
 
-- Fixed provider reasoning effort being preserved unexpectedly after clearing it in pair settings.
-- Fixed release detection in CI by fetching tags before checking whether the current version is already published.
+- Fixed CI `test:rust` failures caused by uncommitted struct field additions (`mentor_reasoning_effort`, `executor_reasoning_effort`) that were referenced by `pair_manager.rs` but missing from `CreatePairInput`, `ProcessContext`, and `UpdatePairModelsInput`.
+- Fixed reasoning effort not being passed through to provider CLI commands during agent turns.
+- Fixed Gemini reasoning effort mapping: `none` maps to `--thinking-budget 0`, `low` to 1024, `medium` to 8192, `high` to 32768.
 
 ## [1.2.3] - 2026-03-28
 
@@ -269,7 +285,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
-[1.1.18]: https://github.com/timwuhaotian/the-pair/compare/v1.1.17...v1.1.18
+[1.3.0]: https://github.com/timwuhaotian/the-pair/compare/v1.2.3...v1.3.0
+[1.2.3]: https://github.com/timwuhaotian/the-pair/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/timwuhaotian/the-pair/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/timwuhaotian/the-pair/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/timwuhaotian/the-pair/compare/v1.1.22...v1.2.0
 [1.1.17]: https://github.com/timwuhaotian/the-pair/compare/v1.1.16...v1.1.17

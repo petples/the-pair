@@ -1,6 +1,29 @@
 use crate::provider_registry::ProviderKind;
-use crate::verification_gate::VerificationState;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenUsageSource {
+    Live,
+    Final,
+    None,
+}
+
+impl Default for TokenUsageSource {
+    fn default() -> Self {
+        TokenUsageSource::None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnTokenUsage {
+    pub output_tokens: u64,
+    pub input_tokens: Option<u64>,
+    pub last_updated_at: u64,
+    pub source: TokenUsageSource,
+    pub provider: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -113,6 +136,7 @@ pub struct AgentConfig {
     pub role: AgentRole,
     pub provider: ProviderKind,
     pub model: String,
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +146,10 @@ pub struct CreatePairInput {
     pub spec: String,
     pub mentor: AgentConfig,
     pub executor: AgentConfig,
+    #[serde(rename = "mentorReasoningEffort")]
+    pub mentor_reasoning_effort: Option<String>,
+    #[serde(rename = "executorReasoningEffort")]
+    pub executor_reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +169,10 @@ pub struct UpdatePairModelsInput {
     pub pending_mentor_model: Option<String>,
     #[serde(rename = "pendingExecutorModel")]
     pub pending_executor_model: Option<String>,
+    #[serde(rename = "mentorReasoningEffort")]
+    pub mentor_reasoning_effort: Option<String>,
+    #[serde(rename = "executorReasoningEffort")]
+    pub executor_reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +182,8 @@ pub struct AgentState {
     #[serde(rename = "lastMessage")]
     pub last_message: Option<Message>,
     pub activity: AgentActivity,
+    #[serde(rename = "tokenUsage")]
+    pub token_usage: Option<TurnTokenUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,8 +214,6 @@ pub struct PairState {
     pub git_review_available: bool,
     #[serde(rename = "finishedAt")]
     pub finished_at: Option<u64>,
-    #[serde(default)]
-    pub verification: VerificationState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +235,10 @@ pub struct Pair {
     pub pending_mentor_model: Option<String>,
     #[serde(rename = "pendingExecutorModel")]
     pub pending_executor_model: Option<String>,
+    #[serde(rename = "mentorReasoningEffort")]
+    pub mentor_reasoning_effort: Option<String>,
+    #[serde(rename = "executorReasoningEffort")]
+    pub executor_reasoning_effort: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: u64,
 }
@@ -217,4 +253,6 @@ pub struct Message {
     pub msg_type: MessageType,
     pub content: String,
     pub iteration: u32,
+    #[serde(rename = "tokenUsage", skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TurnTokenUsage>,
 }

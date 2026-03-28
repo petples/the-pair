@@ -20,6 +20,7 @@ pub struct AvailableModel {
     pub availability_reason: Option<String>,
     pub supports_pair_execution: bool,
     pub recommended_roles: Vec<String>,
+    pub reasoning_effort_levels: Option<Vec<String>>,
 }
 
 /// Normalize a provider slug or family name into its canonical display label.
@@ -41,6 +42,35 @@ fn normalize_provider_label(slug: &str) -> String {
                 Some(c) => c.to_uppercase().to_string() + chars.as_str(),
             }
         }
+    }
+}
+
+fn reasoning_effort_levels_for(provider: ProviderKind, model_id: &str) -> Option<Vec<String>> {
+    match provider {
+        ProviderKind::Claude => Some(vec!["low".into(), "medium".into(), "high".into()]),
+        ProviderKind::Codex => {
+            if model_id.starts_with("o3")
+                || model_id.starts_with("o4")
+                || model_id.starts_with("o1")
+            {
+                Some(vec!["low".into(), "medium".into(), "high".into()])
+            } else {
+                None
+            }
+        }
+        ProviderKind::Gemini => {
+            if model_id.contains("2.5") || model_id.contains("2.0-flash") {
+                Some(vec![
+                    "none".into(),
+                    "low".into(),
+                    "medium".into(),
+                    "high".into(),
+                ])
+            } else {
+                None
+            }
+        }
+        ProviderKind::Opencode => None,
     }
 }
 
@@ -145,7 +175,11 @@ impl ModelCatalog {
                     availability_status: status,
                     availability_reason: reason,
                     supports_pair_execution: model.supports_pair_execution,
-                    recommended_roles: vec!["mentor".into(), "executor".into()], // Simplified
+                    recommended_roles: vec!["mentor".into(), "executor".into()],
+                    reasoning_effort_levels: reasoning_effort_levels_for(
+                        profile.kind,
+                        &model.model_id,
+                    ),
                 };
                 catalog.push(entry);
             }
@@ -234,6 +268,7 @@ mod tests {
         assert_eq!(model.access_label, "OpenAI API key");
         assert_eq!(model.availability_status, "ready");
         assert_eq!(model.recommended_roles, vec!["mentor", "executor"]);
+        assert!(model.reasoning_effort_levels.is_none());
     }
 
     #[test]

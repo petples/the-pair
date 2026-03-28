@@ -4,8 +4,6 @@ import { Pair } from '../store/usePairStore'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { UpdateControls } from './UpdateControls'
-import { cn } from '../lib/utils'
-import { getVerificationSummaryChip } from '../lib/verificationGate'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -40,19 +38,8 @@ export function AppChrome({
   onOpenSettings
 }: AppChromeProps): React.ReactNode {
   const pairBusy = selectedPair ? isBusy(selectedPair.status) : false
-  const verificationSummary = selectedPair
-    ? getVerificationSummaryChip(selectedPair.verification)
-    : null
 
   const [appVersion, setAppVersion] = useState<string | null>(null)
-
-  const verificationToneClasses = {
-    neutral: 'border-border/50 bg-background/50 text-muted-foreground',
-    blue: 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300',
-    amber: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-    green: 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300',
-    red: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
-  } satisfies Record<NonNullable<typeof verificationSummary>['tone'], string>
 
   useEffect(() => {
     window.api?.config
@@ -93,18 +80,21 @@ export function AppChrome({
               <span className="rounded bg-blue-500 px-2 py-0.5 text-xs font-bold text-white">
                 v{appVersion ?? '...'}
               </span>
-              {selectedPair ? <StatusBadge status={selectedPair.status} /> : null}
-              {verificationSummary ? (
-                <span
-                  className={cn(
-                    'max-w-[240px] truncate rounded-full border px-2 py-1 text-[10px] font-medium',
-                    verificationToneClasses[verificationSummary.tone]
-                  )}
-                  title={verificationSummary.text}
-                >
-                  {verificationSummary.text}
+              <a
+                href="https://timwuhaotian.github.io/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="app-no-drag group flex items-center gap-1.5 rounded-full border border-border/40 bg-gradient-to-r from-muted/30 to-muted/50 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors duration-300"
+                title="Visit timwuhaotian's homepage"
+              >
+                <span className="opacity-60 group-hover:opacity-100 transition-opacity duration-300">
+                  by
                 </span>
-              ) : null}
+                <span className="font-semibold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 group-hover:from-blue-500 group-hover:to-purple-500 dark:group-hover:from-blue-300 dark:group-hover:to-purple-300 bg-clip-text text-transparent transition-all duration-300">
+                  timwuhaotian
+                </span>
+              </a>
+              {selectedPair ? <StatusBadge status={selectedPair.status} /> : null}
               {selectedPair?.pendingMentorModel || selectedPair?.pendingExecutorModel ? (
                 <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
                   Models queued
@@ -144,6 +134,10 @@ export function AppChrome({
             </>
           )}
 
+          <GlassButton variant="secondary" size="sm" onClick={onNewPair} icon={<Plus size={13} />}>
+            New Pair
+          </GlassButton>
+
           <button
             onClick={onToggleTheme}
             className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
@@ -151,10 +145,6 @@ export function AppChrome({
           >
             {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
           </button>
-
-          <GlassButton variant="secondary" size="sm" onClick={onNewPair} icon={<Plus size={13} />}>
-            New Pair
-          </GlassButton>
         </div>
       </div>
     </div>

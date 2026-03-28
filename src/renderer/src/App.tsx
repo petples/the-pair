@@ -3,15 +3,19 @@ import { Pause, Play, RefreshCw, RotateCcw, Terminal, Trash2, Zap } from 'lucide
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { cn } from './lib/utils'
+import { listen } from '@tauri-apps/api/event'
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { cn, stripSystemPrompt } from './lib/utils'
 import { usePairStore, Pair, Message, TurnCard } from './store/usePairStore'
+import { TokenChip } from './components/TokenChip'
 import { useThemeStore } from './store/useThemeStore'
+import { usePrevious } from './lib/usePrevious'
+import { turnCardFinalize } from './lib/animations'
+import { useUpdateStore } from './store/useUpdateStore'
 import { CreatePairModal } from './components/CreatePairModal'
 import { StatusBadge } from './components/StatusBadge'
 import { TaskHistoryPanel } from './components/TaskHistoryPanel'
-import { VerificationGatePanel } from './components/VerificationGatePanel'
 import { OnboardingWizard } from './components/OnboardingWizard'
-import { SessionRecoveryModal } from './components/SessionRecoveryModal'
 import { ScrollToBottomButton } from './components/ScrollToBottomButton'
 import { DashboardEmptyState } from './components/DashboardEmptyState'
 import { ErrorDetailPanel } from './components/ErrorDetailPanel'
@@ -25,29 +29,17 @@ import { AppChrome } from './components/AppChrome'
 import { AssignTaskModal } from './components/AssignTaskModal'
 import { PairSettingsModal } from './components/PairSettingsModal'
 import { ConfirmModal } from './components/ui/ConfirmModal'
+import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
-import { getVerificationSummaryChip, type VerificationSummaryTone } from './lib/verificationGate'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
-  return (
-    normalized === 'mentoring' ||
-    normalized === 'executing' ||
-    normalized === 'reviewing' ||
-    normalized === 'awaiting human review'
-  )
+  return normalized === 'mentoring' || normalized === 'executing' || normalized === 'reviewing'
 }
 
 function isAgentExecuting(phase: string): boolean {
   return phase === 'thinking' || phase === 'using_tools' || phase === 'responding'
-}
-
-const verificationToneClasses: Record<VerificationSummaryTone, string> = {
-  neutral: 'border-border/50 bg-background/50 text-muted-foreground',
-  blue: 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300',
-  amber: 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-  green: 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300',
-  red: 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
 }
 
 function buildConsoleMessages(messages: Message[]): Message[] {
@@ -216,20 +208,23 @@ function Dashboard({
         <div className="relative z-10 flex h-full flex-col p-8">
           <div className="mb-8 flex items-end justify-between gap-6">
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+              <h1 className="flex items-center gap-3 text-3xl font-semibold tracking-tight text-foreground">
                 Pair Containers
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-xs font-semibold text-primary shadow-sm">
+                  <span className="relative flex h-2 w-2">
+                    {pairs.length > 0 && (
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                    )}
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                  </span>
+                  {pairs.length}
+                </span>
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
                 Each pair keeps its workspace, defaults, and task history. Open one to continue
                 work, queue a new task, or swap mentor and executor defaults without recreating the
                 setup.
               </p>
-            </div>
-            <div className="hidden rounded-2xl border border-border bg-background/60 px-4 py-3 text-right shadow-sm lg:block">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                Active Containers
-              </div>
-              <div className="mt-1 text-2xl font-semibold text-foreground">{pairs.length}</div>
             </div>
           </div>
 
@@ -241,8 +236,6 @@ function Dashboard({
           >
             <AnimatePresence>
               {pairs.map((pair) => {
-                const verificationSummary = getVerificationSummaryChip(pair.verification)
-
                 return (
                   <motion.div
                     key={pair.id}
@@ -257,15 +250,15 @@ function Dashboard({
                       hoverable
                       onClick={() => onSelectPair(pair)}
                       glow={getPairGlow(pair.status)}
-                      className="flex min-h-[220px] flex-col gap-4 p-5"
+                      className="flex min-h-[140px] flex-col gap-2 p-3"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <h3 className="truncate text-base font-semibold leading-tight text-foreground">
+                          <h3 className="truncate text-sm font-semibold leading-tight text-foreground">
                             {pair.name}
                           </h3>
                           <p
-                            className="mt-1 truncate font-mono text-xs text-muted-foreground"
+                            className="mt-0.5 truncate font-mono text-xs text-muted-foreground"
                             title={pair.directory}
                           >
                             {pair.directory}
@@ -289,52 +282,44 @@ function Dashboard({
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                           Run {pair.runCount}
                         </span>
-                        <span className="rounded-full border border-border bg-muted/40 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        <span className="rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                           {pair.runHistory.length} archived
                         </span>
                         {pair.status === 'Paused' ? (
-                          <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
+                          <span className="rounded-full border border-slate-500/25 bg-slate-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-slate-700 dark:text-slate-200">
                             Paused
                           </span>
                         ) : (
                           !isPairRunning(pair.status) && (
-                            <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
+                            <span className="rounded-full border border-green-500/20 bg-green-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
                               Ready for new task
                             </span>
                           )
                         )}
                         {(pair.pendingMentorModel || pair.pendingExecutorModel) && (
-                          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+                          <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
                             Models queued
                           </span>
                         )}
-                        {verificationSummary ? (
-                          <span
-                            className={cn(
-                              'max-w-[220px] truncate rounded-full border px-2 py-1 text-[9px] font-medium',
-                              verificationToneClasses[verificationSummary.tone]
-                            )}
-                            title={verificationSummary.text}
-                          >
-                            {verificationSummary.text}
-                          </span>
-                        ) : null}
                       </div>
 
-                      <div className="flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-3 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                      <div className="flex-1 text-xs leading-snug text-muted-foreground line-clamp-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         {pair.spec}
                       </div>
 
-                      <div className="mt-auto space-y-3 border-t border-border/50 pt-4">
-                        <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                      <div className="mt-auto space-y-2 border-t border-border/40 pt-2.5">
+                        {/* 资源监控 */}
+                        <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} compact hideLabels />
+
+                        {/* 状态和模型信息 */}
+                        <div className="flex items-center justify-between text-[9px]">
+                          <div className="flex items-center gap-1.5 font-mono text-muted-foreground">
                             <RefreshCw
-                              size={12}
+                              size={10}
                               className={cn(
                                 pair.status === 'Executing' || pair.status === 'Mentoring'
                                   ? 'animate-spin text-blue-500'
@@ -342,20 +327,23 @@ function Dashboard({
                               )}
                             />
                             <span>
-                              {pair.currentTurnCard
-                                ? `turn ${pair.currentTurnCard.role}`
-                                : 'turn idle'}
+                              {pair.currentTurnCard ? `turn ${pair.currentTurnCard.role}` : 'idle'}
                             </span>
                           </div>
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="text-[10px] font-medium text-blue-600">MENTOR</span>
-                            <span className="truncate font-mono text-[10px] text-muted-foreground">
-                              {(pair.pendingMentorModel ?? pair.mentorModel).split('/').pop()}
-                            </span>
-                            <span className="text-[10px] font-medium text-purple-600">EXEC</span>
-                            <span className="truncate font-mono text-[10px] text-muted-foreground">
-                              {(pair.pendingExecutorModel ?? pair.executorModel).split('/').pop()}
-                            </span>
+
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1">
+                              <span className="font-bold text-blue-600">M</span>
+                              <span className="max-w-[70px] truncate font-mono text-muted-foreground">
+                                {(pair.pendingMentorModel ?? pair.mentorModel).split('/').pop()}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="font-bold text-purple-600">E</span>
+                              <span className="max-w-[70px] truncate font-mono text-muted-foreground">
+                                {(pair.pendingExecutorModel ?? pair.executorModel).split('/').pop()}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -376,7 +364,7 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const isSystem = msg.type === 'handoff'
   const isHuman = msg.from === 'human'
 
-  const displayContent = msg.content.trim()
+  const displayContent = isHuman ? stripSystemPrompt(msg.content.trim()) : msg.content.trim()
 
   // Filter out technical handoff messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
@@ -453,9 +441,12 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
             </span>
           </div>
         </div>
-        <span className="text-[10px] font-mono text-muted-foreground/30 tabular-nums">
-          {formatTime(msg.timestamp)}
-        </span>
+        <div className="flex items-center gap-2">
+          <TokenChip usage={msg.tokenUsage} compact />
+          <span className="text-[10px] font-mono text-muted-foreground/30 tabular-nums">
+            {formatTime(msg.timestamp)}
+          </span>
+        </div>
       </div>
 
       <div
@@ -493,8 +484,25 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
 }
 
 function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
+  const prevState = usePrevious(card.state)
+  const prevFinalizedAt = usePrevious(card.finalizedAt)
+
+  let animationState: 'live' | 'finalizing' | 'final'
+  if (card.state === 'live') {
+    animationState = 'live'
+  } else if (!card.finalizedAt) {
+    animationState = 'live'
+  } else if (
+    prevState === 'live' &&
+    card.state === 'final' &&
+    card.finalizedAt === prevFinalizedAt
+  ) {
+    animationState = 'finalizing'
+  } else {
+    animationState = 'final'
+  }
+
   const isMentor = card.role === 'mentor'
-  const isLive = card.state === 'live'
   const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
   const borderAccent = isMentor ? 'border-blue-400/30' : 'border-purple-400/30'
   const bg = isMentor ? 'bg-blue-500/6' : 'bg-purple-500/6'
@@ -507,8 +515,8 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={animationState}
+      variants={turnCardFinalize}
       className={cn(
         'relative overflow-hidden rounded-2xl border p-5 shadow-lg',
         borderAccent,
@@ -522,13 +530,14 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
           {card.role.toUpperCase()}
         </span>
         <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70">
-          {isLive ? 'working' : 'result'}
+          {card.state === 'live' ? 'working' : 'result'}
         </span>
+        <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
       </div>
       <div
         className={cn(
           'text-sm leading-relaxed [overflow-wrap:anywhere]',
-          isLive ? 'text-foreground/90' : 'text-foreground'
+          card.state === 'live' ? 'text-foreground/90' : 'text-foreground'
         )}
       >
         <MarkdownContent content={currentAction} />
@@ -548,28 +557,56 @@ function PairDetail({
   onResume: () => Promise<void>
   onRestoreTask: (spec: string, mentorModel: string, executorModel: string) => void
 }): React.ReactNode {
+  console.log('[PairDetail] Rendering with pair:', pair.id, pair.name)
+
   const retryTurn = usePairStore((s) => s.retryTurn)
-  const humanFeedback = usePairStore((s) => s.humanFeedback)
   const isStoreBusy = usePairStore((s) => s.isLoading)
   const viewingRunId = usePairStore((s) => s.viewingRunId)
   const setViewingRunId = usePairStore((s) => s.setViewingRunId)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
   const [messageFilter, setMessageFilter] = useState<'all' | 'mentor' | 'executor'>('all')
-  const canPause = isPairRunning(pair.status)
 
-  const handleRetryTurn = (): void => {
-    retryTurn(pair.id)
-  }
+  const viewingRun = viewingRunId
+    ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
+    : null
 
-  const handleHumanFeedback = async (approved: boolean): Promise<void> => {
-    setIsSubmittingReview(true)
-    try {
-      await humanFeedback(pair.id, approved)
-    } finally {
-      setIsSubmittingReview(false)
+  const consoleMessages = useMemo(() => {
+    const messages = viewingRun
+      ? buildConsoleMessages(viewingRun.messages)
+      : buildConsoleMessages(pair.messages)
+
+    if (messageFilter === 'all') return messages
+    return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
+  }, [pair.messages, viewingRun, messageFilter])
+
+  const messageCounts = useMemo(() => {
+    const allMessages = viewingRun
+      ? buildConsoleMessages(viewingRun.messages)
+      : buildConsoleMessages(pair.messages)
+    return {
+      mentor: allMessages.filter((msg) => msg.from === 'mentor').length,
+      executor: allMessages.filter((msg) => msg.from === 'executor').length,
+      all: allMessages.length
     }
-  }
+  }, [pair.messages, viewingRun])
+
+  const activeRole = pair.currentTurnCard?.role ?? pair.turn
+  const reviewReason =
+    pair.status === 'Paused' || pair.status === 'Awaiting Human Review'
+      ? (pair.mentorActivity.detail ??
+        pair.executorActivity.detail ??
+        pair.currentTurnCard?.content ??
+        (pair.status === 'Awaiting Human Review' ? 'Awaiting human intervention' : 'Paused'))
+      : null
+  const liveStatusText =
+    pair.status === 'Paused' || pair.status === 'Awaiting Human Review'
+      ? (reviewReason ??
+        (pair.status === 'Awaiting Human Review' ? 'Awaiting human intervention' : 'Paused'))
+      : pair.currentTurnCard?.content ||
+        (activeRole === 'mentor'
+          ? pair.mentorActivity.detail || 'Thinking...'
+          : pair.executorActivity.detail || 'Working...')
+  const visibleStatusText = useMinimumVisibleText(liveStatusText, pair.id)
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -587,6 +624,24 @@ function PairDetail({
       el.scrollTop = el.scrollHeight
     }
   }, [pair.status, pair.messages.length, pair.currentTurnCard?.updatedAt])
+
+  if (!pair || !pair.id || !pair.name) {
+    console.error('[PairDetail] Invalid pair data:', pair)
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg font-semibold text-red-600">Invalid pair data</p>
+          <p className="mt-2 text-sm text-muted-foreground">Please try selecting another pair</p>
+        </div>
+      </div>
+    )
+  }
+
+  const canPause = isPairRunning(pair.status)
+
+  const handleRetryTurn = (): void => {
+    retryTurn(pair.id)
+  }
 
   const formatRunStamp = (ts?: number): string => {
     if (!ts) return 'still active'
@@ -625,55 +680,16 @@ function PairDetail({
     return `${minutes}m ${seconds % 60}s`
   }
 
-  const activeRole = pair.currentTurnCard?.role ?? pair.turn
   const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
   const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
   const isRunning = isPairRunning(pair.status) || mentorIsExecuting || executorIsExecuting
-  const viewingRun = viewingRunId
-    ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
-    : null
-  const consoleMessages = useMemo(() => {
-    const messages = viewingRun
-      ? buildConsoleMessages(viewingRun.messages)
-      : buildConsoleMessages(pair.messages)
-
-    if (messageFilter === 'all') return messages
-    return messages.filter((msg) => msg.from === messageFilter)
-  }, [pair.messages, viewingRun, messageFilter])
-
-  const messageCounts = useMemo(() => {
-    const allMessages = viewingRun
-      ? buildConsoleMessages(viewingRun.messages)
-      : buildConsoleMessages(pair.messages)
-    return {
-      mentor: allMessages.filter((msg) => msg.from === 'mentor').length,
-      executor: allMessages.filter((msg) => msg.from === 'executor').length,
-      all: allMessages.length
-    }
-  }, [pair.messages, viewingRun])
-  const reviewReason =
-    pair.status === 'Awaiting Human Review'
-      ? (pair.mentorActivity.detail ??
-        pair.executorActivity.detail ??
-        pair.currentTurnCard?.content ??
-        'Awaiting human intervention')
-      : null
-  const liveStatusText =
-    pair.status === 'Awaiting Human Review'
-      ? (reviewReason ?? 'Awaiting human intervention')
-      : pair.currentTurnCard?.content ||
-        (activeRole === 'mentor'
-          ? pair.mentorActivity.detail || 'Thinking...'
-          : pair.executorActivity.detail || 'Working...')
-  const visibleStatusText = useMinimumVisibleText(liveStatusText, pair.id)
-  const activeVerification = viewingRun?.verification ?? pair.verification
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-1 min-h-0 overflow-hidden bg-background">
         <div className="glass-panel flex w-[28%] flex-col gap-5 overflow-y-auto border-r border-border/50 p-5 scrollbar-thin">
           <div className="flex flex-wrap items-center gap-2">
-            {pair.status === 'Paused' ? (
+            {(pair.status === 'Paused' || pair.status === 'Awaiting Human Review') && (
               <GlassButton
                 variant="secondary"
                 size="sm"
@@ -685,7 +701,8 @@ function PairDetail({
               >
                 Resume Pair
               </GlassButton>
-            ) : canPause ? (
+            )}
+            {canPause && (
               <GlassButton
                 variant="secondary"
                 size="sm"
@@ -697,7 +714,7 @@ function PairDetail({
               >
                 Pause Pair
               </GlassButton>
-            ) : null}
+            )}
             {pair.status === 'Error' && (
               <GlassButton
                 variant="primary"
@@ -708,30 +725,6 @@ function PairDetail({
                 Retry Turn
               </GlassButton>
             )}
-            {pair.status === 'Awaiting Human Review' && (
-              <>
-                <GlassButton
-                  variant="approve"
-                  size="sm"
-                  onClick={() => {
-                    void handleHumanFeedback(true)
-                  }}
-                  disabled={isSubmittingReview || isStoreBusy}
-                >
-                  Approve
-                </GlassButton>
-                <GlassButton
-                  variant="reject"
-                  size="sm"
-                  onClick={() => {
-                    void handleHumanFeedback(false)
-                  }}
-                  disabled={isSubmittingReview || isStoreBusy}
-                >
-                  Reject
-                </GlassButton>
-              </>
-            )}
             {pair.automationMode === 'full-auto' && (
               <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[10px] text-amber-600 dark:text-amber-400">
                 <Zap size={10} />
@@ -739,26 +732,17 @@ function PairDetail({
               </div>
             )}
           </div>
-          {pair.status === 'Awaiting Human Review' && (
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-3 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700/80 dark:text-amber-300/80">
-                Pause reason
+          {(pair.status === 'Paused' || pair.status === 'Awaiting Human Review') &&
+            reviewReason && (
+              <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-3 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700/80 dark:text-amber-300/80">
+                  Pause reason
+                </div>
+                <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {reviewReason}
+                </div>
               </div>
-              <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                {reviewReason}
-              </div>
-            </div>
-          )}
-          {pair.status === 'Paused' && (
-            <div className="rounded-2xl border border-slate-500/20 bg-slate-500/8 p-3 text-[11px] leading-relaxed text-slate-800 dark:text-slate-200">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-700/80 dark:text-slate-300/80">
-                Paused
-              </div>
-              <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                The pair has been manually paused. Click Resume Pair to continue.
-              </div>
-            </div>
-          )}
+            )}
           {pair.status === 'Error' && (
             <ErrorDetailPanel
               error={
@@ -855,8 +839,6 @@ function PairDetail({
             onBackToCurrent={() => setViewingRunId(null)}
             onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
           />
-
-          <VerificationGatePanel verification={activeVerification} />
         </div>
 
         <div className="flex w-[46%] flex-col bg-muted/10">
@@ -994,7 +976,16 @@ function PairDetail({
                 )}
                 {pair.currentTurnCard && (
                   <div className="pt-1">
-                    <TurnCardView card={pair.currentTurnCard} />
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={pair.currentTurnCard.id + pair.currentTurnCard.state}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8, transition: { duration: 0.15 } }}
+                      >
+                        <TurnCardView card={pair.currentTurnCard} />
+                      </motion.div>
+                    </AnimatePresence>
                   </div>
                 )}
               </div>
@@ -1006,85 +997,17 @@ function PairDetail({
           </div>
         </div>
 
-        <div className="glass-panel flex w-[26%] flex-col gap-5 overflow-y-auto p-5 scrollbar-thin">
+        <div className="glass-panel flex w-[26%] flex-col gap-3 overflow-y-auto p-5 scrollbar-thin">
           <div>
-            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               System Resources
             </h3>
-            <div className="space-y-3">
-              <div className="glass-card rounded-2xl p-3">
-                <div className="mb-2 text-[10px] text-muted-foreground">Pair Total</div>
-                <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
-              </div>
-              <div className="glass-card rounded-2xl p-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400">
-                    MENTOR
-                  </span>
-                </div>
-                <div className="mb-1.5 h-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-blue-500 transition-all"
-                    style={{ width: `${Math.min(pair.mentorCpu, 100)}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>CPU: {pair.mentorCpu.toFixed(1)}%</span>
-                  <span>MEM: {pair.mentorMemMb.toFixed(1)}MB</span>
-                </div>
-              </div>
-              <div className="glass-card rounded-2xl p-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-purple-500" />
-                  <span className="text-[10px] font-medium text-purple-600 dark:text-purple-400">
-                    EXECUTOR
-                  </span>
-                </div>
-                <div className="mb-1.5 h-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-purple-500 transition-all"
-                    style={{ width: `${Math.min(pair.executorCpu, 100)}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>CPU: {pair.executorCpu.toFixed(1)}%</span>
-                  <span>MEM: {pair.executorMemMb.toFixed(1)}MB</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="flex-1">
-            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Modified Files
-            </h3>
             <div className="glass-card rounded-2xl p-3">
-              {!pair.gitTracking.available ? (
-                <div className="font-mono text-xs text-amber-600/70 dark:text-amber-400/70">
-                  Git tracking unavailable for this workspace
-                </div>
-              ) : pair.modifiedFiles.length === 0 ? (
-                <div className="font-mono text-xs text-muted-foreground/60">
-                  No files modified in this run yet
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {pair.modifiedFiles.map((file, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center gap-1 truncate font-mono text-xs text-muted-foreground"
-                      title={file.path}
-                    >
-                      <span className="text-purple-500/60">{file.status}</span>
-                      <span className="truncate">{file.displayPath}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} />
             </div>
           </div>
           <div>
-            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Recent Activity
             </h3>
             <div className="glass-card rounded-2xl p-3 space-y-2">
@@ -1127,64 +1050,33 @@ function PairDetail({
               )}
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function AppSkeleton(): React.ReactNode {
-  return (
-    <div className="h-screen w-screen overflow-hidden bg-background font-sans text-foreground selection:bg-primary selection:text-primary-foreground grain-overlay">
-      {/* Post-hydration skeleton.
-          If the loading state shown after React mounts needs changing, edit this component.
-          The very first boot splash lives in src/renderer/index.html. */}
-      <div className="flex h-full flex-col">
-        {/* Chrome Skeleton */}
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-md">
-          <div className="flex items-center gap-4">
-            <div className="powering-up-emblem flex h-6 w-6 items-center justify-center rounded-lg border border-border/50 bg-slate-950/5 shadow-sm">
-              <Zap
-                size={14}
-                fill="currentColor"
-                className="relative z-10 drop-shadow-[0_0_4px_rgba(255,255,255,0.32)]"
-              />
-            </div>
-            <div className="h-4 w-32 animate-pulse rounded-md bg-muted/20" />
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 animate-pulse rounded-full bg-muted/30" />
-            <div className="h-8 w-24 animate-pulse rounded-full bg-muted/30" />
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-hidden p-8">
-          <div className="mx-auto flex h-full max-w-4xl flex-col justify-center gap-6">
-            <div className="space-y-4">
-              <div className="h-10 w-64 animate-pulse rounded-lg bg-muted/40" />
-              <div className="h-4 w-full max-w-2xl animate-pulse rounded bg-muted/20" />
-            </div>
-
-            <div className="rounded-[28px] border border-border/50 bg-muted/5 p-6 shadow-[0_20px_80px_rgba(0,0,0,0.08)]">
-              <div className="flex items-center gap-4">
-                <div className="powering-up-emblem flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-border/50 bg-slate-950/5">
-                  <Zap
-                    size={18}
-                    fill="currentColor"
-                    className="relative z-10 drop-shadow-[0_0_6px_rgba(255,255,255,0.4)]"
-                  />
+          <div>
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Modified Files
+            </h3>
+            <div className="glass-card rounded-2xl p-3">
+              {!pair.gitTracking.available ? (
+                <div className="font-mono text-xs text-amber-600/70 dark:text-amber-400/70">
+                  Git tracking unavailable for this workspace
                 </div>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <div className="h-4 w-40 rounded bg-muted/40" />
-                  <div className="h-3 w-full rounded bg-muted/20" />
+              ) : pair.modifiedFiles.length === 0 ? (
+                <div className="font-mono text-xs text-muted-foreground/60">
+                  No files modified in this run yet
                 </div>
-              </div>
-
-              <div className="mt-6 space-y-3">
-                <div className="h-3 w-full rounded bg-muted/15" />
-                <div className="h-3 w-5/6 rounded bg-muted/15" />
-                <div className="h-3 w-2/3 rounded bg-muted/15" />
-              </div>
+              ) : (
+                <div className="space-y-1">
+                  {pair.modifiedFiles.map((file, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-1 truncate font-mono text-xs text-muted-foreground"
+                      title={file.path}
+                    >
+                      <span className="text-purple-500/60">{file.status}</span>
+                      <span className="truncate">{file.displayPath}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1199,22 +1091,15 @@ function App(): React.ReactNode {
   const [isAssignTaskOpen, setIsAssignTaskOpen] = useState(false)
   const [isPairSettingsOpen, setIsPairSettingsOpen] = useState(false)
   const [isInitializing, setIsInitializing] = useState(true)
-  const [isRecoveryDismissed, setIsRecoveryDismissed] = useState(false)
-  const [isRestoringSession, setIsRestoringSession] = useState(false)
-  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
   const [deletingPairId, setDeletingPairId] = useState<string | null>(null)
   const [pendingDeletePair, setPendingDeletePair] = useState<Pair | null>(null)
 
   const pairs = usePairStore((state) => state.pairs)
   const availableModels = usePairStore((state) => state.availableModels)
-  const recoverableSessions = usePairStore((state) => state.recoverableSessions)
   const loadAvailableModels = usePairStore((state) => state.loadAvailableModels)
-  const loadRecoverableSessions = usePairStore((state) => state.loadRecoverableSessions)
+  const loadAllPairs = usePairStore((state) => state.loadAllPairs)
   const flushSnapshots = usePairStore((state) => state.flushSnapshots)
   const initMessageListener = usePairStore((state) => state.initMessageListener)
-  const restoreSession = usePairStore((state) => state.restoreSession)
-  const deleteRecoverableSession = usePairStore((state) => state.deleteRecoverableSession)
-  const removeRecoverableSession = usePairStore((state) => state.removeRecoverableSession)
   const pausePair = usePairStore((state) => state.pausePair)
   const resumePair = usePairStore((state) => state.resumePair)
   const deletePair = usePairStore((state) => state.deletePair)
@@ -1223,15 +1108,91 @@ function App(): React.ReactNode {
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
 
+  const setPhase = useUpdateStore((state) => state.setPhase)
+  const setVersion = useUpdateStore((state) => state.setVersion)
+  const setMessage = useUpdateStore((state) => state.setMessage)
+  const setReleaseBody = useUpdateStore((state) => state.setReleaseBody)
+  const setUpdate = useUpdateStore((state) => state.setUpdate)
+  const setShowModal = useUpdateStore((state) => state.setShowModal)
+  const displayToast = useUpdateStore((state) => state.displayToast)
+  const updateRef = useRef<Update | null>(null)
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+
+    const performUpdateCheck = async (): Promise<void> => {
+      setPhase('checking')
+      setMessage('Checking for updates...')
+
+      const TIMEOUT = Symbol('timeout')
+      const timeoutPromise = new Promise<typeof TIMEOUT>((resolve) => {
+        setTimeout(() => resolve(TIMEOUT), 30000)
+      })
+
+      try {
+        if (updateRef.current) {
+          await updateRef.current.close().catch(() => {})
+          updateRef.current = null
+        }
+
+        const update = await Promise.race([check(), timeoutPromise])
+
+        if (update === TIMEOUT) {
+          console.error('[Updater] Check timed out after 30 seconds')
+          setMessage('Update check timed out')
+          setPhase('error')
+          displayToast('Update check timed out', 'error')
+          return
+        }
+
+        if (!update) {
+          setVersion(null)
+          setMessage('You are up to date')
+          setPhase('up-to-date')
+          return
+        }
+
+        updateRef.current = update
+        setUpdate(update)
+        setVersion(update.version)
+        setReleaseBody(update.body || null)
+        setMessage(update.body?.trim() || `Version ${update.version} is available`)
+        setPhase('available')
+        setShowModal(true)
+      } catch (error) {
+        console.error('[Updater] Check failed:', error)
+        const message = error instanceof Error ? error.message : 'Unable to check for updates'
+        setMessage(message)
+        setPhase('error')
+        displayToast(message, 'error')
+      }
+    }
+
+    void listen('app:update:check', () => {
+      void performUpdateCheck()
+    }).then((cleanup) => {
+      unlisten = cleanup
+    })
+
+    if (import.meta.env.PROD) {
+      void performUpdateCheck()
+    }
+
+    return () => {
+      unlisten?.()
+      if (updateRef.current) {
+        void updateRef.current.close().catch(() => {})
+      }
+    }
+  }, [setPhase, setVersion, setMessage, setReleaseBody, setUpdate, setShowModal, displayToast])
+
   useEffect(() => {
     const init = async (): Promise<void> => {
-      // Parallel execution but wait for models to finish
-      await Promise.all([loadAvailableModels(), initMessageListener(), loadRecoverableSessions()])
-
+      await Promise.all([loadAvailableModels(), initMessageListener(), loadAllPairs()])
       setIsInitializing(false)
     }
     init()
-  }, [loadAvailableModels, initMessageListener, loadRecoverableSessions])
+  }, [loadAvailableModels, initMessageListener, loadAllPairs])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
@@ -1251,12 +1212,27 @@ function App(): React.ReactNode {
     isSelectableForPairExecution(model)
   ).length
   const showOnboarding = !isInitializing && pairs.length === 0
-  const showRecoveryPrompt =
-    !isInitializing && !isRecoveryDismissed && recoverableSessions.length > 0 && pairs.length === 0
+
+  console.log('[App] Render state:', {
+    selectedPairId,
+    selectedPair: selectedPair?.name,
+    pairsCount: pairs.length,
+    isInitializing,
+    showOnboarding
+  })
+
+  // 如果选中了一个不存在的 pair，重置选择
+  useEffect(() => {
+    if (selectedPairId && !selectedPair) {
+      console.warn('[App] Selected pair not found, resetting selection')
+      setSelectedPairId(null)
+    }
+  }, [selectedPairId, selectedPair])
 
   const handlePauseSelectedPair = async (): Promise<void> => {
     if (!selectedPair || !isPairRunning(selectedPair.status)) return
 
+    console.log('[App] Pausing pair:', selectedPair.id)
     try {
       await pausePair(selectedPair.id)
     } catch (error) {
@@ -1304,47 +1280,8 @@ function App(): React.ReactNode {
     setPendingDeletePair(null)
   }
 
-  const handleRestoreSession = async (pairId: string, continueRun: boolean): Promise<void> => {
-    setIsRestoringSession(true)
-    try {
-      await restoreSession(pairId, continueRun)
-      setSelectedPairId(pairId)
-      setIsRecoveryDismissed(true)
-    } catch (error) {
-      console.error('[App] Failed to restore session:', error)
-    } finally {
-      setIsRestoringSession(false)
-    }
-  }
-
-  const handleDeleteRecoverableSession = async (pairId: string): Promise<void> => {
-    const startedAt = Date.now()
-    setDeletingSessionId(pairId)
-    let deletionSucceeded = false
-    try {
-      await deleteRecoverableSession(pairId)
-      deletionSucceeded = true
-    } catch (error) {
-      console.error('[App] Failed to delete recoverable session:', error)
-    } finally {
-      const elapsed = Date.now() - startedAt
-      const minimumFeedbackMs = 350
-      if (elapsed < minimumFeedbackMs) {
-        await new Promise((resolve) => setTimeout(resolve, minimumFeedbackMs - elapsed))
-      }
-      if (deletionSucceeded) {
-        removeRecoverableSession(pairId)
-      }
-      setDeletingSessionId(null)
-    }
-  }
-
-  const handleDismissRecovery = (): void => {
-    setIsRecoveryDismissed(true)
-  }
-
   if (isInitializing) {
-    return <AppSkeleton />
+    return null
   }
 
   return (
@@ -1366,36 +1303,33 @@ function App(): React.ReactNode {
           />
 
           <div className="flex-1 overflow-hidden">
-            {selectedPair ? (
-              <PairDetail
-                pair={selectedPair}
-                onPause={handlePauseSelectedPair}
-                onResume={handleResumeSelectedPair}
-                onRestoreTask={handleRestoreTask}
-              />
-            ) : (
-              <Dashboard
-                onSelectPair={(pair) => setSelectedPairId(pair.id)}
-                onDeletePair={(pair) => {
-                  void handleDeletePair(pair)
-                }}
-                deletingPairId={deletingPairId}
-                onCreatePair={() => setIsCreatePairOpen(true)}
-              />
-            )}
+            <ErrorBoundary>
+              {selectedPair ? (
+                <PairDetail
+                  pair={selectedPair}
+                  onPause={handlePauseSelectedPair}
+                  onResume={handleResumeSelectedPair}
+                  onRestoreTask={handleRestoreTask}
+                />
+              ) : (
+                <Dashboard
+                  onSelectPair={(pair) => {
+                    setSelectedPairId(pair.id)
+                    if (pair.status === 'Idle' || pair.status === 'Finished') {
+                      setIsAssignTaskOpen(true)
+                    }
+                  }}
+                  onDeletePair={(pair) => {
+                    void handleDeletePair(pair)
+                  }}
+                  deletingPairId={deletingPairId}
+                  onCreatePair={() => setIsCreatePairOpen(true)}
+                />
+              )}
+            </ErrorBoundary>
           </div>
         </div>
       )}
-
-      <SessionRecoveryModal
-        sessions={recoverableSessions}
-        isOpen={showRecoveryPrompt}
-        isRestoring={isRestoringSession}
-        deletingPairId={deletingSessionId}
-        onRestore={handleRestoreSession}
-        onDelete={handleDeleteRecoverableSession}
-        onDismiss={handleDismissRecovery}
-      />
 
       <ConfirmModal
         isOpen={pendingDeletePair !== null}
@@ -1429,6 +1363,8 @@ function App(): React.ReactNode {
           />
         </>
       )}
+
+      <UpdateNotification />
     </div>
   )
 }

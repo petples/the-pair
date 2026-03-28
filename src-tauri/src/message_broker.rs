@@ -1,10 +1,6 @@
 use crate::types::{
     ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput, GitTracking, Message,
-    MessageSender, MessageType, PairResources, PairState, PairStatus, ResourceInfo,
-};
-use crate::verification_gate::{
-    VerificationGateReport, VerificationPhase, VerificationState, VerificationVerdict,
-    VerificationVerdictStatus,
+    MessageSender, MessageType, PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -79,12 +75,14 @@ impl MessageBroker {
                 turn: AgentRole::Mentor,
                 last_message: None,
                 activity: Self::create_idle_activity("Mentor idle"),
+                token_usage: None,
             },
             executor: AgentState {
                 status: PairStatus::Idle,
                 turn: AgentRole::Executor,
                 last_message: None,
                 activity: Self::create_idle_activity("Executor idle"),
+                token_usage: None,
             },
             messages: Vec::new(),
             mentor_activity: Self::create_idle_activity("Mentor idle"),
@@ -100,7 +98,6 @@ impl MessageBroker {
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
             finished_at: None,
-            verification: crate::verification_gate::VerificationState::idle(),
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -188,6 +185,7 @@ impl MessageBroker {
                 msg_type: MessageType::Progress,
                 content: line.to_string(),
                 iteration: state.iteration,
+                token_usage: None,
             };
 
             if let Some(handle) = &self.app_handle {
@@ -203,6 +201,7 @@ impl MessageBroker {
         }
     }
 
+    #[allow(dead_code)]
     pub fn record_human_feedback(
         &self,
         pair_id: &str,
@@ -231,6 +230,7 @@ impl MessageBroker {
             msg_type: MessageType::Feedback,
             content: feedback_text.to_string(),
             iteration: state.iteration,
+            token_usage: None,
         };
 
         state.messages.push(feedback.clone());
@@ -328,7 +328,6 @@ impl MessageBroker {
                 if is_planning_turn {
                     state.iteration = 1;
                     state.status = PairStatus::Mentoring;
-                    state.verification = crate::verification_gate::VerificationState::idle();
                     state.mentor.status = PairStatus::Executing;
                     state.mentor_activity.phase = ActivityPhase::Thinking;
                     state.mentor_activity.label = "Analyzing task".to_string();
@@ -345,13 +344,12 @@ impl MessageBroker {
                     state.mentor.status = PairStatus::Reviewing;
                     state.mentor_activity.phase = ActivityPhase::Thinking;
                     state.mentor_activity.label = "Reviewing changes".to_string();
-                    state.mentor_activity.detail =
-                        Some("Checking the verification gate".to_string());
+                    state.mentor_activity.detail = Some("Checking the work".to_string());
                     state.mentor_activity.updated_at = Self::now();
 
                     state.executor.status = PairStatus::Idle;
                     state.executor_activity.phase = ActivityPhase::Waiting;
-                    state.executor_activity.label = "Awaiting verification verdict".to_string();
+                    state.executor_activity.label = "Executor standing by".to_string();
                     state.executor_activity.detail = Some("Executor paused for review".to_string());
                     state.executor_activity.updated_at = Self::now();
                 }
@@ -480,7 +478,7 @@ impl MessageBroker {
 
                         state.executor.status = PairStatus::Idle;
                         state.executor_activity.phase = ActivityPhase::Waiting;
-                        state.executor_activity.label = "Awaiting verification verdict".to_string();
+                        state.executor_activity.label = "Executor standing by".to_string();
                         state.executor_activity.detail = Some("Executor paused for review".to_string());
                         state.executor_activity.updated_at = Self::now();
                     }
@@ -563,6 +561,39 @@ impl MessageBroker {
         }
     }
 
+    pub fn update_token_usage(
+        &self,
+        pair_id: &str,
+        role: &str,
+        usage: TurnTokenUsage,
+    ) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            let agent_state = if role == "mentor" {
+                &mut state.mentor
+            } else {
+                &mut state.executor
+            };
+
+            agent_state.token_usage = Some(usage);
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
+    pub fn reset_token_usage(&self, pair_id: &str, role: &str) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            let agent_state = if role == "mentor" {
+                &mut state.mentor
+            } else {
+                &mut state.executor
+            };
+
+            agent_state.token_usage = None;
+            self.notify_state_update(pair_id, state);
+        }
+    }
+
     pub fn set_pair_status(&self, pair_id: &str, status: PairStatus, detail: Option<String>) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
@@ -605,7 +636,7 @@ impl MessageBroker {
                     state.mentor_activity.updated_at = Self::now();
 
                     state.executor_activity.phase = ActivityPhase::Waiting;
-                    state.executor_activity.label = "Awaiting verification verdict".to_string();
+                    state.executor_activity.label = "Executor standing by".to_string();
                     state.executor_activity.detail = None;
                     state.executor_activity.updated_at = Self::now();
                 }
@@ -638,85 +669,6 @@ impl MessageBroker {
         }
     }
 
-    pub fn set_verification_report(
-        &self,
-        pair_id: &str,
-        report: VerificationGateReport,
-    ) -> Result<(), String> {
-        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
-        let state = pair_states
-            .get_mut(pair_id)
-            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-
-        let now = Self::now();
-        state.status = PairStatus::Reviewing;
-        state.mentor.status = PairStatus::Reviewing;
-        state.executor.status = PairStatus::Reviewing;
-        state.mentor_activity.phase = ActivityPhase::Thinking;
-        state.mentor_activity.label = "Reviewing changes".to_string();
-        state.mentor_activity.detail = Some("Checking the verification gate".to_string());
-        state.mentor_activity.updated_at = now;
-        state.executor_activity.phase = ActivityPhase::Waiting;
-        state.executor_activity.label = "Awaiting verification verdict".to_string();
-        state.executor_activity.detail = None;
-        state.executor_activity.updated_at = now;
-        state.verification = VerificationState {
-            phase: VerificationPhase::AwaitingVerdict,
-            risk_level: report.risk_level.clone(),
-            report: Some(report),
-            verdict: None,
-            raw_verdict: None,
-            error: None,
-            started_at: Some(now),
-            updated_at: now,
-        };
-
-        self.notify_state_update(pair_id, state);
-        Ok(())
-    }
-
-    pub fn set_verification_verdict(
-        &self,
-        pair_id: &str,
-        raw_verdict: String,
-        verdict: VerificationVerdict,
-    ) -> Result<(), String> {
-        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
-        let state = pair_states
-            .get_mut(pair_id)
-            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-
-        let now = Self::now();
-        state.verification.phase = match verdict.status {
-            VerificationVerdictStatus::Pass => VerificationPhase::Passed,
-            VerificationVerdictStatus::Fail => VerificationPhase::Failed,
-        };
-        state.verification.risk_level = verdict.risk_level.clone();
-        state.verification.verdict = Some(verdict);
-        state.verification.raw_verdict = Some(raw_verdict);
-        state.verification.error = None;
-        state.verification.updated_at = now;
-
-        self.notify_state_update(pair_id, state);
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub fn set_verification_error(&self, pair_id: &str, error: String) -> Result<(), String> {
-        let mut pair_states = self.pair_states.lock().map_err(|e| e.to_string())?;
-        let state = pair_states
-            .get_mut(pair_id)
-            .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-
-        let now = Self::now();
-        state.verification.phase = VerificationPhase::Failed;
-        state.verification.error = Some(error);
-        state.verification.updated_at = now;
-
-        self.notify_state_update(pair_id, state);
-        Ok(())
-    }
-
     fn notify_state_update(&self, _pair_id: &str, state: &PairState) {
         if let Some(handle) = &self.app_handle {
             let _ = handle.emit("pair:state", state);
@@ -724,6 +676,7 @@ impl MessageBroker {
     }
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub fn pair_human_feedback(
     broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
@@ -764,7 +717,6 @@ mod tests {
         GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
         ResourceInfo,
     };
-    use crate::verification_gate::{VerificationNextAction, VerificationRiskLevel};
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
 
@@ -791,12 +743,14 @@ mod tests {
                 turn: AgentRole::Mentor,
                 last_message: None,
                 activity: activity("Mentor idle", ActivityPhase::Idle),
+                token_usage: None,
             },
             executor: AgentState {
                 status: PairStatus::Idle,
                 turn: AgentRole::Executor,
                 last_message: None,
                 activity: activity("Executor idle", ActivityPhase::Idle),
+                token_usage: None,
             },
             messages: Vec::new(),
             mentor_activity: activity("Mentor idle", ActivityPhase::Idle),
@@ -825,7 +779,6 @@ mod tests {
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
             finished_at: None,
-            verification: crate::verification_gate::VerificationState::idle(),
         }
     }
 
@@ -838,12 +791,16 @@ mod tests {
                 role: AgentRole::Mentor,
                 provider: crate::provider_registry::ProviderKind::Opencode,
                 model: "mentor-model".to_string(),
+                reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
                 provider: crate::provider_registry::ProviderKind::Codex,
                 model: "executor-model".to_string(),
+                reasoning_effort: None,
             },
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
         }
     }
 
@@ -895,7 +852,7 @@ mod tests {
         assert_eq!(state.mentor_activity.label, "Reviewing changes");
         assert_eq!(
             state.mentor_activity.detail.as_deref(),
-            Some("Checking the verification gate")
+            Some("Checking the work")
         );
         assert!(matches!(
             state.mentor_activity.phase,
@@ -936,85 +893,6 @@ mod tests {
     }
 
     #[test]
-    fn verification_updates_persist_report_and_verdict() {
-        let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
-
-        let report = VerificationGateReport {
-            risk_level: VerificationRiskLevel::High,
-            checks: vec![crate::verification_gate::VerificationCheckRun {
-                name: "test".to_string(),
-                command: "npm run test".to_string(),
-                status: crate::verification_gate::VerificationCheckStatus::Passed,
-                exit_code: Some(0),
-                duration_ms: 250,
-                stdout: "ok".to_string(),
-                stderr: String::new(),
-                summary: "test passed".to_string(),
-            }],
-            summary: "all checks completed".to_string(),
-            started_at: 11,
-            finished_at: 22,
-        };
-
-        broker
-            .set_verification_report("pair-1", report.clone())
-            .unwrap();
-
-        let state = broker.get_state("pair-1").expect("pair state should exist");
-        assert_eq!(state.status, PairStatus::Reviewing);
-        assert_eq!(
-            state.verification.phase,
-            crate::verification_gate::VerificationPhase::AwaitingVerdict
-        );
-        assert_eq!(state.verification.risk_level, VerificationRiskLevel::High);
-        assert_eq!(
-            state
-                .verification
-                .report
-                .as_ref()
-                .map(|value| value.summary.as_str()),
-            Some("all checks completed")
-        );
-
-        let verdict = VerificationVerdict {
-            status: VerificationVerdictStatus::Pass,
-            risk_level: VerificationRiskLevel::High,
-            evidence: vec!["npm run test passed".to_string()],
-            next_action: VerificationNextAction::Continue,
-            summary: "looks good".to_string(),
-        };
-
-        broker
-            .set_verification_verdict(
-                "pair-1",
-                r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"continue","summary":"looks good"}"#.to_string(),
-                verdict,
-            )
-            .unwrap();
-
-        let state = broker.get_state("pair-1").expect("pair state should exist");
-        assert_eq!(
-            state.verification.phase,
-            crate::verification_gate::VerificationPhase::Passed
-        );
-        assert_eq!(
-            state
-                .verification
-                .verdict
-                .as_ref()
-                .map(|value| value.summary.as_str()),
-            Some("looks good")
-        );
-        assert_eq!(
-            state.verification.raw_verdict.as_deref(),
-            Some(
-                r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"continue","summary":"looks good"}"#
-            )
-        );
-    }
-
-    #[test]
     fn add_message_only_persists_high_signal_messages_and_handoffs_turns() {
         let broker = MessageBroker::new();
         broker.initialize_pair("pair-1", sample_input()).unwrap();
@@ -1029,6 +907,7 @@ mod tests {
                 msg_type: MessageType::Plan,
                 content: "Plan the work".to_string(),
                 iteration: 0,
+                token_usage: None,
             },
         );
 
@@ -1054,6 +933,7 @@ mod tests {
                 msg_type: MessageType::Progress,
                 content: "Still working".to_string(),
                 iteration: 0,
+                token_usage: None,
             },
         );
 
@@ -1075,6 +955,7 @@ mod tests {
                 msg_type: MessageType::Handoff,
                 content: "Handoff to executor".to_string(),
                 iteration: 0,
+                token_usage: None,
             },
         );
 

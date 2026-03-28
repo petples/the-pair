@@ -101,7 +101,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
       isOpen={isOpen}
       onClose={onClose}
       title={isRestoring ? `Restore Task · ${pair.name}` : `Assign New Task · ${pair.name}`}
-      className="max-w-2xl"
+      className="max-w-3xl"
     >
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="glass-card rounded-2xl p-4">
@@ -127,7 +127,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             {pair.directory}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-4">
           <ModelPicker
             value={tempMentorModel}
             models={availableModels}
@@ -146,7 +146,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
 
         {modelsChanged && (
           <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
-            Custom models selected for this task. Default models will be restored after this run.
+            Updated models will become the new defaults for this pair.
           </div>
         )}
 

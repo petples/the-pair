@@ -81,10 +81,7 @@ export function ConfirmModal({
               <GlassButton variant="ghost" onClick={onCancel}>
                 {cancelLabel}
               </GlassButton>
-              <GlassButton
-                variant={variant === 'warning' ? 'reject' : 'destructive'}
-                onClick={onConfirm}
-              >
+              <GlassButton variant="destructive" onClick={onConfirm}>
                 {confirmLabel}
               </GlassButton>
             </div>

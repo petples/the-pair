@@ -1,0 +1,66 @@
+import { cn } from '../lib/utils'
+import type { TurnTokenUsage } from '../types'
+
+interface TokenChipProps {
+  usage?: TurnTokenUsage
+  isLive?: boolean
+  compact?: boolean
+  className?: string
+}
+
+function formatTokenCount(count: number): string {
+  if (count >= 1000000) {
+    return `${(count / 1000000).toFixed(1)}M`
+  }
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`
+  }
+  return count.toString()
+}
+
+export function TokenChip({ usage, isLive, compact, className }: TokenChipProps) {
+  if (!usage || usage.outputTokens === 0) {
+    return null
+  }
+
+  const displayCount = formatTokenCount(usage.outputTokens)
+  const showLiveIndicator = isLive && usage.source === 'live'
+
+  if (compact) {
+    return (
+      <span
+        className={cn(
+          'inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium',
+          'bg-neutral-100 dark:bg-neutral-800 rounded',
+          'text-neutral-600 dark:text-neutral-400',
+          className
+        )}
+        title={`Output: ${usage.outputTokens.toLocaleString()} tokens${usage.inputTokens ? `\nInput: ${usage.inputTokens.toLocaleString()} tokens` : ''}\nSource: ${usage.source}`}
+      >
+        {showLiveIndicator && (
+          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+        )}
+        {displayCount} tok
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium',
+        'bg-neutral-100 dark:bg-neutral-800 rounded-full',
+        'text-neutral-600 dark:text-neutral-400',
+        'transition-colors duration-200',
+        showLiveIndicator && 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+        className
+      )}
+      title={`Output: ${usage.outputTokens.toLocaleString()} tokens${usage.inputTokens ? `\nInput: ${usage.inputTokens.toLocaleString()} tokens` : ''}\nSource: ${usage.source}${usage.provider ? `\nProvider: ${usage.provider}` : ''}`}
+    >
+      {showLiveIndicator && (
+        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+      )}
+      {displayCount} tok
+    </span>
+  )
+}

@@ -5,9 +5,8 @@ use crate::provider_adapter::ProviderAdapter;
 use crate::provider_registry::ProviderKind;
 use crate::types::{
     AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType, ModifiedFile, Pair,
-    PairResources, PairState, PairStatus, ResourceInfo,
+    PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
 };
-use crate::verification_gate::{VerificationGateReport, VerificationState, VerificationVerdict};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -28,6 +27,8 @@ pub struct SnapshotTurnCard {
     pub activity: AgentActivity,
     pub started_at: u64,
     pub updated_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TurnTokenUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,8 +43,8 @@ pub struct SnapshotRunSummary {
     pub executor_model: String,
     pub iterations: u32,
     pub messages: Vec<Message>,
-    #[serde(default)]
-    pub verification: VerificationState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_output_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +73,10 @@ pub struct SessionSnapshotRecord {
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
+    #[serde(rename = "mentorReasoningEffort")]
+    pub mentor_reasoning_effort: Option<String>,
+    #[serde(rename = "executorReasoningEffort")]
+    pub executor_reasoning_effort: Option<String>,
     pub messages: Vec<Message>,
     pub mentor_activity: AgentActivity,
     pub executor_activity: AgentActivity,
@@ -90,8 +95,6 @@ pub struct SessionSnapshotRecord {
     pub current_run_started_at: u64,
     pub current_run_finished_at: Option<u64>,
     pub created_at: u64,
-    #[serde(default)]
-    pub verification: VerificationState,
     pub provider_sessions: SnapshotProcessContext,
 }
 
@@ -112,6 +115,10 @@ pub struct SessionSnapshotDraft {
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
+    #[serde(rename = "mentorReasoningEffort")]
+    pub mentor_reasoning_effort: Option<String>,
+    #[serde(rename = "executorReasoningEffort")]
+    pub executor_reasoning_effort: Option<String>,
     pub messages: Vec<Message>,
     pub mentor_activity: AgentActivity,
     pub executor_activity: AgentActivity,
@@ -130,8 +137,6 @@ pub struct SessionSnapshotDraft {
     pub current_run_started_at: u64,
     pub current_run_finished_at: Option<u64>,
     pub created_at: u64,
-    #[serde(default)]
-    pub verification: VerificationState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,14 +152,16 @@ pub struct RecoverableSessionSummary {
     pub executor_model: String,
     pub pending_mentor_model: Option<String>,
     pub pending_executor_model: Option<String>,
+    #[serde(rename = "mentorReasoningEffort")]
+    pub mentor_reasoning_effort: Option<String>,
+    #[serde(rename = "executorReasoningEffort")]
+    pub executor_reasoning_effort: Option<String>,
     pub run_count: u32,
     pub current_run_started_at: u64,
     pub current_run_finished_at: Option<u64>,
     pub saved_at: u64,
     pub created_at: u64,
     pub current_turn_card: Option<SnapshotTurnCard>,
-    #[serde(default)]
-    pub verification: VerificationState,
     pub has_mentor_session: bool,
     pub has_executor_session: bool,
 }
@@ -194,122 +201,6 @@ Return ONLY a concrete PLAN with numbered executable steps (no intent-only prefa
     )
 }
 
-fn build_verification_review_prompt(
-    report: &VerificationGateReport,
-    task_spec: &str,
-    executor_result: &str,
-) -> String {
-    let mut sections = vec![
-        "### ROLE: MENTOR".to_string(),
-        "You are reviewing an automated verification gate report.".to_string(),
-        String::new(),
-        "Return STRICT JSON ONLY. Do not use markdown, code fences, or commentary.".to_string(),
-        "Use exactly this schema:".to_string(),
-        "{".to_string(),
-        r#"  "status": "pass" | "fail","#.to_string(),
-        r#"  "riskLevel": "low" | "medium" | "high","#.to_string(),
-        r#"  "evidence": ["..."],"#.to_string(),
-        r#"  "nextAction": "continue" | "finish","#.to_string(),
-        r#"  "summary": "..."#.to_string(),
-        "}".to_string(),
-        String::new(),
-        "Rules:".to_string(),
-        "- Use \"pass\" when the evidence supports moving forward.".to_string(),
-        "- Use \"fail\" when the evidence shows the work is not acceptable.".to_string(),
-        "- Use \"continue\" when the run should return to execution.".to_string(),
-        "- Use \"finish\" only when the mission is complete.".to_string(),
-        "- Do not ask for human review; the pair must keep iterating autonomously.".to_string(),
-        "- Keep the summary short and specific.".to_string(),
-    ];
-
-    let task_spec = task_spec.trim();
-    if !task_spec.is_empty() {
-        sections.extend([
-            String::new(),
-            "### TASK SPEC".to_string(),
-            task_spec.to_string(),
-        ]);
-    }
-
-    let executor_result = executor_result.trim();
-    if !executor_result.is_empty() {
-        sections.extend([
-            String::new(),
-            "### EXECUTOR RESULT".to_string(),
-            executor_result.to_string(),
-        ]);
-    }
-
-    sections.extend([
-        String::new(),
-        "### VERIFICATION REPORT".to_string(),
-        serde_json::to_string_pretty(report).unwrap_or_else(|_| "{}".to_string()),
-    ]);
-
-    sections.join("\n")
-}
-
-fn build_verification_executor_retry_prompt(
-    report: &VerificationGateReport,
-    verdict: Option<&VerificationVerdict>,
-    task_spec: &str,
-    executor_result: &str,
-    mentor_output: &str,
-) -> String {
-    let mut sections = vec![
-        "### ROLE: EXECUTOR".to_string(),
-        "You are continuing an autonomous verification retry loop.".to_string(),
-        "The mentor wants another iteration, so keep working without human intervention.".to_string(),
-        String::new(),
-        "Return concrete implementation work and results.".to_string(),
-        "- Do not create a new plan.".to_string(),
-        "- Do not ask for human review.".to_string(),
-        "- Address the mentor feedback and keep iterating from the current codebase state.".to_string(),
-        "- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.".to_string(),
-        "- Never output \"TASK_COMPLETE\" - this is reserved for MENTOR only.".to_string(),
-    ];
-
-    if !task_spec.trim().is_empty() {
-        sections.extend([
-            String::new(),
-            "### TASK SPEC".to_string(),
-            task_spec.trim().to_string(),
-        ]);
-    }
-
-    if !executor_result.trim().is_empty() {
-        sections.extend([
-            String::new(),
-            "### PREVIOUS EXECUTOR RESULT".to_string(),
-            executor_result.trim().to_string(),
-        ]);
-    }
-
-    if !mentor_output.trim().is_empty() {
-        sections.extend([
-            String::new(),
-            "### MENTOR OUTPUT".to_string(),
-            mentor_output.trim().to_string(),
-        ]);
-    }
-
-    if let Some(verdict) = verdict {
-        sections.extend([
-            String::new(),
-            "### MENTOR VERDICT".to_string(),
-            serde_json::to_string_pretty(verdict).unwrap_or_else(|_| "{}".to_string()),
-        ]);
-    }
-
-    sections.extend([
-        String::new(),
-        "### VERIFICATION REPORT".to_string(),
-        serde_json::to_string_pretty(report).unwrap_or_else(|_| "{}".to_string()),
-    ]);
-
-    sections.join("\n")
-}
-
 fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
     let last_mentor_message = snapshot
         .messages
@@ -321,36 +212,16 @@ fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
         })
         .map(|message| message.content.trim().to_string())
         .unwrap_or_default();
-    let last_executor_message = snapshot
-        .messages
-        .iter()
-        .rev()
-        .find(|message| {
-            matches!(message.from, MessageSender::Executor)
-                && matches!(message.msg_type, MessageType::Plan | MessageType::Result)
-        })
-        .map(|message| message.content.trim().to_string())
-        .unwrap_or_default();
-
-    if let Some(report) = snapshot.verification.report.as_ref() {
-        return build_verification_executor_retry_prompt(
-            report,
-            snapshot.verification.verdict.as_ref(),
-            &snapshot.spec,
-            &last_executor_message,
-            &last_mentor_message,
-        );
-    }
 
     let mut prompt = String::from(
         "### ROLE: EXECUTOR\n\
-Continue the previously restored session and keep executing the task.\n\
-- DO NOT create a new plan.\n\
-- DO NOT review your own work.\n\
-- Keep going from the restored context.\n\
-- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n\
-- Never output \"TASK_COMPLETE\" - this is reserved for MENTOR only.\n\n\
---- COMMAND TO EXECUTE ---\n",
+ Continue the previously restored session and keep executing the task.\n\
+ - DO NOT create a new plan.\n\
+ - DO NOT review your own work.\n\
+ - Keep going from the restored context.\n\
+ - You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n\
+ - Never output \"TASK_COMPLETE\" - this is reserved for MENTOR only.\n\n\
+ --- COMMAND TO EXECUTE ---\n",
     );
 
     if last_mentor_message.is_empty() {
@@ -374,27 +245,23 @@ fn build_mentor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
         .map(|message| message.content.trim().to_string())
         .unwrap_or_default();
 
-    if let Some(report) = snapshot.verification.report.as_ref() {
-        build_verification_review_prompt(report, &snapshot.spec, &last_executor_message)
-    } else {
-        match snapshot.status {
-            PairStatus::Reviewing => {
-                let mut prompt = String::from(
-                    "### ROLE: MENTOR\n\
-Continue the restored review session.\n\
-- DO NOT execute files or commands.\n\
-- Review the executor's work and decide whether the task is complete.\n\n\
---- REVIEW REQUEST ---\n",
-                );
-                if last_executor_message.is_empty() {
-                    prompt.push_str(&snapshot.spec);
-                } else {
-                    prompt.push_str(&last_executor_message);
-                }
-                prompt
+    match snapshot.status {
+        PairStatus::Reviewing => {
+            let mut prompt = String::from(
+                "### ROLE: MENTOR\n\
+ Continue the restored review session.\n\
+ - DO NOT execute files or commands.\n\
+ - Review the executor's work and decide whether the task is complete.\n\n\
+ --- REVIEW REQUEST ---\n",
+            );
+            if last_executor_message.is_empty() {
+                prompt.push_str(&snapshot.spec);
+            } else {
+                prompt.push_str(&last_executor_message);
             }
-            _ => build_mentor_planning_prompt(&snapshot.spec),
+            prompt
         }
+        _ => build_mentor_planning_prompt(&snapshot.spec),
     }
 }
 
@@ -571,6 +438,20 @@ fn current_turn_activity(activity: &AgentActivity) -> AgentActivity {
     activity.clone()
 }
 
+fn idle_activity() -> AgentActivity {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    AgentActivity {
+        phase: crate::types::ActivityPhase::Idle,
+        label: "Idle".to_string(),
+        detail: None,
+        started_at: now,
+        updated_at: now,
+    }
+}
+
 fn last_message_for_role(messages: &[Message], role: MessageSender) -> Option<Message> {
     messages
         .iter()
@@ -599,13 +480,14 @@ impl SessionSnapshotRecord {
             executor_model: self.executor_model.clone(),
             pending_mentor_model: self.pending_mentor_model.clone(),
             pending_executor_model: self.pending_executor_model.clone(),
+            mentor_reasoning_effort: self.mentor_reasoning_effort.clone(),
+            executor_reasoning_effort: self.executor_reasoning_effort.clone(),
             run_count: self.run_count,
             current_run_started_at: self.current_run_started_at,
             current_run_finished_at: self.current_run_finished_at,
             saved_at: self.saved_at,
             created_at: self.created_at,
             current_turn_card: snapshot_turn_card(self.current_turn_card.as_ref()),
-            verification: self.verification.clone(),
             has_mentor_session: self.provider_sessions.mentor_session_id.is_some(),
             has_executor_session: self.provider_sessions.executor_session_id.is_some(),
         }
@@ -624,6 +506,8 @@ fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
         executor_model: snapshot.executor_model.clone(),
         mentor_session_id: snapshot.provider_sessions.mentor_session_id.clone(),
         executor_session_id: snapshot.provider_sessions.executor_session_id.clone(),
+        mentor_reasoning_effort: snapshot.mentor_reasoning_effort.clone(),
+        executor_reasoning_effort: snapshot.executor_reasoning_effort.clone(),
     }
 }
 
@@ -642,6 +526,8 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         executor_model: snapshot.executor_model.clone(),
         pending_mentor_model: snapshot.pending_mentor_model.clone(),
         pending_executor_model: snapshot.pending_executor_model.clone(),
+        mentor_reasoning_effort: snapshot.mentor_reasoning_effort.clone(),
+        executor_reasoning_effort: snapshot.executor_reasoning_effort.clone(),
         created_at: snapshot.created_at,
     }
 }
@@ -676,12 +562,14 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
             turn: AgentRole::Mentor,
             last_message: last_message_for_role(&snapshot.messages, MessageSender::Mentor),
             activity: current_turn_activity(&snapshot.mentor_activity),
+            token_usage: None,
         },
         executor: crate::types::AgentState {
             status: snapshot.status.clone(),
             turn: AgentRole::Executor,
             last_message: last_message_for_role(&snapshot.messages, MessageSender::Executor),
             activity: current_turn_activity(&snapshot.executor_activity),
+            token_usage: None,
         },
         messages: snapshot.messages.clone(),
         mentor_activity: current_turn_activity(&snapshot.mentor_activity),
@@ -692,7 +580,6 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         automation_mode: snapshot.automation_mode.clone(),
         git_review_available: snapshot.git_tracking.git_review_available.unwrap_or(false),
         finished_at: snapshot.current_run_finished_at,
-        verification: snapshot.verification.clone(),
     }
 }
 
@@ -709,6 +596,8 @@ fn build_snapshot_from_state(
         executor_model: pair.executor_model.clone(),
         mentor_session_id: None,
         executor_session_id: None,
+        mentor_reasoning_effort: pair.mentor_reasoning_effort.clone(),
+        executor_reasoning_effort: pair.executor_reasoning_effort.clone(),
     });
 
     let current_turn_card = state
@@ -732,6 +621,7 @@ fn build_snapshot_from_state(
             },
             started_at: message.timestamp,
             updated_at: message.timestamp,
+            token_usage: message.token_usage.clone(),
         });
 
     SessionSnapshotRecord {
@@ -756,6 +646,8 @@ fn build_snapshot_from_state(
         executor_model: pair.executor_model.clone(),
         pending_mentor_model: None,
         pending_executor_model: None,
+        mentor_reasoning_effort: pair.mentor_reasoning_effort.clone(),
+        executor_reasoning_effort: pair.executor_reasoning_effort.clone(),
         messages: state.messages.clone(),
         mentor_activity: state.mentor_activity.clone(),
         executor_activity: state.executor_activity.clone(),
@@ -778,7 +670,6 @@ fn build_snapshot_from_state(
         )
         .then(now),
         created_at: pair.created_at,
-        verification: state.verification.clone(),
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
             executor_session_id: context.executor_session_id.clone(),
@@ -798,6 +689,8 @@ fn build_snapshot_from_draft(
         executor_model: draft.executor_model.clone(),
         mentor_session_id: None,
         executor_session_id: None,
+        mentor_reasoning_effort: draft.mentor_reasoning_effort.clone(),
+        executor_reasoning_effort: draft.executor_reasoning_effort.clone(),
     });
 
     SessionSnapshotRecord {
@@ -817,6 +710,8 @@ fn build_snapshot_from_draft(
         executor_model: draft.executor_model,
         pending_mentor_model: draft.pending_mentor_model,
         pending_executor_model: draft.pending_executor_model,
+        mentor_reasoning_effort: draft.mentor_reasoning_effort,
+        executor_reasoning_effort: draft.executor_reasoning_effort,
         messages: draft.messages,
         mentor_activity: draft.mentor_activity,
         executor_activity: draft.executor_activity,
@@ -835,7 +730,6 @@ fn build_snapshot_from_draft(
         current_run_started_at: draft.current_run_started_at,
         current_run_finished_at: draft.current_run_finished_at,
         created_at: draft.created_at,
-        verification: draft.verification,
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id,
             executor_session_id: context.executor_session_id,
@@ -879,6 +773,8 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.mentor_model = pair.mentor_model.clone();
     snapshot.executor_provider = Some(pair.executor_provider);
     snapshot.executor_model = pair.executor_model.clone();
+    snapshot.mentor_reasoning_effort = pair.mentor_reasoning_effort.clone();
+    snapshot.executor_reasoning_effort = pair.executor_reasoning_effort.clone();
     snapshot.messages = state.messages.clone();
     snapshot.mentor_activity = state.mentor_activity.clone();
     snapshot.executor_activity = state.executor_activity.clone();
@@ -891,7 +787,6 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.modified_files = state.modified_files.clone();
     snapshot.git_tracking = state.git_tracking.clone();
     snapshot.automation_mode = state.automation_mode.clone();
-    snapshot.verification = state.verification.clone();
     if snapshot.current_run_finished_at.is_none()
         && matches!(
             state.status,
@@ -967,6 +862,99 @@ pub fn read_snapshot(app: &AppHandle, pair_id: &str) -> Result<SessionSnapshotRe
     read_json(&path)
 }
 
+/// Load all persisted pairs into the backend state on startup.
+/// Returns the full snapshot records so the frontend can populate its store.
+#[tauri::command]
+pub fn load_all_pairs(
+    app: AppHandle,
+    pair_manager: State<'_, std::sync::Mutex<PairManager>>,
+    broker: State<'_, std::sync::Mutex<MessageBroker>>,
+    spawner: State<'_, ProcessSpawner>,
+) -> Result<Vec<SessionSnapshotRecord>, String> {
+    let dir = ensure_snapshot_dir(&app)?;
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Ok(vec![]),
+    };
+
+    let mut snapshots = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.file_name().and_then(|n| n.to_str()) == Some(INDEX_FILE_NAME) {
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let snapshot = match read_json::<SessionSnapshotRecord>(&path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let pair = build_pair(&snapshot);
+        let mut state = build_pair_state(&snapshot);
+        let context = build_process_context(&snapshot);
+
+        // Reset activity to Idle when loading existing pairs
+        let idle = idle_activity();
+        state.mentor_activity = idle.clone();
+        state.executor_activity = idle.clone();
+        state.mentor.activity = idle.clone();
+        state.executor.activity = idle.clone();
+
+        // Reset running status to Idle
+        if matches!(
+            state.status,
+            PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
+        ) {
+            state.status = PairStatus::Idle;
+            state.mentor.status = PairStatus::Idle;
+            state.executor.status = PairStatus::Idle;
+        }
+
+        // Clear messages and turn card for Idle/Finished pairs
+        if matches!(state.status, PairStatus::Idle | PairStatus::Finished) {
+            state.messages.clear();
+        }
+
+        // Also update the snapshot that will be returned to frontend
+        let mut snapshot_with_idle = snapshot.clone();
+        snapshot_with_idle.mentor_activity = idle.clone();
+        snapshot_with_idle.executor_activity = idle;
+        if matches!(
+            snapshot_with_idle.status,
+            PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
+        ) {
+            snapshot_with_idle.status = PairStatus::Idle;
+        }
+        if matches!(
+            snapshot_with_idle.status,
+            PairStatus::Idle | PairStatus::Finished
+        ) {
+            snapshot_with_idle.messages.clear();
+            snapshot_with_idle.current_turn_card = None;
+        }
+
+        {
+            let mut manager = pair_manager.lock().map_err(|e| e.to_string())?;
+            manager.upsert_pair(pair.clone());
+        }
+        {
+            let broker_guard = broker.lock().map_err(|e| e.to_string())?;
+            broker_guard.restore_state(state)?;
+        }
+        {
+            let mut contexts = spawner.pair_contexts.lock().map_err(|e| e.to_string())?;
+            contexts.insert(pair.pair_id.clone(), context);
+        }
+
+        snapshots.push(snapshot_with_idle);
+    }
+
+    snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(snapshots)
+}
+
 #[tauri::command]
 pub async fn restore_session(
     app: AppHandle,
@@ -977,8 +965,27 @@ pub async fn restore_session(
 ) -> Result<SessionSnapshotRecord, String> {
     let snapshot = read_snapshot(&app, &input.pair_id)?;
     let pair = build_pair(&snapshot);
-    let state = build_pair_state(&snapshot);
+    let mut state = build_pair_state(&snapshot);
     let context = build_process_context(&snapshot);
+
+    // Reset activity to Idle if not continuing run
+    if !input.continue_run {
+        let idle = idle_activity();
+        state.mentor_activity = idle.clone();
+        state.executor_activity = idle.clone();
+        state.mentor.activity = idle.clone();
+        state.executor.activity = idle;
+
+        // Reset running status to Idle
+        if matches!(
+            state.status,
+            PairStatus::Mentoring | PairStatus::Executing | PairStatus::Reviewing
+        ) {
+            state.status = PairStatus::Idle;
+            state.mentor.status = PairStatus::Idle;
+            state.executor.status = PairStatus::Idle;
+        }
+    }
 
     {
         let mut manager = pair_manager.lock().map_err(|e| e.to_string())?;
@@ -1029,11 +1036,6 @@ pub async fn restore_session(
 mod tests {
     use super::*;
     use crate::provider_registry::ProviderKind;
-    use crate::verification_gate::{
-        VerificationCheckRun, VerificationCheckStatus, VerificationGateReport,
-        VerificationNextAction, VerificationPhase, VerificationRiskLevel, VerificationState,
-        VerificationVerdict, VerificationVerdictStatus,
-    };
     use std::fs;
 
     fn activity(label: &str) -> AgentActivity {
@@ -1061,6 +1063,7 @@ mod tests {
             msg_type,
             content: content.to_string(),
             iteration,
+            token_usage: None,
         }
     }
 
@@ -1086,6 +1089,8 @@ mod tests {
             executor_model: "executor-model".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
             messages,
             mentor_activity: activity("Mentor reviewing"),
             executor_activity: activity("Executor working"),
@@ -1111,22 +1116,13 @@ mod tests {
                 activity: activity("Turn activity"),
                 started_at: 0,
                 updated_at: 0,
+                token_usage: None,
             }),
             run_count: 1,
             run_history: vec![],
             current_run_started_at: 11,
             current_run_finished_at: None,
             created_at: 9,
-            verification: crate::verification_gate::VerificationState {
-                phase: crate::verification_gate::VerificationPhase::Idle,
-                risk_level: crate::verification_gate::VerificationRiskLevel::Low,
-                report: None,
-                verdict: None,
-                raw_verdict: None,
-                error: None,
-                started_at: None,
-                updated_at: 9,
-            },
             provider_sessions: SnapshotProcessContext {
                 mentor_session_id: Some("ses_mentor".to_string()),
                 executor_session_id: None,
@@ -1159,6 +1155,8 @@ mod tests {
             executor_model: "gpt-4o-mini".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
             messages: vec![],
             mentor_activity: activity("Mentor idle"),
             executor_activity: activity("Executor idle"),
@@ -1182,7 +1180,6 @@ mod tests {
             current_run_started_at: 0,
             current_run_finished_at: None,
             created_at: 0,
-            verification: crate::verification_gate::VerificationState::idle(),
         }
     }
 
@@ -1244,80 +1241,6 @@ mod tests {
     }
 
     #[test]
-    fn build_verification_review_prompt_does_not_request_human_review() {
-        let prompt = build_verification_review_prompt(
-            &VerificationGateReport {
-                risk_level: VerificationRiskLevel::High,
-                checks: vec![],
-                summary: "all checks completed".to_string(),
-                started_at: 11,
-                finished_at: 22,
-            },
-            "Fallback task spec",
-            "Executor result",
-        );
-
-        assert!(prompt.contains("Do not ask for human review"));
-        assert!(!prompt.contains("humanReview"));
-    }
-
-    #[test]
-    fn build_resume_prompt_uses_verification_retry_prompt_for_executor_turns() {
-        let mut snapshot = snapshot(
-            AgentRole::Executor,
-            PairStatus::Executing,
-            vec![
-                message(
-                    "msg-1",
-                    MessageSender::Mentor,
-                    MessageType::Plan,
-                    "The mentor wants another pass",
-                    1,
-                ),
-                message(
-                    "msg-2",
-                    MessageSender::Executor,
-                    MessageType::Result,
-                    "Previous executor result",
-                    1,
-                ),
-            ],
-        );
-        snapshot.verification = VerificationState {
-            phase: VerificationPhase::Failed,
-            risk_level: VerificationRiskLevel::High,
-            report: Some(VerificationGateReport {
-                risk_level: VerificationRiskLevel::High,
-                checks: vec![],
-                summary: "all checks completed".to_string(),
-                started_at: 11,
-                finished_at: 22,
-            }),
-            verdict: Some(VerificationVerdict {
-                status: VerificationVerdictStatus::Fail,
-                risk_level: VerificationRiskLevel::High,
-                evidence: vec!["tests are still failing".to_string()],
-                next_action: VerificationNextAction::Continue,
-                summary: "Need another iteration".to_string(),
-            }),
-            raw_verdict: Some(
-                r#"{"status":"fail","riskLevel":"high","evidence":["tests are still failing"],"nextAction":"continue","summary":"Need another iteration"}"#
-                    .to_string(),
-            ),
-            error: None,
-            started_at: Some(11),
-            updated_at: 12,
-        };
-
-        let prompt = build_resume_prompt(&snapshot);
-        assert!(prompt.contains("autonomous verification retry loop"));
-        assert!(prompt.contains("The mentor wants another pass"));
-        assert!(prompt.contains("Previous executor result"));
-        assert!(prompt.contains("Need another iteration"));
-        assert!(!prompt.contains("Continue the restored review session"));
-    }
-
-    #[test]
     fn build_snapshot_from_draft_persists_provider_kinds() {
         let record = build_snapshot_from_draft(draft(), None);
 
@@ -1325,203 +1248,6 @@ mod tests {
         assert_eq!(record.executor_provider, Some(ProviderKind::Codex));
         assert_eq!(record.mentor_model, "claude-3-5-sonnet");
         assert_eq!(record.executor_model, "gpt-4o-mini");
-    }
-
-    #[test]
-    fn build_snapshot_from_state_preserves_verification_state() {
-        let pair = build_pair(&snapshot(AgentRole::Mentor, PairStatus::Reviewing, vec![]));
-        let mut state =
-            build_pair_state(&snapshot(AgentRole::Mentor, PairStatus::Reviewing, vec![]));
-        state.verification = VerificationState {
-            phase: VerificationPhase::AwaitingVerdict,
-            risk_level: VerificationRiskLevel::High,
-            report: Some(VerificationGateReport {
-                risk_level: VerificationRiskLevel::High,
-                checks: vec![VerificationCheckRun {
-                    name: "test".to_string(),
-                    command: "npm run test".to_string(),
-                    status: VerificationCheckStatus::Passed,
-                    exit_code: Some(0),
-                    duration_ms: 250,
-                    stdout: "ok".to_string(),
-                    stderr: String::new(),
-                    summary: "test passed".to_string(),
-                }],
-                summary: "all checks completed".to_string(),
-                started_at: 11,
-                finished_at: 22,
-            }),
-            verdict: Some(VerificationVerdict {
-                status: VerificationVerdictStatus::Pass,
-                risk_level: VerificationRiskLevel::High,
-                evidence: vec!["npm run test passed".to_string()],
-                next_action: VerificationNextAction::Continue,
-                summary: "looks good".to_string(),
-            }),
-            raw_verdict: Some(
-                r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"continue","summary":"looks good"}"#
-                    .to_string(),
-            ),
-            error: None,
-            started_at: Some(11),
-            updated_at: 33,
-        };
-
-        let record = build_snapshot_from_state(&pair, &state, None);
-
-        assert_eq!(
-            record.verification.phase,
-            VerificationPhase::AwaitingVerdict
-        );
-        assert_eq!(record.verification.risk_level, VerificationRiskLevel::High);
-        assert_eq!(
-            record
-                .verification
-                .report
-                .as_ref()
-                .map(|report| report.summary.as_str()),
-            Some("all checks completed")
-        );
-        assert_eq!(
-            record
-                .verification
-                .verdict
-                .as_ref()
-                .map(|verdict| verdict.summary.as_str()),
-            Some("looks good")
-        );
-        assert_eq!(
-            record.verification.raw_verdict.as_deref(),
-            Some(
-                r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"continue","summary":"looks good"}"#
-            )
-        );
-    }
-
-    #[test]
-    fn build_snapshot_from_draft_preserves_run_history_verification() {
-        let mut draft = draft();
-        draft.run_history = vec![SnapshotRunSummary {
-            id: "run-1".to_string(),
-            spec: "Initial task".to_string(),
-            status: PairStatus::Finished,
-            started_at: 100,
-            finished_at: Some(200),
-            mentor_model: "mentor-model".to_string(),
-            executor_model: "executor-model".to_string(),
-            iterations: 2,
-            messages: vec![],
-            verification: VerificationState {
-                phase: VerificationPhase::Passed,
-                risk_level: VerificationRiskLevel::High,
-                report: Some(VerificationGateReport {
-                    risk_level: VerificationRiskLevel::High,
-                    checks: vec![],
-                    summary: "all checks completed".to_string(),
-                    started_at: 110,
-                    finished_at: 190,
-                }),
-                verdict: Some(VerificationVerdict {
-                    status: VerificationVerdictStatus::Pass,
-                    risk_level: VerificationRiskLevel::High,
-                    evidence: vec!["npm run test passed".to_string()],
-                    next_action: VerificationNextAction::Finish,
-                    summary: "looks good".to_string(),
-                }),
-                raw_verdict: Some(
-                    r#"{"status":"pass","riskLevel":"high","evidence":["npm run test passed"],"nextAction":"finish","summary":"looks good"}"#
-                        .to_string(),
-                ),
-                error: None,
-                started_at: Some(110),
-                updated_at: 210,
-            },
-        }];
-
-        let record = build_snapshot_from_draft(draft, None);
-
-        assert_eq!(record.run_history.len(), 1);
-        assert_eq!(
-            record.run_history[0].verification.phase,
-            VerificationPhase::Passed
-        );
-        assert_eq!(
-            record.run_history[0].verification.risk_level,
-            VerificationRiskLevel::High
-        );
-        assert_eq!(
-            record.run_history[0]
-                .verification
-                .verdict
-                .as_ref()
-                .map(|verdict| verdict.summary.as_str()),
-            Some("looks good")
-        );
-    }
-
-    #[test]
-    fn legacy_run_history_missing_verification_field_defaults_to_idle_state() {
-        let mut draft = draft();
-        draft.run_history = vec![SnapshotRunSummary {
-            id: "run-1".to_string(),
-            spec: "Initial task".to_string(),
-            status: PairStatus::Finished,
-            started_at: 100,
-            finished_at: Some(200),
-            mentor_model: "mentor-model".to_string(),
-            executor_model: "executor-model".to_string(),
-            iterations: 2,
-            messages: vec![],
-            verification: VerificationState::idle(),
-        }];
-
-        let mut legacy_json = serde_json::to_value(build_snapshot_from_draft(draft, None))
-            .expect("snapshot should serialize");
-
-        if let serde_json::Value::Object(map) = &mut legacy_json {
-            if let Some(serde_json::Value::Array(run_history)) = map.get_mut("runHistory") {
-                if let Some(serde_json::Value::Object(run)) = run_history.first_mut() {
-                    run.remove("verification");
-                }
-            }
-        }
-
-        let restored: SessionSnapshotRecord =
-            serde_json::from_value(legacy_json).expect("legacy snapshot should still deserialize");
-
-        assert_eq!(restored.run_history.len(), 1);
-        assert_eq!(
-            restored.run_history[0].verification.phase,
-            VerificationPhase::Idle
-        );
-        assert_eq!(
-            restored.run_history[0].verification.risk_level,
-            VerificationRiskLevel::Low
-        );
-        assert!(restored.run_history[0].verification.report.is_none());
-        assert!(restored.run_history[0].verification.verdict.is_none());
-        assert!(restored.run_history[0].verification.raw_verdict.is_none());
-        assert!(restored.run_history[0].verification.error.is_none());
-    }
-
-    #[test]
-    fn legacy_snapshot_missing_verification_field_defaults_to_idle_state() {
-        let snapshot = snapshot(AgentRole::Mentor, PairStatus::Reviewing, vec![]);
-        let mut legacy_json = serde_json::to_value(&snapshot).expect("snapshot should serialize");
-
-        if let serde_json::Value::Object(map) = &mut legacy_json {
-            map.remove("verification");
-        }
-
-        let restored: SessionSnapshotRecord =
-            serde_json::from_value(legacy_json).expect("legacy snapshot should still deserialize");
-
-        assert_eq!(restored.verification.phase, VerificationPhase::Idle);
-        assert_eq!(restored.verification.risk_level, VerificationRiskLevel::Low);
-        assert!(restored.verification.report.is_none());
-        assert!(restored.verification.verdict.is_none());
-        assert!(restored.verification.raw_verdict.is_none());
-        assert!(restored.verification.error.is_none());
     }
 
     #[test]
@@ -1552,29 +1278,6 @@ mod tests {
         );
         assert!(summary.has_mentor_session);
         assert!(!summary.has_executor_session);
-        assert_eq!(summary.verification.phase, VerificationPhase::Idle);
-        assert_eq!(summary.verification.risk_level, VerificationRiskLevel::Low);
-    }
-
-    #[test]
-    fn legacy_recoverable_summary_missing_verification_field_defaults_to_idle_state() {
-        let snapshot = snapshot(AgentRole::Mentor, PairStatus::Idle, vec![]);
-        let summary = snapshot.to_summary();
-        let mut legacy_json = serde_json::to_value(&summary).expect("summary should serialize");
-
-        if let serde_json::Value::Object(map) = &mut legacy_json {
-            map.remove("verification");
-        }
-
-        let restored: RecoverableSessionSummary = serde_json::from_value(legacy_json)
-            .expect("legacy recoverable summary should still deserialize");
-
-        assert_eq!(restored.verification.phase, VerificationPhase::Idle);
-        assert_eq!(restored.verification.risk_level, VerificationRiskLevel::Low);
-        assert!(restored.verification.report.is_none());
-        assert!(restored.verification.verdict.is_none());
-        assert!(restored.verification.raw_verdict.is_none());
-        assert!(restored.verification.error.is_none());
     }
 
     #[test]
@@ -1607,13 +1310,14 @@ mod tests {
                 executor_model: "executor".to_string(),
                 pending_mentor_model: None,
                 pending_executor_model: None,
+                mentor_reasoning_effort: None,
+                executor_reasoning_effort: None,
                 run_count: 1,
                 current_run_started_at: 1,
                 current_run_finished_at: None,
                 saved_at: 20,
                 created_at: 2,
                 current_turn_card: None,
-                verification: crate::verification_gate::VerificationState::idle(),
                 has_mentor_session: false,
                 has_executor_session: false,
             },

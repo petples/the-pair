@@ -17,7 +17,6 @@ interface Window {
       list: () => Promise<unknown>
       getMessages: (pairId: string) => Promise<unknown>
       getState: (pairId: string) => Promise<unknown>
-      humanFeedback: (pairId: string, approved: boolean) => Promise<unknown>
       onCreated: (callback: (data: unknown) => void) => Promise<unknown>
       onStopped: (callback: (data: unknown) => void) => Promise<unknown>
       onMessage: (callback: (data: unknown) => void) => Promise<unknown>
@@ -26,6 +25,7 @@ interface Window {
     }
     session: {
       saveSnapshot: (input: unknown) => Promise<unknown>
+      loadAllPairs: () => Promise<unknown>
       listRecoverable: () => Promise<unknown>
       deleteRecoverable: (pairId: string) => Promise<unknown>
       restore: (pairId: string, continueRun?: boolean) => Promise<unknown>
@@ -51,3 +51,5 @@ interface Window {
     }
   }
 }
+
+declare const __APP_VERSION__: string

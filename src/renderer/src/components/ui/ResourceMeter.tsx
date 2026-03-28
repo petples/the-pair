@@ -7,19 +7,38 @@ interface ResourceMeterProps {
   cpu: number
   mem: number
   className?: string
+  compact?: boolean
+  hideLabels?: boolean
 }
 
-export function ResourceMeter({ cpu, mem, className }: ResourceMeterProps): React.ReactNode {
+export function ResourceMeter({
+  cpu,
+  mem,
+  className,
+  compact,
+  hideLabels
+}: ResourceMeterProps): React.ReactNode {
   return (
-    <div className={cn('grid grid-cols-2 gap-3', className)}>
-      <MeterBar icon={<Cpu size={14} />} label="CPU" value={cpu} max={100} unit="%" color="blue" />
+    <div className={cn('grid grid-cols-2', compact ? 'gap-1' : 'gap-3', className)}>
       <MeterBar
-        icon={<HardDrive size={14} />}
+        icon={<Cpu size={compact ? 10 : 14} />}
+        label="CPU"
+        value={cpu}
+        max={100}
+        unit="%"
+        color="blue"
+        compact={compact}
+        hideLabel={hideLabels}
+      />
+      <MeterBar
+        icon={<HardDrive size={compact ? 10 : 14} />}
         label="MEM"
         value={mem}
         max={8192}
         unit="MB"
         color="purple"
+        compact={compact}
+        hideLabel={hideLabels}
       />
     </div>
   )
@@ -32,9 +51,20 @@ interface MeterBarProps {
   max: number
   unit: string
   color: 'blue' | 'purple' | 'green' | 'amber'
+  compact?: boolean
+  hideLabel?: boolean
 }
 
-function MeterBar({ icon, label, value, max, unit, color }: MeterBarProps): React.ReactNode {
+function MeterBar({
+  icon,
+  label,
+  value,
+  max,
+  unit,
+  color,
+  compact,
+  hideLabel
+}: MeterBarProps): React.ReactNode {
   const percent = Math.min((value / max) * 100, 100)
   const isVisible = percent >= 0.5
 
@@ -64,20 +94,41 @@ function MeterBar({ icon, label, value, max, unit, color }: MeterBarProps): Reac
   const c = colorMap[color]
 
   return (
-    <div className="glass-card p-3 flex flex-col gap-2">
+    <div className={cn('glass-card flex flex-col', compact ? 'p-1.5 gap-1' : 'p-3 gap-2')}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <span className={c.text}>{icon}</span>
-          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-            {label}
-          </span>
+          {!hideLabel && (
+            <span
+              className={cn(
+                'font-medium text-muted-foreground uppercase tracking-wide',
+                compact ? 'text-[8px]' : 'text-[10px]'
+              )}
+            >
+              {label}
+            </span>
+          )}
         </div>
-        <span className="text-sm font-mono font-semibold text-foreground">
+        <span
+          className={cn(
+            'font-mono font-semibold text-foreground',
+            compact ? 'text-[10px]' : 'text-sm'
+          )}
+        >
           {value.toFixed(1)}
-          <span className="text-[10px] text-muted-foreground ml-0.5">{unit}</span>
+          <span
+            className={cn('text-muted-foreground ml-0.5', compact ? 'text-[8px]' : 'text-[10px]')}
+          >
+            {unit}
+          </span>
         </span>
       </div>
-      <div className="h-1 rounded-full bg-muted overflow-hidden dark:bg-white/8">
+      <div
+        className={cn(
+          'rounded-full bg-muted overflow-hidden dark:bg-white/8',
+          compact ? 'h-0.5' : 'h-1'
+        )}
+      >
         {isVisible ? (
           <motion.div
             className={cn('h-full rounded-full shadow-lg', c.bar, c.glow)}

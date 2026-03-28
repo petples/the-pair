@@ -1,18 +1,14 @@
-import type { VerificationState } from './lib/verificationGate'
-
-export type {
-  VerificationRiskLevel,
-  VerificationVerdictStatus,
-  VerificationNextAction,
-  VerificationCheckStatus,
-  VerificationPhase,
-  VerificationCheckRun,
-  VerificationGateReport,
-  VerificationVerdict,
-  VerificationState
-} from './lib/verificationGate'
-
 export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
+
+export type TokenUsageSource = 'live' | 'final' | 'none'
+
+export interface TurnTokenUsage {
+  outputTokens: number
+  inputTokens?: number
+  lastUpdatedAt: number
+  source: TokenUsageSource
+  provider?: string
+}
 
 export type PairStatus =
   | 'Idle'
@@ -40,6 +36,7 @@ export interface AvailableModel {
   availabilityReason?: string
   supportsPairExecution: boolean
   recommendedRoles: ('mentor' | 'executor')[]
+  reasoningEffortLevels?: string[]
 }
 
 export interface CreatePairInput {
@@ -48,6 +45,8 @@ export interface CreatePairInput {
   spec: string
   mentor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
   executor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
+  mentorReasoningEffort?: string
+  executorReasoningEffort?: string
 }
 
 export interface AssignTaskInput {
@@ -59,6 +58,8 @@ export interface PairModelSelection {
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
+  mentorReasoningEffort?: string
+  executorReasoningEffort?: string
 }
 
 export interface AgentActivity {
@@ -77,6 +78,7 @@ export interface SnapshotTurnCard {
   activity: AgentActivity
   startedAt: number
   updatedAt: number
+  tokenUsage?: TurnTokenUsage
 }
 
 export interface PairRunSummary {
@@ -97,8 +99,9 @@ export interface PairRunSummary {
     content: string
     attachments?: { path: string; description: string }[]
     iteration: number
+    tokenUsage?: TurnTokenUsage
   }>
-  verification: VerificationState
+  totalOutputTokens?: number
 }
 
 export interface SessionSnapshotDraft {
@@ -116,6 +119,8 @@ export interface SessionSnapshotDraft {
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
+  mentorReasoningEffort?: string
+  executorReasoningEffort?: string
   messages: Array<{
     id: string
     timestamp: number
@@ -125,6 +130,7 @@ export interface SessionSnapshotDraft {
     content: string
     attachments?: { path: string; description: string }[]
     iteration: number
+    tokenUsage?: TurnTokenUsage
   }>
   mentorActivity: AgentActivity
   executorActivity: AgentActivity
@@ -147,7 +153,6 @@ export interface SessionSnapshotDraft {
   runHistory: PairRunSummary[]
   currentRunStartedAt: number
   currentRunFinishedAt?: number
-  verification: VerificationState
   createdAt: number
 }
 
@@ -162,13 +167,14 @@ export interface RecoverableSessionSummary {
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
+  mentorReasoningEffort?: string
+  executorReasoningEffort?: string
   runCount: number
   currentRunStartedAt: number
   currentRunFinishedAt?: number
   savedAt: number
   createdAt: number
   currentTurnCard?: SnapshotTurnCard
-  verification: VerificationState
   hasMentorSession: boolean
   hasExecutorSession: boolean
 }

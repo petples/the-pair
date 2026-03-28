@@ -3,11 +3,17 @@ import type {
   AvailableModel,
   CreatePairInput,
   PairModelSelection,
-  RecoverableSessionSummary,
   SessionSnapshotDraft,
   SessionSnapshotRecord,
-  VerificationState
+  TurnTokenUsage
 } from '../types'
+import {
+  turnCardToMessage as turnCardToMessageImpl,
+  resolveCurrentTurnTokenUsage,
+  syncTokenUsage as syncTokenUsageImpl,
+  type TokenUsageTurnCard,
+  type TokenUsageMessage
+} from '../lib/tokenUsage'
 import {
   buildAgentConfig,
   getModelByQualifiedId,
@@ -18,12 +24,9 @@ import {
   buildUpdateModelsPayload,
   shouldSyncModelsToBackend
 } from '../lib/modelResolution'
-import {
-  buildVerificationReviewPrompt,
-  buildVerificationRetryPrompt,
-  idleVerificationState
-} from '../lib/verificationGate'
+import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
 import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
+import { playFinishChime } from '../lib/sound'
 
 export type PairStatus =
   | 'Idle'
@@ -80,6 +83,7 @@ export interface Message {
   content: string
   attachments?: { path: string; description: string }[]
   iteration: number
+  tokenUsage?: TurnTokenUsage
 }
 
 export interface TurnCard {
@@ -90,6 +94,8 @@ export interface TurnCard {
   activity: AgentActivity
   startedAt: number
   updatedAt: number
+  finalizedAt?: number
+  tokenUsage?: TurnTokenUsage
 }
 
 export interface PairRunSummary {
@@ -102,7 +108,6 @@ export interface PairRunSummary {
   executorModel: string
   iterations: number
   messages: Message[]
-  verification: VerificationState
 }
 
 export interface Pair {
@@ -122,6 +127,8 @@ export interface Pair {
   executorModel: string
   pendingMentorModel?: string
   pendingExecutorModel?: string
+  mentorReasoningEffort?: string
+  executorReasoningEffort?: string
   messages: Message[]
   mentorActivity: AgentActivity
   executorActivity: AgentActivity
@@ -138,7 +145,8 @@ export interface Pair {
   runHistory: PairRunSummary[]
   currentRunStartedAt: number
   currentRunFinishedAt?: number
-  verification: VerificationState
+  mentorTokenUsage?: TurnTokenUsage
+  executorTokenUsage?: TurnTokenUsage
 }
 
 interface PairStateSnapshot {
@@ -156,7 +164,8 @@ interface PairStateSnapshot {
   modifiedFiles?: ModifiedFile[]
   gitTracking?: GitTracking
   automationMode?: AutomationMode
-  verification?: VerificationState
+  mentor?: { tokenUsage: TurnTokenUsage | null }
+  executor?: { tokenUsage: TurnTokenUsage | null }
 }
 
 interface PairMessageEvent {
@@ -182,21 +191,20 @@ interface BackendPairState {
 interface PairStore {
   pairs: Pair[]
   availableModels: AvailableModel[]
-  recoverableSessions: RecoverableSessionSummary[]
   isLoading: boolean
   error: string | null
   viewingRunId: string | null
   restoringSpec: { spec: string; mentorModel: string; executorModel: string } | null
 
   loadAvailableModels: () => Promise<void>
-  loadRecoverableSessions: () => Promise<void>
-  deleteRecoverableSession: (pairId: string) => Promise<void>
-  removeRecoverableSession: (pairId: string) => void
+  loadAllPairs: () => Promise<void>
   flushSnapshots: () => Promise<void>
   createPair: (
     input: Omit<CreatePairInput, 'mentor' | 'executor'> & {
       mentorModel: string
       executorModel: string
+      mentorReasoningEffort?: string
+      executorReasoningEffort?: string
     }
   ) => Promise<void>
   assignTask: (
@@ -206,7 +214,6 @@ interface PairStore {
     modelOverrides?: { mentorModel?: string; executorModel?: string }
   ) => Promise<void>
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
-  restoreSession: (pairId: string, continueRun?: boolean) => Promise<void>
   pausePair: (id: string) => Promise<void>
   resumePair: (id: string) => Promise<void>
   deletePair: (id: string) => Promise<void>
@@ -216,7 +223,6 @@ interface PairStore {
   setMessages: (pairId: string, messages: Message[]) => void
   syncState: (pairId: string, status: PairStatus, iteration: number) => void
   syncFullState: (pairId: string, state: Record<string, unknown>) => void
-  humanFeedback: (pairId: string, approved: boolean) => Promise<void>
   retryTurn: (id: string) => Promise<void>
   initMessageListener: () => void
   viewTaskHistory: (pairId: string, runId: string) => void
@@ -255,6 +261,8 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     executorModel: pair.executorModel,
     pendingMentorModel: pair.pendingMentorModel,
     pendingExecutorModel: pair.pendingExecutorModel,
+    mentorReasoningEffort: pair.mentorReasoningEffort,
+    executorReasoningEffort: pair.executorReasoningEffort,
     messages: pair.messages,
     mentorActivity: pair.mentorActivity,
     executorActivity: pair.executorActivity,
@@ -277,7 +285,6 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     runHistory: pair.runHistory,
     currentRunStartedAt: pair.currentRunStartedAt,
     currentRunFinishedAt: pair.currentRunFinishedAt,
-    verification: pair.verification,
     createdAt: pair.createdAt
   }
 }
@@ -300,6 +307,8 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     executorModel: snapshot.executorModel,
     pendingMentorModel: snapshot.pendingMentorModel,
     pendingExecutorModel: snapshot.pendingExecutorModel,
+    mentorReasoningEffort: snapshot.mentorReasoningEffort,
+    executorReasoningEffort: snapshot.executorReasoningEffort,
     messages: snapshot.messages,
     mentorActivity: snapshot.mentorActivity,
     executorActivity: snapshot.executorActivity,
@@ -318,26 +327,11 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     runCount: snapshot.runCount,
     runHistory: snapshot.runHistory,
     currentRunStartedAt: snapshot.currentRunStartedAt,
-    currentRunFinishedAt: snapshot.currentRunFinishedAt,
-    verification: snapshot.verification ?? idleVerificationState()
+    currentRunFinishedAt: snapshot.currentRunFinishedAt
   }
 }
 
-function shouldSaveSnapshot(previous: Pair, next: Pair): boolean {
-  return (
-    previous.status !== next.status ||
-    previous.turn !== next.turn ||
-    previous.iterations !== next.iterations ||
-    previous.currentRunFinishedAt !== next.currentRunFinishedAt ||
-    previous.currentRunStartedAt !== next.currentRunStartedAt ||
-    previous.runCount !== next.runCount ||
-    previous.pendingMentorModel !== next.pendingMentorModel ||
-    previous.pendingExecutorModel !== next.pendingExecutorModel ||
-    previous.mentorModel !== next.mentorModel ||
-    previous.executorModel !== next.executorModel ||
-    previous.verification.updatedAt !== next.verification.updatedAt
-  )
-}
+export const shouldSaveSnapshot = shouldSaveSnapshotImpl
 
 async function saveSnapshotForPair(pair: Pair): Promise<void> {
   if (typeof window === 'undefined' || !window.api?.session?.saveSnapshot) return
@@ -381,17 +375,21 @@ function createTurnCard(
   }
 }
 
-function turnCardToMessage(card: TurnCard): Message {
+export function turnCardToMessage(card: TurnCard): Message {
+  const result = turnCardToMessageImpl(card as TokenUsageTurnCard) as TokenUsageMessage
   return {
-    id: card.id,
-    timestamp: card.updatedAt,
-    from: card.role,
-    to: 'human',
-    type: card.role === 'mentor' ? 'plan' : 'result',
-    content: card.content,
-    iteration: 0
+    id: result.id,
+    timestamp: result.timestamp,
+    from: result.from,
+    to: result.to as 'mentor' | 'executor' | 'both' | 'human',
+    type: result.type as 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff',
+    content: result.content,
+    iteration: result.iteration,
+    tokenUsage: result.tokenUsage
   }
 }
+
+export const syncTokenUsage = syncTokenUsageImpl
 
 function commitTurnCard(messages: Message[], card?: TurnCard): Message[] {
   if (!card) return messages
@@ -489,8 +487,7 @@ function createRunSummary(pair: Pair): PairRunSummary | null {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
     iterations: pair.iterations,
-    messages: pair.messages,
-    verification: pair.verification
+    messages: pair.messages
   }
 }
 
@@ -530,8 +527,7 @@ function resetPairForNewRun(pair: Pair, nextSpec: string, selection: PairModelSe
     runHistory: archivedRun ? [...pair.runHistory, archivedRun] : pair.runHistory,
     currentRunStartedAt: now,
     currentRunFinishedAt: undefined,
-    currentTurnCard: undefined,
-    verification: idleVerificationState()
+    currentTurnCard: undefined
   }
 }
 
@@ -560,15 +556,29 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
       nextActiveActivity,
       nextTurn === 'mentor' ? 'Mentor working' : 'Executor working'
     )
+    const nextTokenUsage =
+      nextTurn === 'mentor'
+        ? resolveCurrentTurnTokenUsage(
+            state.mentor?.tokenUsage,
+            currentTurnCard?.tokenUsage,
+            pair.mentorTokenUsage
+          )
+        : resolveCurrentTurnTokenUsage(
+            state.executor?.tokenUsage,
+            currentTurnCard?.tokenUsage,
+            pair.executorTokenUsage
+          )
 
     if (!currentTurnCard) {
       currentTurnCard = createTurnCard(nextTurn, nextActiveActivity, nextContent, 'live')
+      currentTurnCard.tokenUsage = nextTokenUsage
     } else if (currentTurnCard.role === nextTurn) {
       currentTurnCard = {
         ...currentTurnCard,
         activity: nextActiveActivity,
         content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
-        updatedAt: nextActiveActivity.updatedAt
+        updatedAt: nextActiveActivity.updatedAt,
+        tokenUsage: nextTokenUsage
       }
     }
   } else if (currentTurnCard) {
@@ -576,7 +586,8 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
       ...currentTurnCard,
       activity: nextActiveActivity,
       state: 'final',
-      updatedAt: nextActiveActivity.updatedAt
+      updatedAt: nextActiveActivity.updatedAt,
+      finalizedAt: Date.now()
     }
   }
 
@@ -598,8 +609,9 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
-    currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt),
-    verification: state.verification ?? pair.verification
+    mentorTokenUsage: syncTokenUsage(state.mentor?.tokenUsage, pair.mentorTokenUsage),
+    executorTokenUsage: syncTokenUsage(state.executor?.tokenUsage, pair.executorTokenUsage),
+    currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt)
   }
 }
 
@@ -743,7 +755,6 @@ function hasExecutablePlanShape(content: string): boolean {
 export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
   availableModels: [],
-  recoverableSessions: [],
   isLoading: false,
   error: null,
   viewingRunId: null,
@@ -862,7 +873,8 @@ export const usePairStore = create<PairStore>((set) => ({
                     activity: nextActivity,
                     content: incoming.content.trim() || currentTurnCard.content,
                     state: 'final',
-                    updatedAt: Date.now()
+                    updatedAt: Date.now(),
+                    finalizedAt: Date.now()
                   }
                 } else {
                   messages = [
@@ -904,14 +916,23 @@ export const usePairStore = create<PairStore>((set) => ({
       if (!pairState?.pairId) return
 
       let shouldSave = false
+      let prevStatus: string | undefined
+      let nextStatus: string | undefined
+
       set((state) => ({
         pairs: state.pairs.map((p) => {
           if (p.id !== pairState.pairId) return p
+          prevStatus = p.status
           const nextPair = syncPairFromState(p, pairState)
+          nextStatus = nextPair.status
           shouldSave = shouldSave || shouldSaveSnapshot(p, nextPair)
           return nextPair
         })
       }))
+
+      if (prevStatus !== 'Finished' && nextStatus === 'Finished') {
+        playFinishChime()
+      }
 
       if (shouldSave) {
         const currentPair = usePairStore
@@ -932,10 +953,7 @@ export const usePairStore = create<PairStore>((set) => ({
       try {
         backendState = (await window.api.pair.getState(data.pairId)) as BackendPairState | null
       } catch (error) {
-        console.warn(
-          '[usePairStore] Failed to load backend state before handoff processing',
-          error
-        )
+        console.warn('[usePairStore] Failed to load backend state before handoff processing', error)
       }
 
       if (backendState?.status === 'Finished') {
@@ -983,67 +1001,51 @@ export const usePairStore = create<PairStore>((set) => ({
         .find((m) => m.from === 'executor' && (m.type === 'plan' || m.type === 'result'))
 
       if (data.nextRole === 'executor') {
-        if (pair.verification.report) {
-          message = buildVerificationRetryPrompt(pair.verification.report, {
-            taskSpec: pair.spec,
-            executorResult: lastExecutorMessage?.content,
-            mentorOutput: lastMentorMessage?.content,
-            verdict: pair.verification.verdict ?? undefined
-          })
+        if (!lastMentorMessage || !hasExecutablePlanShape(lastMentorMessage.content)) {
+          const mentorRepairPrompt =
+            '### ROLE: MENTOR\n' +
+            'Your previous output was not an executable PLAN for the EXECUTOR.\n' +
+            '- DO NOT execute.\n' +
+            '- Return only a concrete PLAN with numbered steps.\n' +
+            '- Each step must be directly executable by the EXECUTOR.\n\n' +
+            'Please provide the corrected PLAN now.'
+
+          const { assignTask } = state
+          await assignTask(data.pairId, mentorRepairPrompt, 'mentor')
+          return
+        }
+
+        message =
+          '### ROLE: EXECUTOR\n' +
+          'Your mission is ONLY to EXECUTE the plan provided below. \n' +
+          '- DO NOT create new plans.\n' +
+          '- DO NOT review your own work.\n' +
+          '- JUST EXECUTE THE STEPS and report results.\n' +
+          '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
+          '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
+          '--- COMMAND TO EXECUTE ---\n'
+
+        if (lastMentorMessage) {
+          message += lastMentorMessage.content
         } else {
-          if (!lastMentorMessage || !hasExecutablePlanShape(lastMentorMessage.content)) {
-            const mentorRepairPrompt =
-              '### ROLE: MENTOR\n' +
-              'Your previous output was not an executable PLAN for the EXECUTOR.\n' +
-              '- DO NOT execute.\n' +
-              '- Return only a concrete PLAN with numbered steps.\n' +
-              '- Each step must be directly executable by the EXECUTOR.\n\n' +
-              'Please provide the corrected PLAN now.'
-
-            const { assignTask } = state
-            await assignTask(data.pairId, mentorRepairPrompt, 'mentor')
-            return
-          }
-
-          message =
-            '### ROLE: EXECUTOR\n' +
-            'Your mission is ONLY to EXECUTE the plan provided below. \n' +
-            '- DO NOT create new plans.\n' +
-            '- DO NOT review your own work.\n' +
-            '- JUST EXECUTE THE STEPS and report results.\n' +
-            '- You CANNOT declare the task complete. Only the MENTOR can decide when to finish.\n' +
-            '- Never output "TASK_COMPLETE" - this is reserved for MENTOR only.\n\n' +
-            '--- COMMAND TO EXECUTE ---\n'
-
-          if (lastMentorMessage) {
-            message += lastMentorMessage.content
-          } else {
-            message +=
-              'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
-          }
+          message +=
+            'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
         }
       } else {
-        if (pair.verification.report) {
-          message = buildVerificationReviewPrompt(pair.verification.report, {
-            taskSpec: pair.spec,
-            executorResult: lastExecutorMessage?.content
-          })
-        } else {
-          message =
-            '### ROLE: MENTOR\n' +
-            'Your mission is ONLY to PLAN and REVIEW. \n' +
-            '- DO NOT execute any code or tools that modify files.\n' +
-            '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
-            '--- REVIEW REQUEST ---\n' +
-            'The executor has finished a turn. Review their results below:\n\n'
+        message =
+          '### ROLE: MENTOR\n' +
+          'Your mission is ONLY to PLAN and REVIEW. \n' +
+          '- DO NOT execute any code or tools that modify files.\n' +
+          '- YOUR GOAL: Provide a clear, actionable plan for the EXECUTOR.\n\n' +
+          '--- REVIEW REQUEST ---\n' +
+          'The executor has finished a turn. Review their results below:\n\n'
 
-          if (lastExecutorMessage) {
-            message += lastExecutorMessage.content + '\n\n'
-          }
-
-          message +=
-            'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
+        if (lastExecutorMessage) {
+          message += lastExecutorMessage.content + '\n\n'
         }
+
+        message +=
+          'If the mission is complete and all requirements are satisfied, include the exact token "TASK_COMPLETE" in your final output. Otherwise, provide a refined PLAN for the next iteration.'
       }
 
       const { assignTask } = state
@@ -1061,37 +1063,15 @@ export const usePairStore = create<PairStore>((set) => ({
     }
   },
 
-  loadRecoverableSessions: async () => {
+  loadAllPairs: async () => {
     try {
-      const sessions = (await window.api.session.listRecoverable()) as RecoverableSessionSummary[]
-      set({ recoverableSessions: sessions })
+      const snapshots = (await window.api.session.loadAllPairs()) as SessionSnapshotRecord[]
+      const pairs = snapshots.map(snapshotToPair)
+      set({ pairs })
     } catch (error) {
-      console.error('Failed to load recoverable sessions:', error)
-      set({ recoverableSessions: [] })
+      console.error('Failed to load pairs:', error)
     }
   },
-
-  deleteRecoverableSession: async (pairId) => {
-    set({ isLoading: true, error: null })
-
-    try {
-      await window.api.session.deleteRecoverable(pairId)
-      set({ isLoading: false })
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to delete recoverable session'
-      set({
-        isLoading: false,
-        error: message
-      })
-      throw error instanceof Error ? error : new Error(message)
-    }
-  },
-
-  removeRecoverableSession: (pairId) =>
-    set((state) => ({
-      recoverableSessions: state.recoverableSessions.filter((session) => session.pairId !== pairId)
-    })),
 
   flushSnapshots: async () => {
     const pairs = usePairStore.getState().pairs
@@ -1112,7 +1092,9 @@ export const usePairStore = create<PairStore>((set) => ({
         directory: input.directory,
         spec: input.spec,
         mentor: mentorConfig,
-        executor: executorConfig
+        executor: executorConfig,
+        mentorReasoningEffort: input.mentorReasoningEffort,
+        executorReasoningEffort: input.executorReasoningEffort
       })) as PairCreatedResponse
       console.log('[usePairStore] Pair created:', pairProcess)
 
@@ -1156,8 +1138,7 @@ export const usePairStore = create<PairStore>((set) => ({
         runCount: 1,
         runHistory: [],
         currentRunStartedAt: now,
-        currentTurnCard: undefined,
-        verification: idleVerificationState()
+        currentTurnCard: undefined
       }
 
       set((state) => ({
@@ -1291,7 +1272,9 @@ export const usePairStore = create<PairStore>((set) => ({
                 executorModel: typedResult.executorModel,
                 executorProvider: executorModelEntry?.provider ?? pair.executorProvider,
                 pendingMentorModel: typedResult.pendingMentorModel,
-                pendingExecutorModel: typedResult.pendingExecutorModel
+                pendingExecutorModel: typedResult.pendingExecutorModel,
+                mentorReasoningEffort: typedResult.mentorReasoningEffort,
+                executorReasoningEffort: typedResult.executorReasoningEffort
               }
             : pair
         )
@@ -1303,39 +1286,6 @@ export const usePairStore = create<PairStore>((set) => ({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update pair models'
-      set({
-        isLoading: false,
-        error: message
-      })
-      throw error instanceof Error ? error : new Error(message)
-    }
-  },
-
-  restoreSession: async (pairId, continueRun = true) => {
-    set({ isLoading: true, error: null })
-
-    try {
-      const snapshot = (await window.api.session.restore(
-        pairId,
-        continueRun
-      )) as SessionSnapshotRecord
-      const pair = snapshotToPair(snapshot)
-
-      set((state) => ({
-        isLoading: false,
-        pairs: state.pairs.some((existing) => existing.id === pair.id)
-          ? state.pairs.map((existing) => (existing.id === pair.id ? pair : existing))
-          : [...state.pairs, pair],
-        recoverableSessions: state.recoverableSessions.filter(
-          (session) => session.pairId !== pair.id
-        )
-      }))
-
-      if (!continueRun) {
-        await saveSnapshotForPair(pair)
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to restore session'
       set({
         isLoading: false,
         error: message
@@ -1383,8 +1333,7 @@ export const usePairStore = create<PairStore>((set) => ({
       await window.api.pair.delete(id)
       set((state) => ({
         isLoading: false,
-        pairs: state.pairs.filter((p) => p.id !== id),
-        recoverableSessions: state.recoverableSessions.filter((session) => session.pairId !== id)
+        pairs: state.pairs.filter((p) => p.id !== id)
       }))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete pair'
@@ -1433,10 +1382,6 @@ export const usePairStore = create<PairStore>((set) => ({
         p.id === pairId ? syncPairFromState(p, state as PairStateSnapshot) : p
       )
     })),
-
-  humanFeedback: async (pairId, approved) => {
-    await window.api.pair.humanFeedback(pairId, approved)
-  },
 
   viewTaskHistory: (pairId, runId) => {
     set({ viewingRunId: runId })
