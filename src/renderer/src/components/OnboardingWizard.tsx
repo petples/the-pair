@@ -408,6 +408,7 @@ function DirectoryCard({
 }: {
   directory: string
   onSelectDirectory: () => void
+  isCompactLayout?: boolean
 }): React.ReactNode {
   return (
     <GlassCard className="flex h-full flex-col p-4 space-y-3">
@@ -527,6 +528,7 @@ function ModelCard({
   executorModel: string
   onMentorChange: (m: string) => void
   onExecutorChange: (m: string) => void
+  isCompactLayout?: boolean
 }): React.ReactNode {
   return (
     <GlassCard className="flex h-full flex-col space-y-3 p-4">
