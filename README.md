@@ -41,7 +41,7 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 - **Automated Collaboration** — Agents work together without constant human intervention
 - **Real-Time Monitoring** — Watch CPU/memory usage per agent with live activity tracking
 - **Git Integration** — Automatic tracking of all file changes made during a session
-- **Human Oversight** — Step in when needed with approval/rejection workflow
+- **Human Oversight** — Step in at any time to pause, adjust, or reassign tasks
 - **Session Recovery** — Resume interrupted sessions with full conversation history restoration
 - **Onboarding Wizard** — Guided first-time setup with model configuration and directory selection
 - **Dark/Light Themes** — Automatic system theme detection with manual toggle
@@ -65,7 +65,11 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 - **Git Change Tracking** — Automatic detection of modified, added, or deleted files
 - **Conversation History** — Full transcript of all agent interactions
 - **Local-First** — Runs entirely on your machine, no cloud dependencies
-- **Model Agnostic** — Works with any opencode-compatible AI model
+- **Multi-Provider** — Works with opencode, Claude Code, Codex, and Gemini CLI
+- **Reasoning Controls** — Adjust thinking effort per agent role (low/medium/high)
+- **Token Tracking** — Real-time per-turn token usage displayed inline
+- **Skill System** — Attach project-specific skill files to guide agent behavior
+- **Auto-Update** — In-app update checking with one-click install
 
 ---
 
@@ -96,7 +100,7 @@ npm install
 npm run build:mac  # or build:win / build:linux
 ```
 
-On macOS, `build:mac` produces the local DMG experience you asked for, while `build:mac:release` matches the ZIP-style release bundle used in GitHub Releases. The build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
+On macOS, `build:mac` produces a local DMG, while `build:mac:release` produces the ZIP-style release bundle used in GitHub Releases. The build script will ensure the required Rust targets are installed before invoking Tauri. If you prefer to set them up manually, run:
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -107,15 +111,20 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 ## Quick Start
 
 > [!NOTE]
-> The Pair requires [opencode CLI](https://opencode.ai) to run AI agents.
+> The Pair requires at least one AI provider CLI: [opencode](https://opencode.ai), [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex), or [Gemini CLI](https://github.com/google-gemini/gemini-cli).
 
-### 1. Install opencode
+### 1. Install an AI Provider
 
-Visit https://opencode.ai/install for installation instructions.
+Install one or more of the supported CLIs:
 
-### 2. Configure AI Models
+- **opencode** — https://opencode.ai/install
+- **Claude Code** — `npm install -g @anthropic-ai/claude-code`
+- **Codex** — `npm install -g @openai/codex`
+- **Gemini CLI** — see [Gemini CLI docs](https://github.com/google-gemini/gemini-cli)
 
-If you want OpenCode-backed models, set up your AI providers in `~/.config/opencode/opencode.json`:
+### 2. Configure AI Models (Optional)
+
+For opencode-backed models, set up your AI providers in `~/.config/opencode/opencode.json`:
 
 ```json
 {
@@ -191,7 +200,7 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
 │  Backend (Rust)                                         │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ PairManager  │MessageBroker │ ProcessSpawner  │    │
-│  │ (Lifecycle)  │ (State Machine)│ (opencode)     │    │
+│  │ (Lifecycle)  │ (State Machine)│ (Multi-Provider)│    │
 │  └──────────────┴──────────────┴──────────────────┘    │
 │  ┌──────────────┬──────────────┬──────────────────┐    │
 │  │ Git Tracker  │Resource Mon. │ Activity Tracker │    │
@@ -201,9 +210,10 @@ Each pair maintains its own runtime configuration in `.pair/runtime/<pairId>/` w
               ┌─────────────┴─────────────┐
               ↙                           ↘
      ┌─────────────────┐          ┌─────────────────┐
-     │   opencode CLI  │          │   Git Repo      │
-     │  (Mentor/Exec)  │          │  (Workspace)    │
-     └─────────────────┘          └─────────────────┘
+     │  AI Provider CLIs│          │   Git Repo      │
+     │ opencode/Claude/ │          │  (Workspace)    │
+     │ Codex/Gemini     │          └─────────────────┘
+     └─────────────────┘
 ```
 
 ### Agent Workflow
