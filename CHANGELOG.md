@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-29
+
+### Added
+
+- Added per-role reasoning effort controls to model selection and pair settings.
+- Added live token usage tracking for agent turns and snapshots.
+- Added a dedicated update notification modal and centralized update store.
+- Added finish chime feedback when a pair reaches `Finished`.
+
+### Changed
+
+- Refactored pair state persistence to track turn-card content, token usage, and model defaults.
+- Simplified session restore flows by loading active pair snapshots directly from the backend.
+- Reworked the updater UI so checks and installs are coordinated through app state.
+- Updated onboarding and dashboard presentation to match the new pair workflow.
+
+### Fixed
+
+- Fixed provider reasoning effort being preserved unexpectedly after clearing it in pair settings.
+- Fixed release detection in CI by fetching tags before checking whether the current version is already published.
+
 ## [1.2.3] - 2026-03-28
 
 ### Added

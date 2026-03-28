@@ -1,5 +1,6 @@
 use crate::message_broker::MessageBroker;
 use crate::process_spawner::ProcessSpawner;
+use crate::provider_adapter::ProviderAdapter;
 use crate::session_snapshot::delete_pair_snapshot;
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus};
@@ -14,6 +15,10 @@ DO NOT run commands or edit files. \
 Return ONLY a concrete PLAN with numbered executable steps (no intent-only preface).\n\nTASK: {}",
         task_spec
     )
+}
+
+fn resolve_reasoning_effort(preferred: Option<String>) -> Option<String> {
+    preferred
 }
 
 pub struct PairManager {
@@ -53,6 +58,8 @@ impl PairManager {
             executor_model: input.executor.model.clone(),
             pending_mentor_model: None,
             pending_executor_model: None,
+            mentor_reasoning_effort: input.mentor_reasoning_effort.clone(),
+            executor_reasoning_effort: input.executor_reasoning_effort.clone(),
             created_at,
         };
 
@@ -129,6 +136,8 @@ pub async fn pair_create(
     println!("[pair_create] Initial task spec: {}", input.spec);
 
     let task_spec = input.spec.clone();
+    let mentor_reasoning_effort = input.mentor_reasoning_effort.clone();
+    let executor_reasoning_effort = input.executor_reasoning_effort.clone();
     let mentor_bootstrap_prompt = build_mentor_planning_prompt(&task_spec);
 
     let pair = {
@@ -156,6 +165,8 @@ pub async fn pair_create(
                     executor_model: pair.executor_model.clone(),
                     mentor_session_id: None,
                     executor_session_id: None,
+                    mentor_reasoning_effort,
+                    executor_reasoning_effort,
                 },
             );
         }
@@ -210,13 +221,16 @@ pub async fn pair_assign_task(
         let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
         let existing = ctx_guard.get(&pair_id).map(|ctx| {
             (
+                ctx.mentor_provider,
+                ctx.executor_provider,
                 ctx.mentor_session_id.clone(),
                 ctx.executor_session_id.clone(),
+                ctx.mentor_reasoning_effort.clone(),
+                ctx.executor_reasoning_effort.clone(),
             )
         });
         let is_new_run = input.role.is_none();
 
-        // Use pending models if available, otherwise fall back to default models
         let effective_mentor_model = pair
             .pending_mentor_model
             .as_ref()
@@ -228,28 +242,54 @@ pub async fn pair_assign_task(
             .unwrap_or(&pair.executor_model)
             .clone();
 
+        let inferred_mentor_provider = ProviderAdapter::infer_provider_kind(&effective_mentor_model);
+        let inferred_executor_provider = ProviderAdapter::infer_provider_kind(&effective_executor_model);
+
+        let (existing_mentor_provider, existing_executor_provider, existing_mentor_sid, existing_executor_sid) =
+            existing
+                .as_ref()
+                .map(|(mp, ep, ms, es, _, _)| (*mp, *ep, ms.clone(), es.clone()))
+                .unwrap_or((pair.mentor_provider, pair.executor_provider, None, None));
+
+        let mentor_provider_changed = inferred_mentor_provider != existing_mentor_provider;
+        let executor_provider_changed = inferred_executor_provider != existing_executor_provider;
+
+        println!(
+            "[pair_assign_task] Resolved providers: mentor={:?} (from model {}), executor={:?} (from model {})",
+            inferred_mentor_provider,
+            effective_mentor_model,
+            inferred_executor_provider,
+            effective_executor_model
+        );
+        if mentor_provider_changed {
+            println!("[pair_assign_task] Mentor provider changed from {:?} → {:?}, clearing session", existing_mentor_provider, inferred_mentor_provider);
+        }
+        if executor_provider_changed {
+            println!("[pair_assign_task] Executor provider changed from {:?} → {:?}, clearing session", existing_executor_provider, inferred_executor_provider);
+        }
+
         ctx_guard.insert(
             pair_id.clone(),
             crate::process_spawner::ProcessContext {
                 directory: pair.directory.clone(),
-                mentor_provider: pair.mentor_provider,
-                executor_provider: pair.executor_provider,
+                mentor_provider: inferred_mentor_provider,
+                executor_provider: inferred_executor_provider,
                 mentor_model: effective_mentor_model,
                 executor_model: effective_executor_model,
-                mentor_session_id: if is_new_run {
+                mentor_session_id: if is_new_run || mentor_provider_changed {
                     None
                 } else {
-                    existing
-                        .as_ref()
-                        .and_then(|(mentor_sid, _)| mentor_sid.clone())
+                    existing_mentor_sid
                 },
-                executor_session_id: if is_new_run {
+                executor_session_id: if is_new_run || executor_provider_changed {
                     None
                 } else {
-                    existing
-                        .as_ref()
-                        .and_then(|(_, executor_sid)| executor_sid.clone())
+                    existing_executor_sid
                 },
+                mentor_reasoning_effort: resolve_reasoning_effort(pair.mentor_reasoning_effort.clone()),
+                executor_reasoning_effort: resolve_reasoning_effort(
+                    pair.executor_reasoning_effort.clone(),
+                ),
             },
         );
     }
@@ -288,14 +328,28 @@ pub fn pair_update_models(
         .get_mut(&pair_id)
         .ok_or_else(|| format!("Pair {} not found", pair_id))?;
 
+    let old_mentor_provider = pair.mentor_provider;
+    let old_executor_provider = pair.executor_provider;
+
     pair.mentor_model = input.mentor_model.clone();
     pair.executor_model = input.executor_model.clone();
     pair.pending_mentor_model = input.pending_mentor_model.clone();
     pair.pending_executor_model = input.pending_executor_model.clone();
+    pair.mentor_reasoning_effort = input.mentor_reasoning_effort.clone();
+    pair.executor_reasoning_effort = input.executor_reasoning_effort.clone();
+
+    pair.mentor_provider = ProviderAdapter::infer_provider_kind(&pair.mentor_model);
+    pair.executor_provider = ProviderAdapter::infer_provider_kind(&pair.executor_model);
 
     println!(
-        "[pair_update_models] Updated pair {}: mentor={}, executor={}, pending_mentor={:?}, pending_executor={:?}",
-        pair_id, pair.mentor_model, pair.executor_model, pair.pending_mentor_model, pair.pending_executor_model
+        "[pair_update_models] Updated pair {}: mentor={} (provider {:?}→{:?}), executor={} (provider {:?}→{:?})",
+        pair_id,
+        pair.mentor_model,
+        old_mentor_provider,
+        pair.mentor_provider,
+        pair.executor_model,
+        old_executor_provider,
+        pair.executor_provider
     );
 
     Ok(input)
@@ -411,7 +465,7 @@ async fn resume_pair_core(
             .pairs
             .get(pair_id)
             .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-        if pair.status != PairStatus::Paused {
+        if !matches!(pair.status, PairStatus::Paused | PairStatus::AwaitingHumanReview) {
             return Err(format!("Pair {} is not paused (status: {:?})", pair_id, pair.status));
         }
 
@@ -509,12 +563,16 @@ mod tests {
                 role: AgentRole::Mentor,
                 provider: ProviderKind::Opencode,
                 model: "test-mentor".to_string(),
+                reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
                 provider: ProviderKind::Codex,
                 model: "test-executor".to_string(),
+                reasoning_effort: None,
             },
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
         };
         let broker_new = broker.lock().unwrap();
         manager.lock().unwrap().create_pair(input, &broker_new).unwrap();
@@ -532,6 +590,8 @@ mod tests {
             executor_model: "test-executor".to_string(),
             pending_mentor_model: None,
             pending_executor_model: None,
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
             created_at: 0,
         });
 
@@ -672,6 +732,22 @@ mod tests {
         assert!(prompt.contains("DO NOT execute it yourself"));
     }
 
+    #[test]
+    fn resolve_reasoning_effort_prefers_pair_setting_over_cached_context() {
+        assert_eq!(
+            resolve_reasoning_effort(Some("high".to_string())),
+            Some("high".to_string())
+        );
+        assert_eq!(
+            resolve_reasoning_effort(Some("medium".to_string())),
+            Some("medium".to_string())
+        );
+        assert_eq!(
+            resolve_reasoning_effort(None),
+            None
+        );
+    }
+
     fn sample_input() -> CreatePairInput {
         CreatePairInput {
             name: "Demo".to_string(),
@@ -681,12 +757,16 @@ mod tests {
                 role: AgentRole::Mentor,
                 provider: ProviderKind::Opencode,
                 model: "openai/gpt-4o-mini".to_string(),
+                reasoning_effort: None,
             },
             executor: AgentConfig {
                 role: AgentRole::Executor,
                 provider: ProviderKind::Codex,
                 model: "gpt-4o-mini".to_string(),
+                reasoning_effort: None,
             },
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
         }
     }
 
@@ -703,5 +783,90 @@ mod tests {
         assert_eq!(pair.mentor_model, "openai/gpt-4o-mini");
         assert_eq!(pair.executor_provider, ProviderKind::Codex);
         assert_eq!(pair.executor_model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn provider_infer_kind_maps_claude_and_gemini_models() {
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("claude-3-5-sonnet"),
+            ProviderKind::Claude
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("gemini-2.5-pro"),
+            ProviderKind::Gemini
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("claude/claude-3-5-sonnet"),
+            ProviderKind::Claude
+        );
+        assert_eq!(
+            ProviderAdapter::infer_provider_kind("gemini/gemini-2.5-pro"),
+            ProviderKind::Gemini
+        );
+    }
+
+    #[test]
+    fn pair_update_models_propagates_provider_inference() {
+        let mut manager = PairManager::new();
+        let broker = MessageBroker::new();
+
+        let pair = manager.create_pair(sample_input(), &broker).unwrap();
+        let pair_id = pair.pair_id.clone();
+
+        let input = crate::types::UpdatePairModelsInput {
+            mentor_model: "claude-3-5-sonnet".to_string(),
+            executor_model: "gemini-2.5-pro".to_string(),
+            pending_mentor_model: None,
+            pending_executor_model: None,
+            mentor_reasoning_effort: None,
+            executor_reasoning_effort: None,
+        };
+
+        let pair_updated = manager.pairs.get_mut(&pair_id).unwrap();
+        pair_updated.mentor_model = input.mentor_model.clone();
+        pair_updated.executor_model = input.executor_model.clone();
+        pair_updated.pending_mentor_model = input.pending_mentor_model.clone();
+        pair_updated.pending_executor_model = input.pending_executor_model.clone();
+        pair_updated.mentor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
+        pair_updated.executor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
+
+        let pair = manager.get_pair(&pair_id).unwrap();
+        assert_eq!(
+            pair.mentor_provider,
+            ProviderKind::Claude,
+            "mentor provider should be inferred from claude model"
+        );
+        assert_eq!(
+            pair.executor_provider,
+            ProviderKind::Gemini,
+            "executor provider should be inferred from gemini model"
+        );
+    }
+
+    #[test]
+    fn pair_update_models_stores_provider_for_cross_provider_switch() {
+        let mut manager = PairManager::new();
+        let broker = MessageBroker::new();
+
+        let pair = manager.create_pair(sample_input(), &broker).unwrap();
+        let pair_id = pair.pair_id.clone();
+
+        let pair_updated = manager.pairs.get_mut(&pair_id).unwrap();
+        pair_updated.mentor_model = "gemini-2.5-pro".to_string();
+        pair_updated.executor_model = "claude-3-5-sonnet".to_string();
+        pair_updated.mentor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
+        pair_updated.executor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
+
+        let pair = manager.get_pair(&pair_id).unwrap();
+        assert_eq!(
+            pair.mentor_provider,
+            ProviderKind::Gemini,
+            "mentor provider should switch to Gemini"
+        );
+        assert_eq!(
+            pair.executor_provider,
+            ProviderKind::Claude,
+            "executor provider should switch to Claude"
+        );
     }
 }

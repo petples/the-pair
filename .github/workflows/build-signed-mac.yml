@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          fetch-tags: true
 
       - name: Detect package version change
         id: version
