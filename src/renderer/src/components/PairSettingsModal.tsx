@@ -70,27 +70,23 @@ export function PairSettingsModal({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-foreground">Mentor</div>
-            <ModelPicker
-              value={selection.mentorModel}
-              models={availableModels}
-              onChange={(mentorModel) => setSelection((current) => ({ ...current, mentorModel }))}
-              role="mentor"
-            />
-          </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold text-foreground">Executor</div>
-            <ModelPicker
-              value={selection.executorModel}
-              models={availableModels}
-              onChange={(executorModel) =>
-                setSelection((current) => ({ ...current, executorModel }))
-              }
-              role="executor"
-            />
-          </div>
+        <div className="grid grid-cols-2 gap-4">
+          <ModelPicker
+            value={selection.mentorModel}
+            models={availableModels}
+            onChange={(mentorModel) => setSelection((current) => ({ ...current, mentorModel }))}
+            role="mentor"
+            variant="card"
+          />
+          <ModelPicker
+            value={selection.executorModel}
+            models={availableModels}
+            onChange={(executorModel) =>
+              setSelection((current) => ({ ...current, executorModel }))
+            }
+            role="executor"
+            variant="card"
+          />
         </div>
 
         {(isBusy(pair.status) || queuedForNextTask) && (

@@ -156,6 +156,7 @@ impl ProviderAdapter {
             ProviderKind::Claude => {
                 let mut args = vec![
                     "-p".into(),
+                    "--verbose".into(),
                     "--model".into(),
                     request.model.into(),
                     "--output-format".into(),
@@ -286,6 +287,7 @@ mod tests {
             command.args,
             vec![
                 "-p".to_string(),
+                "--verbose".to_string(),
                 "--model".to_string(),
                 "sonnet".to_string(),
                 "--output-format".to_string(),

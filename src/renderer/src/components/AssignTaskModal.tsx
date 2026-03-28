@@ -119,26 +119,28 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="glass-card rounded-2xl p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Workspace
-            </div>
-            <div className="mt-2 truncate font-mono text-xs text-foreground" title={pair.directory}>
-              {pair.directory}
-            </div>
+        <div className="glass-card rounded-2xl p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Workspace
           </div>
+          <div className="mt-2 truncate font-mono text-xs text-foreground" title={pair.directory}>
+            {pair.directory}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <ModelPicker
             value={tempMentorModel}
             models={availableModels}
             onChange={setTempMentorModel}
             role="mentor"
+            variant="card"
           />
           <ModelPicker
             value={tempExecutorModel}
             models={availableModels}
             onChange={setTempExecutorModel}
             role="executor"
+            variant="card"
           />
         </div>
 

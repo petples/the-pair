@@ -102,7 +102,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   }
 
   return (
-    <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-lg">
+    <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">Name</label>
@@ -139,34 +139,21 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            <span className="text-blue-600 dark:text-blue-400">Mentor</span> Model
-          </label>
+        <div className="grid grid-cols-2 gap-4">
           <ModelPicker
             value={mentorModel}
             models={availableModels}
             onChange={setMentorModel}
             role="mentor"
+            variant="card"
           />
-          <p className="text-xs text-muted-foreground mt-1.5">
-            Read-only: analyzes, plans, reviews
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-foreground mb-2">
-            <span className="text-purple-600 dark:text-purple-400">Executor</span> Model
-          </label>
           <ModelPicker
             value={executorModel}
             models={availableModels}
             onChange={setExecutorModel}
             role="executor"
+            variant="card"
           />
-          <p className="text-xs text-muted-foreground mt-1.5">
-            Full access: writes code, runs commands
-          </p>
         </div>
 
         <div className="relative">

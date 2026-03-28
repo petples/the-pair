@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef, useEffect } from 'react'
 import { Brain, CheckCircle2, ChevronDown, CircleAlert, Search, Zap } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { AvailableModel } from '../types'
@@ -7,100 +7,169 @@ import {
   isSelectableForPairExecution,
   savePreferredModelId
 } from '../lib/modelPreferences'
-import { GlassModal } from './ui/GlassModal'
 
-const RECENT_MODELS_KEY = 'the-pair-recent-models'
-const MAX_RECENT_MODELS = 5
+const RECENT_MODELS_KEY_PREFIX = 'the-pair-recent-models-'
+const MAX_RECENT_MODELS = 4
 
-function getRecentModelIds(): string[] {
+function getRecentModelIds(role: 'mentor' | 'executor'): string[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_MODELS_KEY) || '[]')
+    const roleKey = RECENT_MODELS_KEY_PREFIX + role
+    const stored = localStorage.getItem(roleKey)
+    if (stored) return JSON.parse(stored)
+
+    // Migrate from old global key on first access
+    const legacy = localStorage.getItem('the-pair-recent-models')
+    if (legacy) {
+      const ids: string[] = JSON.parse(legacy)
+      localStorage.setItem(roleKey, JSON.stringify(ids.slice(0, MAX_RECENT_MODELS)))
+      return ids.slice(0, MAX_RECENT_MODELS)
+    }
+    return []
   } catch {
     return []
   }
 }
 
-function saveRecentModelId(modelId: string): void {
-  const recent = getRecentModelIds().filter((id) => id !== modelId)
+function saveRecentModelId(role: 'mentor' | 'executor', modelId: string): void {
+  const key = RECENT_MODELS_KEY_PREFIX + role
+  const recent = getRecentModelIds(role).filter((id) => id !== modelId)
   recent.unshift(modelId)
-  localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify(recent.slice(0, MAX_RECENT_MODELS)))
+  localStorage.setItem(key, JSON.stringify(recent.slice(0, MAX_RECENT_MODELS)))
 }
 
-interface ModelPickerProps {
+export interface ModelPickerProps {
   value: string
   models: AvailableModel[]
   onChange: (value: string) => void
   role: 'mentor' | 'executor'
+  /** Render as a self-contained card with role header */
+  variant?: 'card' | 'inline'
+  /** Open the dropdown upward instead of downward */
+  dropUp?: boolean
 }
 
-function getRoleTone(role: 'mentor' | 'executor'): {
-  icon: React.ReactNode
-  text: string
-  border: string
-  background: string
-} {
+function getRoleTone(role: 'mentor' | 'executor') {
   if (role === 'mentor') {
     return {
-      icon: <Brain size={15} className="text-blue-600 dark:text-blue-400" />,
+      icon: <Brain size={14} className="text-blue-600 dark:text-blue-400" />,
+      iconSm: <Brain size={12} className="text-blue-600 dark:text-blue-400" />,
       text: 'text-blue-600 dark:text-blue-400',
       border: 'border-blue-500/25',
-      background: 'bg-blue-500/8 dark:bg-blue-500/14'
+      background: 'bg-blue-500/8 dark:bg-blue-500/14',
+      ringSelected: 'ring-blue-500/30',
+      bgSelected: 'bg-blue-500/10 dark:bg-blue-500/18',
+      headerBg: 'bg-blue-500/6 dark:bg-blue-500/10',
+      label: 'Mentor',
+      subtitle: 'Analyzes, plans, reviews'
     }
   }
-
   return {
-    icon: <Zap size={15} className="text-purple-600 dark:text-purple-400" />,
+    icon: <Zap size={14} className="text-purple-600 dark:text-purple-400" />,
+    iconSm: <Zap size={12} className="text-purple-600 dark:text-purple-400" />,
     text: 'text-purple-600 dark:text-purple-400',
     border: 'border-purple-500/25',
-    background: 'bg-purple-500/8 dark:bg-purple-500/14'
+    background: 'bg-purple-500/8 dark:bg-purple-500/14',
+    ringSelected: 'ring-purple-500/30',
+    bgSelected: 'bg-purple-500/10 dark:bg-purple-500/18',
+    headerBg: 'bg-purple-500/6 dark:bg-purple-500/10',
+    label: 'Executor',
+    subtitle: 'Writes code, runs commands'
   }
 }
 
-function ModelBadge({
-  children,
-  className
+function QuickPickCell({
+  model,
+  selected,
+  tone,
+  onSelect
 }: {
-  children: React.ReactNode
-  className?: string
-}): React.ReactNode {
+  model: AvailableModel
+  selected: boolean
+  tone: ReturnType<typeof getRoleTone>
+  onSelect: (model: AvailableModel) => void
+}) {
   return (
-    <span
+    <button
+      type="button"
+      onClick={() => onSelect(model)}
       className={cn(
-        'inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground',
-        className
+        'flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all',
+        selected
+          ? cn('ring-1', tone.border, tone.bgSelected, tone.ringSelected)
+          : 'border-border/50 bg-background/30 hover:border-foreground/12 hover:bg-muted/30'
       )}
     >
-      {children}
-    </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[11px] font-semibold text-foreground leading-tight">
+          {model.displayName}
+        </div>
+        <div className="truncate text-[10px] text-muted-foreground leading-tight mt-0.5">
+          {model.providerLabel}
+        </div>
+      </div>
+      {selected && <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />}
+    </button>
   )
 }
 
-export function ModelPicker({ value, models, onChange, role }: ModelPickerProps): React.ReactNode {
-  const [isOpen, setIsOpen] = useState(false)
+export function ModelPicker({
+  value,
+  models,
+  onChange,
+  role,
+  variant = 'inline',
+  dropUp = false
+}: ModelPickerProps): React.ReactNode {
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [recentModelIds, setRecentModelIds] = useState<string[]>(() => getRecentModelIds())
+  const [recentModelIds] = useState<string[]>(() => getRecentModelIds(role))
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const tone = getRoleTone(role)
-  const selectedModel = useMemo(
-    () => models.find((model) => getQualifiedModel(model) === value),
-    [models, value]
+
+  useEffect(() => {
+    if (!isDropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false)
+        setSearchQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isDropdownOpen])
+
+  useEffect(() => {
+    if (isDropdownOpen && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [isDropdownOpen])
+
+  const readyModels = useMemo(
+    () => models.filter((model) => isSelectableForPairExecution(model)),
+    [models]
   )
 
-  const filteredModels = useMemo(() => {
-    if (!searchQuery.trim()) return models
-    const query = searchQuery.toLowerCase().replace(/[\s.-]/g, '')
+  const recentModels = useMemo(() => {
+    return recentModelIds
+      .map((id) => readyModels.find((model) => getQualifiedModel(model) === id))
+      .filter((model): model is AvailableModel => model !== undefined)
+      .slice(0, MAX_RECENT_MODELS)
+  }, [recentModelIds, readyModels])
 
+  const filteredDropdownModels = useMemo(() => {
+    const selectable = models.filter((m) => isSelectableForPairExecution(m))
+    if (!searchQuery.trim()) return selectable
+    const query = searchQuery.toLowerCase().replace(/[\s.-]/g, '')
     const fuzzyMatch = (text: string, search: string): boolean => {
       const normalized = text.toLowerCase().replace(/[\s.-]/g, '')
       let searchIndex = 0
       for (let i = 0; i < normalized.length && searchIndex < search.length; i++) {
-        if (normalized[i] === search[searchIndex]) {
-          searchIndex++
-        }
+        if (normalized[i] === search[searchIndex]) searchIndex++
       }
       return searchIndex === search.length
     }
-
-    return models.filter(
+    return selectable.filter(
       (model) =>
         fuzzyMatch(model.displayName, query) ||
         fuzzyMatch(model.providerLabel, query) ||
@@ -108,247 +177,209 @@ export function ModelPicker({ value, models, onChange, role }: ModelPickerProps)
     )
   }, [models, searchQuery])
 
-  const readyModels = useMemo(
-    () => filteredModels.filter((model) => isSelectableForPairExecution(model)),
-    [filteredModels]
-  )
-  const unavailableModels = useMemo(
-    () => filteredModels.filter((model) => !model.available),
-    [filteredModels]
-  )
-  const nonExecutableModels = useMemo(
-    () => filteredModels.filter((model) => model.available && !model.supportsPairExecution),
-    [filteredModels]
-  )
-  const recentModels = useMemo(() => {
-    return recentModelIds
-      .map((id) => readyModels.find((model) => getQualifiedModel(model) === id))
-      .filter((model): model is AvailableModel => model !== undefined)
-  }, [recentModelIds, readyModels])
-
   const handleSelect = (model: AvailableModel): void => {
     if (!isSelectableForPairExecution(model)) return
     const modelId = getQualifiedModel(model)
-    saveRecentModelId(modelId)
+    saveRecentModelId(role, modelId)
     savePreferredModelId(role, modelId)
-    setRecentModelIds(getRecentModelIds())
     onChange(modelId)
-    setIsOpen(false)
+    setIsDropdownOpen(false)
     setSearchQuery('')
   }
 
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        className={cn(
-          'glass-card w-full rounded-2xl border px-4 py-3 text-left transition-all hover:border-foreground/12 hover:bg-muted/30',
-          selectedModel ? tone.border : 'border-border'
-        )}
-      >
-        {selectedModel ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <span
-                  className={cn(
-                    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
-                    tone.border,
-                    tone.background
-                  )}
-                >
-                  {tone.icon}
-                </span>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-foreground">
-                    {selectedModel.displayName}
-                  </div>
-                  <div className="text-xs text-muted-foreground">{selectedModel.providerLabel}</div>
-                </div>
-              </div>
-              <ChevronDown size={16} className="shrink-0 text-muted-foreground" />
-            </div>
+  const selectedModel = useMemo(
+    () => models.find((model) => getQualifiedModel(model) === value),
+    [models, value]
+  )
+
+  const pickerContent = (
+    <div className="space-y-2.5">
+      {/* 2x2 quick-pick grid for recent models */}
+      {recentModels.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            Recent
           </div>
-        ) : (
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-muted-foreground">Select a model</span>
-            <ChevronDown size={16} className="text-muted-foreground" />
-          </div>
-        )}
-      </button>
-
-      <GlassModal
-        isOpen={isOpen}
-        onClose={() => {
-          setIsOpen(false)
-          setSearchQuery('')
-        }}
-        title={`Choose ${role === 'mentor' ? 'Mentor' : 'Executor'} Model`}
-        className="max-w-2xl"
-      >
-        <div className="space-y-3">
-          <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setIsOpen(false)
-                  setSearchQuery('')
-                }
-              }}
-              placeholder="Search models..."
-              className="w-full rounded-xl border border-border bg-background/60 py-2 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none focus:ring-2 focus:ring-foreground/10"
-              autoFocus
-            />
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <ModelBadge>{readyModels.length} ready</ModelBadge>
-            <ModelBadge>{unavailableModels.length} unavailable</ModelBadge>
-            {nonExecutableModels.length > 0 && (
-              <ModelBadge>{nonExecutableModels.length} view only</ModelBadge>
-            )}
-          </div>
-
-          <div className="max-h-[65vh] space-y-3 overflow-y-auto pr-1 scrollbar-thin">
-            {[
-              ...(recentModels.length > 0
-                ? [{ title: 'Recently Used', items: recentModels, isRecent: true as const }]
-                : []),
-              { title: 'Ready to use', items: readyModels },
-              { title: 'View only (no autonomous execution)', items: nonExecutableModels },
-              { title: 'Unavailable', items: unavailableModels }
-            ].map((section) =>
-              section.items.length === 0 ? null : (
-                <div key={section.title} className="space-y-1.5">
-                  <div className="px-1 text-[9px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                    {section.title}
-                  </div>
-                  <div className="space-y-1.5">
-                    {section.items.map((model) => {
-                      const selected = getQualifiedModel(model) === value
-                      const isRecent = 'isRecent' in section && section.isRecent
-                      const isSelectable = isSelectableForPairExecution(model)
-
-                      return (
-                        <button
-                          key={getQualifiedModel(model)}
-                          type="button"
-                          disabled={!isSelectable}
-                          onClick={() => handleSelect(model)}
-                          className={cn(
-                            'w-full rounded-xl border px-3 py-2.5 text-left transition-all',
-                            selected
-                              ? cn('border-foreground/20 bg-muted/40 shadow-sm', tone.border)
-                              : 'border-border/60 bg-background/40',
-                            isSelectable
-                              ? 'hover:border-foreground/18 hover:bg-muted/30'
-                              : 'cursor-not-allowed opacity-60'
-                          )}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div
-                              className={cn(
-                                'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',
-                                model.available ? tone.border : 'border-border',
-                                model.available ? tone.background : 'bg-muted/40'
-                              )}
-                            >
-                              {model.supportsPairExecution ? (
-                                tone.icon
-                              ) : (
-                                <CircleAlert
-                                  size={13}
-                                  className="text-amber-600 dark:text-amber-400"
-                                />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1">
-                                    <span className="truncate text-sm font-semibold text-foreground">
-                                      {model.displayName}
-                                    </span>
-                                    {isRecent && (
-                                      <span className="shrink-0 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-medium text-blue-500 dark:text-blue-400">
-                                        recent
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[11px]">
-                                    {model.provider === 'claude' ? (
-                                      <>
-                                        <span className="font-medium text-blue-600 dark:text-blue-400">
-                                          alias: {model.modelId}
-                                        </span>
-                                      </>
-                                    ) : (
-                                      model.sourceProviderLabel &&
-                                      model.sourceProviderLabel !== model.providerLabel && (
-                                        <>
-                                          <span className="font-medium text-blue-600 dark:text-blue-400">
-                                            {model.sourceProviderLabel}
-                                          </span>
-                                          <span className="text-muted-foreground">via</span>
-                                        </>
-                                      )
-                                    )}
-                                    <span className="font-medium text-foreground/80">
-                                      {model.providerLabel}
-                                    </span>
-                                    {model.planLabel && model.planLabel !== 'BYOK' && (
-                                      <span
-                                        className={cn(
-                                          'inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
-                                          model.available
-                                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                                            : 'bg-muted/50 text-muted-foreground'
-                                        )}
-                                      >
-                                        {model.planLabel}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                {selected && (
-                                  <CheckCircle2 size={14} className={cn('shrink-0', tone.text)} />
-                                )}
-                              </div>
-
-                              {!isSelectable && (
-                                <div className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                                  {!model.available && model.availabilityReason}
-                                  {model.available &&
-                                    !model.supportsPairExecution &&
-                                    'Not supported for autonomous pair execution'}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            )}
-
-            {filteredModels.length === 0 && (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                No models found matching &quot;{searchQuery}&quot;
-              </div>
-            )}
+          <div className="grid grid-cols-2 gap-1.5">
+            {recentModels.map((model) => (
+              <QuickPickCell
+                key={getQualifiedModel(model)}
+                model={model}
+                selected={getQualifiedModel(model) === value}
+                tone={tone}
+                onSelect={handleSelect}
+              />
+            ))}
           </div>
         </div>
-      </GlassModal>
-    </>
+      )}
+
+      {/* Dropdown search selector */}
+      <div className="relative" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-all hover:border-foreground/12 hover:bg-muted/30',
+            selectedModel && !recentModels.some((m) => getQualifiedModel(m) === value)
+              ? tone.border
+              : 'border-border/50'
+          )}
+        >
+          {selectedModel && !recentModels.some((m) => getQualifiedModel(m) === value) ? (
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[11px] font-semibold text-foreground">
+                {selectedModel.displayName}
+              </div>
+              <div className="truncate text-[10px] text-muted-foreground">
+                {selectedModel.providerLabel}
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <Search size={12} className="shrink-0 text-muted-foreground" />
+              <span className="text-[11px] text-muted-foreground">
+                {recentModels.length > 0 ? 'All models...' : 'Select a model'}
+              </span>
+            </div>
+          )}
+          <ChevronDown
+            size={13}
+            className={cn(
+              'shrink-0 text-muted-foreground transition-transform',
+              isDropdownOpen && 'rotate-180'
+            )}
+          />
+        </button>
+
+        {isDropdownOpen && (
+          <div className={cn('absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border bg-background/95 shadow-xl backdrop-blur-lg', dropUp ? 'bottom-full mb-1' : 'top-full mt-1')}>
+            <div className="p-2">
+              <div className="relative">
+                <Search
+                  size={12}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setIsDropdownOpen(false)
+                      setSearchQuery('')
+                    }
+                  }}
+                  placeholder="Search models..."
+                  className="w-full rounded-lg border border-border/60 bg-muted/30 py-1.5 pl-7 pr-3 text-[11px] text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div className="max-h-52 overflow-y-auto px-1.5 pb-1.5 scrollbar-thin">
+              {filteredDropdownModels.length === 0 ? (
+                <div className="py-4 text-center text-[11px] text-muted-foreground">
+                  No models found
+                </div>
+              ) : (
+                filteredDropdownModels.map((model) => {
+                  const selected = getQualifiedModel(model) === value
+                  return (
+                    <button
+                      key={getQualifiedModel(model)}
+                      type="button"
+                      onClick={() => handleSelect(model)}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-all',
+                        selected ? tone.bgSelected : 'hover:bg-muted/40'
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border',
+                          model.available ? tone.border : 'border-border',
+                          model.available ? tone.background : 'bg-muted/40'
+                        )}
+                      >
+                        {model.supportsPairExecution ? (
+                          tone.iconSm
+                        ) : (
+                          <CircleAlert size={10} className="text-amber-600 dark:text-amber-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] font-semibold text-foreground">
+                          {model.displayName}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px]">
+                          {model.provider === 'claude' ? (
+                            <span className="font-medium text-blue-600 dark:text-blue-400">
+                              {model.modelId}
+                            </span>
+                          ) : (
+                            model.sourceProviderLabel &&
+                            model.sourceProviderLabel !== model.providerLabel && (
+                              <>
+                                <span className="font-medium text-blue-600 dark:text-blue-400">
+                                  {model.sourceProviderLabel}
+                                </span>
+                                <span className="text-muted-foreground">via</span>
+                              </>
+                            )
+                          )}
+                          <span className="font-medium text-foreground/80">
+                            {model.providerLabel}
+                          </span>
+                          {model.planLabel && model.planLabel !== 'BYOK' && (
+                            <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1 py-0.5 text-[8px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                              {model.planLabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {selected && (
+                        <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
+
+  if (variant === 'card') {
+    return (
+      <div
+        className={cn(
+          'flex flex-col rounded-2xl border p-4',
+          tone.border,
+          'bg-background/40'
+        )}
+      >
+        {/* Card header */}
+        <div className="mb-3 flex items-center gap-2.5">
+          <div
+            className={cn(
+              'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border',
+              tone.border,
+              tone.background
+            )}
+          >
+            {tone.icon}
+          </div>
+          <div>
+            <div className={cn('text-sm font-semibold', tone.text)}>{tone.label}</div>
+            <div className="text-[10px] text-muted-foreground">{tone.subtitle}</div>
+          </div>
+        </div>
+        {pickerContent}
+      </div>
+    )
+  }
+
+  return pickerContent
 }

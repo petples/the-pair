@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-03-28
+
+### Added
+
+- Added role-specific recent model tracking (separate for Mentor and Executor).
+- Added verbose flag to Claude provider for enhanced debugging output.
+- Added card variant to ModelPicker with role headers and subtitles.
+- Added drop-up support for ModelPicker in constrained layouts.
+
+### Changed
+
+- Refactored ModelPicker to use native dropdown instead of modal for improved UX.
+- Enhanced onboarding wizard with streamlined model selection cards.
+- Updated visual design with refined color variables for light/dark themes.
+- Improved model selection UI with better visual hierarchy and role differentiation.
+- Migrated legacy recent models storage to role-specific keys.
+
+### Fixed
+
+- Fixed recent models list not being role-specific.
+- Fixed ModelPicker layout issues in modal contexts.
+
 ## [1.2.2] - 2026-03-28
 
 ### Added
