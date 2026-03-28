@@ -71,13 +71,9 @@ While they work, go grab a coffee. Come back to reviewed, cross-validated code.
 
 ## Screenshots
 
-<div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/sc1.png">
-    <img src="./docs/assets/sc1.png" alt="Dashboard View" width="600"/>
-  </picture>
-  <p><em>Dashboard showing active pairs with real-time resource monitoring</em></p>
-</div>
+<img width="2800" height="2000" alt="intro-1" src="https://github.com/user-attachments/assets/3ad6173c-54e0-4ffe-bce2-bac12d9ac129" />
+
+<img width="2800" height="2000" alt="intro-2" src="https://github.com/user-attachments/assets/a0bbb14e-e9a9-4a4a-8aa4-f2e73d61969c" />
 
 ---
 
