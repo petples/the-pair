@@ -30,19 +30,19 @@ jobs:
           const { execSync } = require('child_process')
 
           const currentVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version
-          let previousVersion = ''
+          const tag = `v${currentVersion}`
 
+          let tagExists = false
           try {
-            previousVersion = JSON.parse(
-              execSync('git show HEAD^:package.json', { encoding: 'utf8' })
-            ).version
+            execSync(`git rev-parse ${tag}`, { encoding: 'utf8', stdio: 'pipe' })
+            tagExists = true
           } catch {
-            previousVersion = ''
+            tagExists = false
           }
 
           const shouldPublish = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
             ? 'true'
-            : String(currentVersion !== previousVersion)
+            : String(!tagExists)
 
           // Validate changelog entry exists
           if (shouldPublish === 'true') {
@@ -53,7 +53,7 @@ jobs:
           }
 
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${currentVersion}\n`)
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${currentVersion}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=${tag}\n`)
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `should_publish=${shouldPublish}\n`)
           NODE
 
