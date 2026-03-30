@@ -4,6 +4,7 @@ use crate::provider_adapter::ProviderAdapter;
 use crate::session_snapshot::delete_pair_snapshot;
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus};
+use crate::worktree_manager::{check_repo_state, create_worktree, delete_worktree, ensure_gitignore_worktrees, ensure_local_tracking_branch, BranchInfo, RepoState};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -47,10 +48,65 @@ impl PairManager {
 
         println!("[PairManager::create_pair] Generated pair_id: {}", pair_id);
 
+        let (directory, branch, repo_path, worktree_path) = if let Some(selected_branch) = &input.branch {
+            let repo_state = check_repo_state(&input.directory);
+            if !repo_state.is_git_repo {
+                return Err("Directory is not a git repository. Cannot create worktree.".to_string());
+            }
+
+            let is_current_branch = repo_state.current_branch.as_deref() == Some(selected_branch.as_str());
+
+            if is_current_branch {
+                println!("[PairManager::create_pair] Selected branch '{}' is the current branch — working in-place without worktree", selected_branch);
+                (input.directory.clone(), None, None, None)
+            } else {
+                if repo_state.is_dirty {
+                    return Err("Repository has uncommitted changes. Please commit or stash before creating a pair with branch.".to_string());
+                }
+
+                let branch_conflict = self.pairs.values().any(|p| {
+                    p.branch.as_deref() == Some(selected_branch.as_str())
+                        && p.worktree_path.is_some()
+                });
+                if branch_conflict {
+                    return Err(format!(
+                        "Another pair is already using branch '{}'. Only one pair can use a branch at a time.",
+                        selected_branch
+                    ));
+                }
+
+                let is_local = repo_state.branches.iter().any(|b| b.name == selected_branch.as_str() && b.is_local);
+
+                let effective_branch = if !is_local {
+                    println!("[PairManager::create_pair] Remote branch detected, creating local tracking branch for {}", selected_branch);
+                    ensure_local_tracking_branch(&input.directory, selected_branch)?
+                } else {
+                    selected_branch.clone()
+                };
+
+                let worktree_rel_path = format!(".worktrees/pair-{}", pair_id);
+                println!("[PairManager::create_pair] Creating worktree at {} for branch {}", worktree_rel_path, effective_branch);
+
+                match ensure_gitignore_worktrees(&input.directory) {
+                    Ok(true) => println!("[PairManager::create_pair] Added .worktrees/ to .gitignore in {}", input.directory),
+                    Ok(false) => {}
+                    Err(e) => println!("[PairManager::create_pair] Warning: could not update .gitignore: {}", e),
+                }
+
+                let worktree_full_path = create_worktree(&input.directory, &effective_branch, &worktree_rel_path)?;
+
+                println!("[PairManager::create_pair] Worktree created at {}", worktree_full_path);
+
+                (worktree_full_path.clone(), Some(effective_branch), Some(input.directory.clone()), Some(worktree_full_path))
+            }
+        } else {
+            (input.directory.clone(), None, None, None)
+        };
+
         let pair = Pair {
             pair_id: pair_id.clone(),
             name: input.name.clone(),
-            directory: input.directory.clone(),
+            directory,
             status: PairStatus::Idle,
             mentor_provider: input.mentor.provider,
             mentor_model: input.mentor.model.clone(),
@@ -61,14 +117,24 @@ impl PairManager {
             mentor_reasoning_effort: input.mentor_reasoning_effort.clone(),
             executor_reasoning_effort: input.executor_reasoning_effort.clone(),
             created_at,
+            branch,
+            repo_path,
+            worktree_path,
         };
 
         self.pairs.insert(pair_id.clone(), pair.clone());
         println!("[PairManager::create_pair] Pair inserted into HashMap");
 
-        // Initialize state machine
         println!("[PairManager::create_pair] Initializing broker state...");
-        broker.initialize_pair(&pair_id, input)?;
+        let effective_dir = pair.worktree_path.as_deref().or(Some(&pair.directory));
+        if let Err(e) = broker.initialize_pair(&pair_id, input, effective_dir) {
+            if let Some(wt_path) = &pair.worktree_path {
+                println!("[PairManager::create_pair] Broker init failed, cleaning up worktree: {}", wt_path);
+                let _ = delete_worktree(wt_path);
+            }
+            self.pairs.remove(&pair_id);
+            return Err(e);
+        }
         println!("[PairManager::create_pair] Broker state initialized successfully");
 
         Ok(pair)
@@ -155,10 +221,11 @@ pub async fn pair_create(
         // Set up process context
         {
             let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
+            let effective_directory = pair.worktree_path.clone().unwrap_or_else(|| pair.directory.clone());
             ctx_guard.insert(
                 pair_id.clone(),
                 crate::process_spawner::ProcessContext {
-                    directory: pair.directory.clone(),
+                    directory: effective_directory,
                     mentor_provider: pair.mentor_provider,
                     executor_provider: pair.executor_provider,
                     mentor_model: pair.mentor_model.clone(),
@@ -271,7 +338,7 @@ pub async fn pair_assign_task(
         ctx_guard.insert(
             pair_id.clone(),
             crate::process_spawner::ProcessContext {
-                directory: pair.directory.clone(),
+                directory: pair.worktree_path.clone().unwrap_or_else(|| pair.directory.clone()),
                 mentor_provider: inferred_mentor_provider,
                 executor_provider: inferred_executor_provider,
                 mentor_model: effective_mentor_model,
@@ -369,6 +436,16 @@ pub fn pair_delete(
     pair_id: String,
 ) -> Result<(), String> {
     stop_pair_processes(&spawner, &pair_id, true);
+
+    let worktree_path: Option<String> = {
+        let manager = state.lock().unwrap();
+        manager.get_pair(&pair_id).map(|p| p.worktree_path.clone()).flatten()
+    };
+
+    if let Some(wt_path) = worktree_path {
+        println!("[pair_delete] Deleting worktree at {}", wt_path);
+        let _ = delete_worktree(&wt_path);
+    }
 
     let mut manager = state.lock().unwrap();
     manager.delete_pair(&pair_id)?;
@@ -524,6 +601,20 @@ pub async fn pair_resume(
     Ok(())
 }
 
+#[tauri::command]
+pub fn repo_check_state(directory: String) -> Result<RepoState, String> {
+    println!("[repo_check_state] Called with directory: {}", directory);
+    let result = check_repo_state(&directory);
+    println!("[repo_check_state] Result: is_git_repo={}, is_dirty={}, branches_count={}", 
+        result.is_git_repo, result.is_dirty, result.branches.len());
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn repo_list_branches(directory: String) -> Result<Vec<BranchInfo>, String> {
+    crate::worktree_manager::list_branches(&directory)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -573,6 +664,7 @@ mod tests {
             },
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
+            branch: None,
         };
         let broker_new = broker.lock().unwrap();
         manager.lock().unwrap().create_pair(input, &broker_new).unwrap();
@@ -593,6 +685,9 @@ mod tests {
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
             created_at: 0,
+            branch: None,
+            repo_path: None,
+            worktree_path: None,
         });
 
         let broker_guard = broker.lock().unwrap();
@@ -767,6 +862,7 @@ mod tests {
             },
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
+            branch: None,
         }
     }
 

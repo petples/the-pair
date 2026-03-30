@@ -27,6 +27,7 @@ import {
 import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDiff'
 import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
 import { playFinishChime } from '../lib/sound'
+import { extractErrorMessage } from '../lib/utils'
 
 export type PairStatus =
   | 'Idle'
@@ -147,6 +148,9 @@ export interface Pair {
   currentRunFinishedAt?: number
   mentorTokenUsage?: TurnTokenUsage
   executorTokenUsage?: TurnTokenUsage
+  branch?: string
+  repoPath?: string
+  worktreePath?: string
 }
 
 interface PairStateSnapshot {
@@ -180,6 +184,10 @@ interface PairHandoffEvent {
 
 interface PairCreatedResponse {
   pairId: string
+  branch?: string
+  repoPath?: string
+  worktreePath?: string
+  directory?: string
 }
 
 interface BackendPairState {
@@ -205,6 +213,7 @@ interface PairStore {
       executorModel: string
       mentorReasoningEffort?: string
       executorReasoningEffort?: string
+      branch?: string
     }
   ) => Promise<void>
   assignTask: (
@@ -285,7 +294,10 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
     runHistory: pair.runHistory,
     currentRunStartedAt: pair.currentRunStartedAt,
     currentRunFinishedAt: pair.currentRunFinishedAt,
-    createdAt: pair.createdAt
+    createdAt: pair.createdAt,
+    branch: pair.branch,
+    repoPath: pair.repoPath,
+    worktreePath: pair.worktreePath
   }
 }
 
@@ -327,7 +339,10 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
     runCount: snapshot.runCount,
     runHistory: snapshot.runHistory,
     currentRunStartedAt: snapshot.currentRunStartedAt,
-    currentRunFinishedAt: snapshot.currentRunFinishedAt
+    currentRunFinishedAt: snapshot.currentRunFinishedAt,
+    branch: snapshot.branch,
+    repoPath: snapshot.repoPath,
+    worktreePath: snapshot.worktreePath
   }
 }
 
@@ -1094,7 +1109,8 @@ export const usePairStore = create<PairStore>((set) => ({
         mentor: mentorConfig,
         executor: executorConfig,
         mentorReasoningEffort: input.mentorReasoningEffort,
-        executorReasoningEffort: input.executorReasoningEffort
+        executorReasoningEffort: input.executorReasoningEffort,
+        branch: input.branch
       })) as PairCreatedResponse
       console.log('[usePairStore] Pair created:', pairProcess)
 
@@ -1112,7 +1128,7 @@ export const usePairStore = create<PairStore>((set) => ({
       const newPair: Pair = {
         id: pairProcess.pairId,
         name: input.name,
-        directory: input.directory,
+        directory: pairProcess.worktreePath || pairProcess.directory || input.directory,
         createdAt: now,
         status: 'Idle',
         iterations: 0,
@@ -1138,7 +1154,10 @@ export const usePairStore = create<PairStore>((set) => ({
         runCount: 1,
         runHistory: [],
         currentRunStartedAt: now,
-        currentTurnCard: undefined
+        currentTurnCard: undefined,
+        branch: pairProcess.branch,
+        repoPath: pairProcess.repoPath,
+        worktreePath: pairProcess.worktreePath
       }
 
       set((state) => ({
@@ -1147,8 +1166,9 @@ export const usePairStore = create<PairStore>((set) => ({
       }))
 
       await saveSnapshotForPair(newPair)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create pair'
+    } catch (error: unknown) {
+      console.error('[usePairStore] createPair error:', error)
+      const message = extractErrorMessage(error, 'Failed to create pair')
       set({
         isLoading: false,
         error: message
@@ -1242,7 +1262,7 @@ export const usePairStore = create<PairStore>((set) => ({
       }
     } catch (error) {
       console.error('[usePairStore] assignTask error:', error)
-      const message = error instanceof Error ? error.message : 'Failed to assign task'
+      const message = extractErrorMessage(error, 'Failed to assign task')
       set({
         isLoading: false,
         error: message
@@ -1285,7 +1305,7 @@ export const usePairStore = create<PairStore>((set) => ({
         await saveSnapshotForPair(currentPair)
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update pair models'
+      const message = extractErrorMessage(error, 'Failed to update pair models')
       set({
         isLoading: false,
         error: message
@@ -1301,7 +1321,7 @@ export const usePairStore = create<PairStore>((set) => ({
       await window.api.pair.pause(id)
       set({ isLoading: false })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to pause pair'
+      const message = extractErrorMessage(error, 'Failed to pause pair')
       set({
         isLoading: false,
         error: message
@@ -1317,7 +1337,7 @@ export const usePairStore = create<PairStore>((set) => ({
       await window.api.pair.resume(id)
       set({ isLoading: false })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to resume pair'
+      const message = extractErrorMessage(error, 'Failed to resume pair')
       set({
         isLoading: false,
         error: message
@@ -1336,7 +1356,7 @@ export const usePairStore = create<PairStore>((set) => ({
         pairs: state.pairs.filter((p) => p.id !== id)
       }))
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete pair'
+      const message = extractErrorMessage(error, 'Failed to delete pair')
       set({
         isLoading: false,
         error: message

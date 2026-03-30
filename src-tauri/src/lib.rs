@@ -13,6 +13,7 @@ mod session_snapshot;
 mod skill_discovery;
 mod stubs;
 mod types;
+mod worktree_manager;
 
 use message_broker::MessageBroker;
 use pair_manager::PairManager;
@@ -95,6 +96,8 @@ pub fn run() {
             pair_manager::pair_resume,
             pair_manager::pair_assign_task,
             pair_manager::pair_update_models,
+            pair_manager::repo_check_state,
+            pair_manager::repo_list_branches,
             stubs::pair_retry_turn,
             stubs::pair_get_messages,
             stubs::pair_get_state,

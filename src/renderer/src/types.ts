@@ -47,6 +47,7 @@ export interface CreatePairInput {
   executor: { role: 'mentor' | 'executor'; provider: ProviderKind; model: string }
   mentorReasoningEffort?: string
   executorReasoningEffort?: string
+  branch?: string
 }
 
 export interface AssignTaskInput {
@@ -154,6 +155,9 @@ export interface SessionSnapshotDraft {
   currentRunStartedAt: number
   currentRunFinishedAt?: number
   createdAt: number
+  branch?: string
+  repoPath?: string
+  worktreePath?: string
 }
 
 export interface RecoverableSessionSummary {
@@ -186,4 +190,21 @@ export interface SessionSnapshotRecord extends SessionSnapshotDraft {
     mentorSessionId?: string
     executorSessionId?: string
   }
+}
+
+export interface BranchInfo {
+  name: string
+  isLocal: boolean
+  isRemote: boolean
+  lastCommitSha?: string
+  lastCommitMessage?: string
+  lastCommitDate?: number
+  isCheckedOutLocally: boolean
+}
+
+export interface RepoState {
+  isGitRepo: boolean
+  isDirty: boolean
+  currentBranch?: string
+  branches: BranchInfo[]
 }

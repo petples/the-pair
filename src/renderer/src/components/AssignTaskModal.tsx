@@ -162,6 +162,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             rows={6}
             className="glass-card w-full resize-none rounded-2xl px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             required
+            data-testid="assign-task-spec"
           />
           <div className="absolute top-8 right-2 flex items-center gap-1">
             <SkillPicker projectDir={pair.directory} onSelect={handleSkillSelect} />
@@ -193,6 +194,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               setRestoringSpec(null)
               onClose()
             }}
+            data-testid="assign-cancel-btn"
           >
             Cancel
           </GlassButton>
@@ -201,6 +203,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             variant="primary"
             disabled={isLoading || spec.trim().length === 0}
             icon={isRestoring ? <RotateCcw size={14} /> : <ArrowUpRight size={14} />}
+            data-testid="assign-submit-btn"
           >
             {isLoading ? 'Starting...' : isRestoring ? 'Restore Task' : 'Start New Task'}
           </GlassButton>

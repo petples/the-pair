@@ -37,6 +37,16 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @layer base {
   :root {
     --background: hsl(0, 0%, 98%);

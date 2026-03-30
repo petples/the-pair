@@ -42,11 +42,13 @@ impl MessageBroker {
         }
     }
 
-    pub fn initialize_pair(&self, pair_id: &str, input: CreatePairInput) -> Result<(), String> {
+    pub fn initialize_pair(&self, pair_id: &str, input: CreatePairInput, effective_directory: Option<&str>) -> Result<(), String> {
         println!(
             "[MessageBroker::initialize_pair] Initializing pair: {}",
             pair_id
         );
+
+        let directory = effective_directory.map(|s| s.to_string()).unwrap_or(input.directory.clone());
 
         let empty_resources = PairResources {
             mentor: ResourceInfo {
@@ -65,7 +67,7 @@ impl MessageBroker {
 
         let state = PairState {
             pair_id: pair_id.to_string(),
-            directory: input.directory.clone(),
+            directory,
             status: PairStatus::Idle,
             iteration: 0,
             max_iterations: 9999,
@@ -98,6 +100,7 @@ impl MessageBroker {
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
             finished_at: None,
+            worktree_path: effective_directory.map(|s| s.to_string()),
         };
 
         let mut pair_states = self.pair_states.lock().unwrap();
@@ -779,6 +782,7 @@ mod tests {
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
             finished_at: None,
+            worktree_path: None,
         }
     }
 
@@ -801,13 +805,14 @@ mod tests {
             },
             mentor_reasoning_effort: None,
             executor_reasoning_effort: None,
+            branch: None,
         }
     }
 
     #[test]
     fn prepare_run_advances_idle_mentor_pairs_into_mentoring() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker
             .restore_state(pair_state(PairStatus::Mentoring, 0))
             .unwrap();
@@ -836,7 +841,7 @@ mod tests {
     #[test]
     fn prepare_run_switches_mentor_turns_after_executor_work_into_reviewing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker
             .restore_state(pair_state(PairStatus::Executing, 1))
             .unwrap();
@@ -863,7 +868,7 @@ mod tests {
     #[test]
     fn set_pair_status_marks_paused_pairs_as_idle_with_pause_copy() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker
             .restore_state(pair_state(PairStatus::Paused, 4))
             .unwrap();
@@ -895,7 +900,7 @@ mod tests {
     #[test]
     fn add_message_only_persists_high_signal_messages_and_handoffs_turns() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
 
         broker.add_message(
             "pair-1",
@@ -968,7 +973,7 @@ mod tests {
     #[test]
     fn record_human_feedback_approval_persists_feedback_and_returns_next_role() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker
             .restore_state(pair_state(PairStatus::AwaitingHumanReview, 2))
             .unwrap();
@@ -1020,7 +1025,7 @@ mod tests {
     #[test]
     fn resume_run_restores_paused_mentor_planning_as_mentoring_not_reviewing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker
             .restore_state(paused_mentor_planning_state())
             .unwrap();
@@ -1071,7 +1076,7 @@ mod tests {
     #[test]
     fn resume_run_restores_paused_mentor_review_as_reviewing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker.restore_state(paused_mentor_review_state()).unwrap();
 
         broker.resume_run(
@@ -1111,7 +1116,7 @@ mod tests {
     #[test]
     fn resume_run_restores_paused_executor_as_executing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input()).unwrap();
+        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
         broker.restore_state(paused_executor_state()).unwrap();
 
         broker.resume_run(

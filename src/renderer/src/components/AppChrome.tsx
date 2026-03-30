@@ -61,6 +61,7 @@ export function AppChrome({
             <button
               onClick={onBack}
               className="app-no-drag flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+              data-testid="chrome-back"
             >
               <ChevronLeft size={18} />
             </button>
@@ -119,6 +120,7 @@ export function AppChrome({
                 size="sm"
                 onClick={onOpenSettings}
                 icon={<Settings2 size={13} />}
+                data-testid="chrome-models"
               >
                 Models
               </GlassButton>
@@ -128,13 +130,20 @@ export function AppChrome({
                 onClick={onAssignTask}
                 disabled={pairBusy}
                 icon={<WandSparkles size={13} />}
+                data-testid="chrome-new-task"
               >
                 New Task
               </GlassButton>
             </>
           )}
 
-          <GlassButton variant="secondary" size="sm" onClick={onNewPair} icon={<Plus size={13} />}>
+          <GlassButton
+            variant="secondary"
+            size="sm"
+            onClick={onNewPair}
+            icon={<Plus size={13} />}
+            data-testid="chrome-new-pair"
+          >
             New Pair
           </GlassButton>
 
@@ -142,6 +151,7 @@ export function AppChrome({
             onClick={onToggleTheme}
             className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
             title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            data-testid="chrome-theme-toggle"
           >
             {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
           </button>

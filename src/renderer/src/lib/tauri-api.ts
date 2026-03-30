@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { CreatePairInput } from '../types'
+import type { CreatePairInput, RepoState } from '../types'
+import type { BranchInfo } from '../types'
+import { mockRepoState } from './mock-data'
 
 export interface TauriPair {
   pairId: string
@@ -11,9 +13,11 @@ export interface TauriPair {
   executorProvider: string
   executorModel: string
   createdAt: number
+  branch?: string
+  repoPath?: string
+  worktreePath?: string
 }
 
-// Check if running in Tauri
 const isTauri = '__TAURI__' in window
 
 export const tauriApi = {
@@ -33,6 +37,20 @@ export const tauriApi = {
     pause: async (pairId: string): Promise<void> => {
       if (!isTauri) throw new Error('Not running in Tauri')
       return await invoke('pair_pause', { pairId })
+    }
+  },
+  repo: {
+    checkState: async (directory: string): Promise<RepoState> => {
+      if (!isTauri) {
+        return mockRepoState
+      }
+      return (await invoke('repo_check_state', { directory })) as RepoState
+    },
+    listBranches: async (directory: string): Promise<BranchInfo[]> => {
+      if (!isTauri) {
+        return mockRepoState.branches
+      }
+      return await invoke('repo_list_branches', { directory })
     }
   }
 }

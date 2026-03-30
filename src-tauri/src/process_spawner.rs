@@ -32,6 +32,51 @@ pub struct ProcessContext {
 const MENTOR_FINISH_SIGNAL: &str = "TASK_COMPLETE";
 const EMPTY_OUTPUT_PLACEHOLDER: &str = "(No textual output produced)";
 
+fn is_mock_mode() -> bool {
+    std::env::var("THE_PAIR_E2E_MOCK")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+}
+
+fn mock_responses(role: &str, iteration: u32) -> Vec<String> {
+    match (role, iteration) {
+        ("mentor", 1) => vec![
+            "I'll analyze the task and create a plan.".to_string(),
+            "## Plan\n1. Read the existing code\n2. Implement the changes\n3. Verify the result".to_string(),
+        ],
+        ("mentor", _) => vec![
+            "The implementation looks correct.".to_string(),
+            "All requirements are met.\n\nTASK_COMPLETE".to_string(),
+        ],
+        ("executor", _) => vec![
+            "Reading the relevant files...".to_string(),
+            "Implementing the changes now.".to_string(),
+            "Done. All changes applied successfully.".to_string(),
+        ],
+        _ => vec!["Processing...".to_string()],
+    }
+}
+
+fn mock_error_response() -> Vec<String> {
+    vec![
+        "Attempting to execute the command...".to_string(),
+        "Error: Permission denied while writing to file.".to_string(),
+    ]
+}
+
+fn mock_token_usage() -> crate::types::TurnTokenUsage {
+    crate::types::TurnTokenUsage {
+        output_tokens: 42,
+        input_tokens: Some(100),
+        last_updated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64,
+        source: crate::types::TokenUsageSource::Final,
+        provider: Some("mock".to_string()),
+    }
+}
+
 fn parse_json_event(line: &str) -> Option<serde_json::Value> {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
         return Some(v);
@@ -442,6 +487,202 @@ impl ProcessSpawner {
                 executor_reasoning_effort.as_deref(),
             )
         };
+
+        // ── Mock mode: skip real process spawn ──
+        if is_mock_mode() {
+            println!(
+                "[ProcessSpawner] [MOCK] {} {} (mock mode enabled)",
+                pair_id, role
+            );
+
+            let pair_id_mock = pair_id.clone();
+            let role_mock = role.clone();
+            let app_mock = app.clone();
+            let _active_mock = self.active_processes.clone();
+
+            tokio::spawn(async move {
+                use crate::message_broker::MessageBroker;
+                use crate::types::{ActivityPhase, Message, MessageSender, MessageType};
+                use tauri::Manager;
+
+                if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+                    broker.reset_token_usage(&pair_id_mock, &role_mock);
+                }
+
+                let current_iteration =
+                    if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker
+                            .get_state(&pair_id_mock)
+                            .map(|s| s.iteration)
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+                    broker.update_agent_activity(
+                        &pair_id_mock,
+                        &role_mock,
+                        ActivityPhase::Responding,
+                        "Processing response".to_string(),
+                        None,
+                    );
+                }
+
+                let mock_scenario = std::env::var("THE_PAIR_E2E_MOCK_SCENARIO")
+                    .unwrap_or_else(|_| "success".to_string());
+
+                let responses = if mock_scenario == "error" && role_mock == "executor" {
+                    mock_error_response()
+                } else {
+                    mock_responses(&role_mock, current_iteration)
+                };
+
+                for line in &responses {
+                    if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker.add_log_line(&pair_id_mock, &role_mock, line);
+                    }
+                }
+
+                if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+                    broker.update_agent_activity(
+                        &pair_id_mock,
+                        &role_mock,
+                        ActivityPhase::Idle,
+                        "Turn finished".to_string(),
+                        None,
+                    );
+                }
+
+                let final_output = responses.join("\n");
+                let outgoing_type = if role_mock == "mentor" {
+                    MessageType::Plan
+                } else {
+                    MessageType::Result
+                };
+
+                if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+                    broker.add_message(
+                        &pair_id_mock,
+                        Message {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis() as u64,
+                            from: if role_mock == "mentor" {
+                                MessageSender::Mentor
+                            } else {
+                                MessageSender::Executor
+                            },
+                            to: "human".to_string(),
+                            msg_type: outgoing_type,
+                            content: final_output.clone(),
+                            iteration: current_iteration,
+                            token_usage: Some(mock_token_usage()),
+                        },
+                    );
+                }
+
+                if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+                    broker.update_token_usage(
+                        &pair_id_mock,
+                        &role_mock,
+                        mock_token_usage(),
+                    );
+                }
+
+                let mut should_handoff = true;
+                let mentor_finish_signaled = role_mock == "mentor"
+                    && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
+
+                if role_mock == "executor"
+                    && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL)
+                {
+                    println!(
+                        "[ProcessSpawner] [MOCK] [{}] WARNING: Executor attempted TASK_COMPLETE (ignored)",
+                        pair_id_mock
+                    );
+                }
+
+                if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker.lock().unwrap();
+
+                    if role_mock == "mentor"
+                        && should_finish_after_mentor_turn(mentor_finish_signaled)
+                    {
+                        println!(
+                            "[ProcessSpawner] [MOCK] [{}] Mentor finished, marking as Finished",
+                            pair_id_mock
+                        );
+                        broker.set_pair_status(
+                            &pair_id_mock,
+                            crate::types::PairStatus::Finished,
+                            Some("Mock: Mentor signaled TASK_COMPLETE".to_string()),
+                        );
+                        should_handoff = false;
+                    } else if mock_scenario == "error" && role_mock == "executor" {
+                        println!(
+                            "[ProcessSpawner] [MOCK] [{}] Mock error, setting Error status",
+                            pair_id_mock
+                        );
+                        broker.set_pair_status(
+                            &pair_id_mock,
+                            crate::types::PairStatus::Error,
+                            Some("Mock: Permission denied".to_string()),
+                        );
+                        should_handoff = false;
+                    } else if role_mock == "executor" {
+                        if let Some(state) = broker.get_state(&pair_id_mock) {
+                            if state.iteration >= state.max_iterations {
+                                println!(
+                                    "[ProcessSpawner] [MOCK] [{}] Max iterations reached",
+                                    pair_id_mock
+                                );
+                                broker.set_pair_status(
+                                    &pair_id_mock,
+                                    crate::types::PairStatus::Paused,
+                                    Some(
+                                        "Mock: Max iterations reached. Awaiting human intervention."
+                                            .to_string(),
+                                    ),
+                                );
+                                should_handoff = false;
+                            }
+                        }
+                    }
+                }
+
+                if should_handoff {
+                    let next_role = if role_mock == "mentor" {
+                        "executor"
+                    } else {
+                        "mentor"
+                    };
+                    println!(
+                        "[ProcessSpawner] [MOCK] [{}] Triggering handoff to {}",
+                        pair_id_mock, next_role
+                    );
+                    let _ = app_mock.emit(
+                        "pair:handoff",
+                        serde_json::json!({
+                            "pairId": pair_id_mock,
+                            "nextRole": next_role
+                        }),
+                    );
+                }
+            });
+
+            return Ok(());
+        }
+        // ── End mock mode ──
 
         let command = ProviderAdapter::build_turn_command(ProviderTurnRequest {
             provider_kind,

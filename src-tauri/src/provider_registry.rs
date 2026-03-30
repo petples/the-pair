@@ -337,6 +337,51 @@ impl ProviderRegistry {
         profiles
     }
 
+    pub fn detect_all_mock() -> Vec<DetectedProviderProfile> {
+        vec![
+            DetectedProviderProfile {
+                kind: ProviderKind::Opencode,
+                installed: true,
+                authenticated: true,
+                runnable: true,
+                subscription_label: "mock".to_string(),
+                current_models: vec![DetectedModelOption {
+                    model_id: "opencode/glm-5-turbo".to_string(),
+                    display_name: "GLM-5 Turbo (Mock)".to_string(),
+                    source_provider: Some("opencode".to_string()),
+                    family: None,
+                    subscription_label: "mock".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                }],
+                detected_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as u64,
+            },
+            DetectedProviderProfile {
+                kind: ProviderKind::Claude,
+                installed: true,
+                authenticated: true,
+                runnable: true,
+                subscription_label: "mock".to_string(),
+                current_models: vec![DetectedModelOption {
+                    model_id: "claude-sonnet-4-20250514".to_string(),
+                    display_name: "Claude Sonnet 4 (Mock)".to_string(),
+                    source_provider: Some("claude".to_string()),
+                    family: None,
+                    subscription_label: "mock".to_string(),
+                    supports_pair_execution: true,
+                    runnable: true,
+                }],
+                detected_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as u64,
+            },
+        ]
+    }
+
     pub fn detect_opencode() -> DetectedProviderProfile {
         let installed = which_binary("opencode");
         let mut models = Vec::new();

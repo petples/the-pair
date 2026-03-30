@@ -23,7 +23,14 @@ pub fn config_read() -> Result<Option<serde_json::Value>, String> {
 
 #[tauri::command]
 pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
-    let profiles = ProviderRegistry::detect_all();
+    let profiles = if std::env::var("THE_PAIR_E2E_MOCK")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
+        ProviderRegistry::detect_all_mock()
+    } else {
+        ProviderRegistry::detect_all()
+    };
     let catalog = ModelCatalog::build_catalog(profiles);
     println!("[Tauri] config_get_models found {} models", catalog.len());
     Ok(catalog)
@@ -31,6 +38,12 @@ pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
 
 #[tauri::command]
 pub fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
+    if std::env::var("THE_PAIR_E2E_MOCK")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
+        return Ok(ProviderRegistry::detect_all_mock());
+    }
     Ok(ProviderRegistry::detect_all())
 }
 

@@ -13,6 +13,7 @@ interface GlassButtonProps {
   icon?: React.ReactNode
   'aria-label'?: string
   title?: string
+  'data-testid'?: string
 }
 
 const variantMap = {
@@ -39,7 +40,8 @@ export function GlassButton({
   type = 'button',
   icon,
   'aria-label': ariaLabel,
-  title
+  title,
+  'data-testid': dataTestId
 }: GlassButtonProps): React.ReactNode {
   return (
     <motion.button
@@ -50,6 +52,7 @@ export function GlassButton({
       whileHover={{ scale: 1.015 }}
       aria-label={ariaLabel}
       title={title}
+      data-testid={dataTestId}
       className={cn(
         'flex items-center justify-center font-medium transition-all duration-200 border relative overflow-hidden',
         variantMap[variant],

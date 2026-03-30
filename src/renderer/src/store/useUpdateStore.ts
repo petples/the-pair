@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Update } from '@tauri-apps/plugin-updater'
+import { extractErrorMessage } from '../lib/utils'
 
 export type UpdatePhase = 'idle' | 'checking' | 'available' | 'installing' | 'up-to-date' | 'error'
 
@@ -105,7 +106,7 @@ export const useUpdateStore = create<UpdateState & UpdateActions>((set) => ({
       await currentUpdate.close().catch(() => {})
       await window.api.app.restart()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Update installation failed'
+      const message = extractErrorMessage(error, 'Update installation failed')
       set({ message, phase: 'error', showModal: false })
     }
   }

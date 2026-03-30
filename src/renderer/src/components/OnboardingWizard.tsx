@@ -19,6 +19,7 @@ import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
+import { BranchPicker } from './BranchPicker'
 import { getPreferredPairModelSelection } from '../lib/modelPreferences'
 import { derivePairNameFromDirectory } from '../lib/workspace'
 import { shouldUseCompactOnboardingLayout } from '../lib/onboardingLayout'
@@ -42,6 +43,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
+  const [branch, setBranch] = useState<string | undefined>()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window === 'undefined' ? 900 : window.innerHeight
@@ -170,7 +172,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
         directory,
         spec: finalSpec,
         mentorModel,
-        executorModel
+        executorModel,
+        branch
       })
       onComplete()
     } catch (e) {
@@ -218,7 +221,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
         <div className="mx-auto max-w-7xl px-6 py-4 lg:px-8 lg:py-5">
           <div className="flex flex-col gap-3">
             <WelcomeCard
@@ -242,6 +245,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
 
               <DirectoryCard
                 directory={directory}
+                branch={branch}
+                onBranchChange={setBranch}
                 onSelectDirectory={handleSelectDirectory}
                 isCompactLayout={isCompactLayout}
               />
@@ -404,9 +409,13 @@ function WelcomeCard({
 
 function DirectoryCard({
   directory,
+  branch,
+  onBranchChange,
   onSelectDirectory
 }: {
   directory: string
+  branch?: string
+  onBranchChange: (branch: string | undefined) => void
   onSelectDirectory: () => void
   isCompactLayout?: boolean
 }): React.ReactNode {
@@ -442,6 +451,8 @@ function DirectoryCard({
           )}
         </div>
       </GlassButton>
+
+      {directory && <BranchPicker directory={directory} value={branch} onChange={onBranchChange} />}
     </GlassCard>
   )
 }

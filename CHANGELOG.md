@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-03-31
+
+### Added
+
+- **Branch conflict detection**: Prevents creating pairs on branches already used by another active pair, eliminating worktree conflicts.
+- **Worktree cleanup on failure**: If broker initialization fails during pair creation, the newly created worktree is automatically deleted to prevent orphaned directories.
+- **BranchPicker "current" badge**: Visual indicator showing which branch is currently checked out in the repository.
+- **Remote branch filtering**: Remote branches that have a corresponding local branch are now hidden from the BranchPicker to reduce clutter.
+- **`extractErrorMessage` utility**: Centralized error message extraction helper in `utils.ts` for consistent error handling across the app.
+
+### Fixed
+
+- **Worktree creation for current branch**: Fixed worktree creation logic when selecting the currently checked-out branch; now uses `--detach` flag to avoid "git worktree add" failures.
+- **Worktree deletion**: Fixed `delete_worktree` to run git commands from the parent repository instead of the worktree itself, resolving remove failures.
+- **Local branch detection**: Fixed `ensure_local_tracking_branch` to correctly identify local vs remote branches and handle edge cases with branch names containing slashes.
+- **Session snapshot recovery**: Fixed `build_process_context` to gracefully fall back to the original directory if the worktree path no longer exists.
+- **Store error handling**: Improved error message extraction across `usePairStore` and `useUpdateStore` to handle non-Error objects consistently.
+
+### Changed
+
+- **Gitignore strategy**: Worktrees are now excluded via `.git/info/exclude` instead of `.gitignore` to avoid polluting the repository's tracked files.
+
 ## [1.3.0] - 2026-03-29
 
 ### Added

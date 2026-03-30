@@ -9,6 +9,7 @@ import { getPreferredQualifiedModel } from '../lib/modelPreferences'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
 import { derivePairNameFromDirectory } from '../lib/workspace'
+import { BranchPicker } from './BranchPicker'
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -26,6 +27,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [mentorReasoningEffort, setMentorReasoningEffort] = useState<string | undefined>()
   const [executorReasoningEffort, setExecutorReasoningEffort] = useState<string | undefined>()
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
+  const [branch, setBranch] = useState<string | undefined>()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleFileSelect = useCallback((path: string, content: string): void => {
@@ -73,7 +75,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         mentorModel,
         executorModel,
         mentorReasoningEffort,
-        executorReasoningEffort
+        executorReasoningEffort,
+        branch
       })
       setName('')
       setDirectory('')
@@ -81,6 +84,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       setFileContexts(new Map())
       setMentorReasoningEffort(undefined)
       setExecutorReasoningEffort(undefined)
+      setBranch(undefined)
       onClose()
     } catch {
       // Store already exposes the error copy
@@ -123,6 +127,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             placeholder="e.g., Auth Module Refactor"
             className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
             required
+            data-testid="pair-name-input"
           />
         </div>
 
@@ -136,6 +141,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               placeholder="/path/to/project"
               className="flex-1 px-3.5 py-2.5 glass-card text-sm font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl"
               required
+              data-testid="pair-directory-input"
             />
             <GlassButton
               type="button"
@@ -148,6 +154,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             </GlassButton>
           </div>
         </div>
+
+        {directory && <BranchPicker directory={directory} value={branch} onChange={setBranch} />}
 
         <div className="grid grid-cols-2 gap-4">
           <ModelPicker
@@ -182,6 +190,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             rows={4}
             className="w-full px-3.5 py-2.5 glass-card text-sm text-foreground placeholder:text-muted-foreground/50 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-xl leading-relaxed"
             required
+            data-testid="pair-task-spec"
           />
           <div className="absolute top-8 right-2 flex items-center gap-1">
             {directory && (
@@ -208,10 +217,20 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         )}
 
         <div className="flex justify-end gap-3 pt-1">
-          <GlassButton type="button" variant="ghost" onClick={onClose}>
+          <GlassButton
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            data-testid="pair-cancel-btn"
+          >
             Cancel
           </GlassButton>
-          <GlassButton type="submit" variant="primary" disabled={isLoading}>
+          <GlassButton
+            type="submit"
+            variant="primary"
+            disabled={isLoading}
+            data-testid="pair-submit-btn"
+          >
             {isLoading ? 'Creating...' : 'Create Pair'}
           </GlassButton>
         </div>

@@ -150,6 +150,7 @@ pub struct CreatePairInput {
     pub mentor_reasoning_effort: Option<String>,
     #[serde(rename = "executorReasoningEffort")]
     pub executor_reasoning_effort: Option<String>,
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,6 +215,8 @@ pub struct PairState {
     pub git_review_available: bool,
     #[serde(rename = "finishedAt")]
     pub finished_at: Option<u64>,
+    #[serde(rename = "worktreePath")]
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +244,11 @@ pub struct Pair {
     pub executor_reasoning_effort: Option<String>,
     #[serde(rename = "createdAt")]
     pub created_at: u64,
+    pub branch: Option<String>,
+    #[serde(rename = "repoPath")]
+    pub repo_path: Option<String>,
+    #[serde(rename = "worktreePath")]
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -112,13 +112,19 @@ export function PairSettingsModal({
         )}
 
         <div className="flex justify-end gap-3">
-          <GlassButton type="button" variant="ghost" onClick={onClose}>
+          <GlassButton
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            data-testid="settings-cancel-btn"
+          >
             Cancel
           </GlassButton>
           <GlassButton
             type="submit"
             variant="primary"
             disabled={isLoading || !selection.mentorModel || !selection.executorModel}
+            data-testid="settings-save-btn"
           >
             {isLoading ? 'Saving...' : 'Save Defaults'}
           </GlassButton>

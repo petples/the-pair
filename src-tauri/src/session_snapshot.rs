@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
 const SNAPSHOT_DIR_NAME: &str = "pair-snapshots";
 const INDEX_FILE_NAME: &str = "index.json";
 
@@ -96,6 +96,9 @@ pub struct SessionSnapshotRecord {
     pub current_run_finished_at: Option<u64>,
     pub created_at: u64,
     pub provider_sessions: SnapshotProcessContext,
+    pub branch: Option<String>,
+    pub repo_path: Option<String>,
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +140,9 @@ pub struct SessionSnapshotDraft {
     pub current_run_started_at: u64,
     pub current_run_finished_at: Option<u64>,
     pub created_at: u64,
+    pub branch: Option<String>,
+    pub repo_path: Option<String>,
+    pub worktree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -495,8 +501,21 @@ impl SessionSnapshotRecord {
 }
 
 fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
+    let directory = if let Some(ref wt_path) = snapshot.worktree_path {
+        if Path::new(wt_path).exists() {
+            wt_path.clone()
+        } else {
+            println!(
+                "[session_snapshot] Worktree path '{}' no longer exists, falling back to directory '{}'",
+                wt_path, snapshot.directory
+            );
+            snapshot.directory.clone()
+        }
+    } else {
+        snapshot.directory.clone()
+    };
     ProcessContext {
-        directory: snapshot.directory.clone(),
+        directory,
         mentor_provider: resolve_provider_kind(snapshot.mentor_provider, &snapshot.mentor_model),
         executor_provider: resolve_provider_kind(
             snapshot.executor_provider,
@@ -529,6 +548,9 @@ fn build_pair(snapshot: &SessionSnapshotRecord) -> Pair {
         mentor_reasoning_effort: snapshot.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: snapshot.executor_reasoning_effort.clone(),
         created_at: snapshot.created_at,
+        branch: snapshot.branch.clone(),
+        repo_path: snapshot.repo_path.clone(),
+        worktree_path: snapshot.worktree_path.clone(),
     }
 }
 
@@ -580,6 +602,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         automation_mode: snapshot.automation_mode.clone(),
         git_review_available: snapshot.git_tracking.git_review_available.unwrap_or(false),
         finished_at: snapshot.current_run_finished_at,
+        worktree_path: snapshot.worktree_path.clone(),
     }
 }
 
@@ -674,6 +697,9 @@ fn build_snapshot_from_state(
             mentor_session_id: context.mentor_session_id.clone(),
             executor_session_id: context.executor_session_id.clone(),
         },
+        branch: pair.branch.clone(),
+        repo_path: pair.repo_path.clone(),
+        worktree_path: pair.worktree_path.clone(),
     }
 }
 
@@ -734,6 +760,9 @@ fn build_snapshot_from_draft(
             mentor_session_id: context.mentor_session_id,
             executor_session_id: context.executor_session_id,
         },
+        branch: draft.branch,
+        repo_path: draft.repo_path,
+        worktree_path: draft.worktree_path,
     }
 }
 
@@ -1127,6 +1156,9 @@ mod tests {
                 mentor_session_id: Some("ses_mentor".to_string()),
                 executor_session_id: None,
             },
+            branch: None,
+            repo_path: None,
+            worktree_path: None,
         }
     }
 
@@ -1180,6 +1212,9 @@ mod tests {
             current_run_started_at: 0,
             current_run_finished_at: None,
             created_at: 0,
+            branch: None,
+            repo_path: None,
+            worktree_path: None,
         }
     }
 
