@@ -158,6 +158,34 @@ fn extract_event_texts(event: &serde_json::Value) -> Vec<String> {
     out
 }
 
+fn extract_gemini_event_texts(event: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+
+    if let Some(candidates) = event.get("candidates").and_then(|value| value.as_array()) {
+        for candidate in candidates {
+            collect_text_candidates(candidate, &mut out);
+        }
+    }
+
+    if let Some(server_content) = event.get("serverContent") {
+        if let Some(model_turn) = server_content.get("modelTurn") {
+            collect_text_candidates(model_turn, &mut out);
+        } else {
+            collect_text_candidates(server_content, &mut out);
+        }
+    }
+
+    if let Some(model_turn) = event.get("modelTurn") {
+        collect_text_candidates(model_turn, &mut out);
+    }
+
+    if out.is_empty() {
+        collect_text_candidates(event, &mut out);
+    }
+
+    out
+}
+
 fn extract_token_usage_from_claude(event: &serde_json::Value) -> Option<TurnTokenUsage> {
     let event_type = event.get("type").and_then(|v| v.as_str())?;
 
@@ -333,7 +361,13 @@ fn collect_json_candidates_for_provider(
         return;
     }
 
-    for text in extract_event_texts(event) {
+    let texts = if provider_kind == ProviderKind::Gemini {
+        extract_gemini_event_texts(event)
+    } else {
+        extract_event_texts(event)
+    };
+
+    for text in texts {
         if !is_noise_text_candidate(&text) {
             push_trimmed(out, &text);
         }
@@ -389,10 +423,23 @@ fn is_noise_text_candidate(text: &str) -> bool {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    lower.starts_with("reconnecting...")
+    let punctuation_only = trimmed.chars().all(|ch| {
+        matches!(
+            ch,
+            '{' | '}' | '[' | ']' | '(' | ')' | ',' | '.' | ':' | ';' | '"' | '\''
+        )
+    });
+
+    punctuation_only
+        || lower.starts_with("reconnecting...")
         || lower.contains("stream disconnected before completion")
         || lower.contains("failed to lookup address information")
         || lower.contains("falling back from websockets")
+}
+
+fn should_skip_plain_output_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.is_empty() || is_noise_text_candidate(trimmed)
 }
 
 fn should_finish_after_mentor_turn(mentor_finish_signaled: bool) -> bool {
@@ -866,11 +913,13 @@ impl ProcessSpawner {
                 if provider_kind_clone != ProviderKind::Claude {
                     if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                         let broker = broker.lock().unwrap();
-                        broker.add_log_line(&pair_id_clone, &role_clone, &line);
+                        if !should_skip_plain_output_line(&line) {
+                            broker.add_log_line(&pair_id_clone, &role_clone, &line);
+                        }
                     }
                 }
 
-                if !is_internal_json && !line.trim().is_empty() {
+                if !is_internal_json && !should_skip_plain_output_line(&line) {
                     if !accumulated_plain_output.is_empty() {
                         accumulated_plain_output.push('\n');
                     }
@@ -1136,6 +1185,8 @@ mod tests {
 
         assert!(is_noise_event_type_for_final("thread.started"));
         assert!(is_noise_text_candidate("reconnecting..."));
+        assert!(is_noise_text_candidate("}"));
+        assert!(should_skip_plain_output_line(" ] "));
         assert!(!is_noise_text_candidate("Work finished successfully"));
     }
 
@@ -1168,6 +1219,50 @@ mod tests {
         collect_json_candidates_for_provider(ProviderKind::Claude, &result_event, &mut candidates);
 
         assert_eq!(candidates, vec!["Final answer only".to_string()]);
+    }
+
+    #[test]
+    fn gemini_result_events_prefer_structured_candidate_text_over_protocol_message_fields() {
+        let event = json!({
+            "type": "result",
+            "message": "}",
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "text": "Structured final answer" }
+                        ]
+                    }
+                }
+            ]
+        });
+
+        let mut candidates = Vec::new();
+        collect_json_candidates_for_provider(ProviderKind::Gemini, &event, &mut candidates);
+
+        assert_eq!(candidates, vec!["Structured final answer".to_string()]);
+    }
+
+    #[test]
+    fn gemini_stream_events_collect_server_content_parts() {
+        let event = json!({
+            "type": "content",
+            "serverContent": {
+                "modelTurn": {
+                    "parts": [
+                        { "text": "Cross-provider handoff is ready." }
+                    ]
+                }
+            }
+        });
+
+        let mut candidates = Vec::new();
+        collect_json_candidates_for_provider(ProviderKind::Gemini, &event, &mut candidates);
+
+        assert_eq!(
+            candidates,
+            vec!["Cross-provider handoff is ready.".to_string()]
+        );
     }
 
     #[test]

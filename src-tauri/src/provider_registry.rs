@@ -78,6 +78,13 @@ fn safe_read_json<T: DeserializeOwned>(path: impl AsRef<std::path::Path>) -> Opt
         .and_then(|content| serde_json::from_str(&content).ok())
 }
 
+fn detected_at_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
 fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool {
     let fallback_dirs = fallback_path_dirs(Some(home.to_path_buf()), None, None, false);
     for dir in &fallback_dirs {
@@ -111,123 +118,321 @@ fn binary_exists_in_dir(dir: &std::path::Path, name: &str) -> bool {
     false
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct ClaudeVersionHints {
-    sonnet: Option<String>,
-    opus: Option<String>,
-    haiku: Option<String>,
+fn push_unique_model_id(model_ids: &mut Vec<String>, model_id: &str) {
+    let trimmed = model_id.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    if !model_ids.iter().any(|existing| existing == trimmed) {
+        model_ids.push(trimmed.to_string());
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ClaudeModelLabels {
-    sonnet: String,
-    sonnet_1m: String,
-    opus: String,
-    haiku: String,
+fn extract_quoted_segments(line: &str) -> Vec<String> {
+    line.split('"')
+        .enumerate()
+        .filter_map(|(index, segment)| (index % 2 == 1).then_some(segment.trim().to_string()))
+        .filter(|segment| !segment.is_empty())
+        .collect()
 }
 
-fn scan_version_token(text: &str) -> Option<String> {
-    let mut token = String::new();
-    let mut started = false;
+fn extract_single_quoted_segments(line: &str) -> Vec<String> {
+    line.split('\'')
+        .enumerate()
+        .filter_map(|(index, segment)| (index % 2 == 1).then_some(segment.trim().to_string()))
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
 
-    for ch in text.chars() {
-        if !started {
-            if ch.is_ascii_digit() {
-                started = true;
-                token.push(ch);
+fn collect_json_string_values(
+    value: &serde_json::Value,
+    interesting_keys: &[&str],
+    predicate: &dyn Fn(&str) -> bool,
+    model_ids: &mut Vec<String>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, nested) in map {
+                if interesting_keys.iter().any(|candidate| candidate == key) {
+                    if let Some(string_value) = nested.as_str() {
+                        if predicate(string_value) {
+                            push_unique_model_id(model_ids, string_value);
+                        }
+                    }
+                }
+                collect_json_string_values(nested, interesting_keys, predicate, model_ids);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_json_string_values(item, interesting_keys, predicate, model_ids);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_model_ids_from_json_file(
+    path: &std::path::Path,
+    interesting_keys: &[&str],
+    predicate: &dyn Fn(&str) -> bool,
+    model_ids: &mut Vec<String>,
+) {
+    if let Some(value) = safe_read_json::<serde_json::Value>(path) {
+        collect_json_string_values(&value, interesting_keys, predicate, model_ids);
+    }
+}
+
+fn collect_model_ids_from_jsonl_file(
+    path: &std::path::Path,
+    interesting_keys: &[&str],
+    predicate: &dyn Fn(&str) -> bool,
+    model_ids: &mut Vec<String>,
+) {
+    let Ok(content) = fs::read_to_string(path) else {
+        return;
+    };
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            collect_json_string_values(&value, interesting_keys, predicate, model_ids);
+        }
+    }
+}
+
+fn collect_recent_files(
+    root: &std::path::Path,
+    extensions: &[&str],
+    max_depth: usize,
+    limit: usize,
+) -> Vec<PathBuf> {
+    fn visit_dir(
+        dir: &std::path::Path,
+        extensions: &[&str],
+        max_depth: usize,
+        depth: usize,
+        files: &mut Vec<(std::time::SystemTime, PathBuf)>,
+    ) {
+        if depth > max_depth {
+            return;
+        }
+
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+
+            if file_type.is_dir() {
+                visit_dir(&path, extensions, max_depth, depth + 1, files);
+                continue;
+            }
+
+            let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+                continue;
+            };
+
+            if !extensions.iter().any(|candidate| candidate == &extension) {
+                continue;
+            }
+
+            let modified = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            files.push((modified, path));
+        }
+    }
+
+    let mut files = Vec::new();
+    visit_dir(root, extensions, max_depth, 0, &mut files);
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files
+        .into_iter()
+        .take(limit)
+        .map(|(_, path)| path)
+        .collect()
+}
+
+fn collect_model_ids_from_recent_files(
+    root: &std::path::Path,
+    extensions: &[&str],
+    interesting_keys: &[&str],
+    predicate: &dyn Fn(&str) -> bool,
+    max_depth: usize,
+    limit: usize,
+    model_ids: &mut Vec<String>,
+) {
+    for path in collect_recent_files(root, extensions, max_depth, limit) {
+        match path.extension().and_then(|value| value.to_str()) {
+            Some("json") => collect_model_ids_from_json_file(&path, interesting_keys, predicate, model_ids),
+            Some("jsonl") => collect_model_ids_from_jsonl_file(&path, interesting_keys, predicate, model_ids),
+            _ => {}
+        }
+    }
+}
+
+fn collect_model_ids_from_toml_text(
+    content: &str,
+    predicate: &dyn Fn(&str) -> bool,
+    model_ids: &mut Vec<String>,
+) {
+    for raw_line in content.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if line.starts_with("model =") {
+            if let Some(model_id) = line.split('"').nth(1) {
+                if predicate(model_id) {
+                    push_unique_model_id(model_ids, model_id);
+                }
             }
             continue;
         }
 
-        if ch.is_ascii_digit() || ch == '.' || ch == '-' {
-            token.push(ch);
-        } else {
-            break;
+        for model_id in extract_quoted_segments(line) {
+            if predicate(&model_id) {
+                push_unique_model_id(model_ids, &model_id);
+            }
         }
-    }
-
-    if token.is_empty() {
-        None
-    } else {
-        Some(token.replace('-', "."))
     }
 }
 
-fn latest_version_in_line(line: &str, family: &str) -> Option<String> {
-    let lower_line = line.to_lowercase();
-    let lower_family = family.to_lowercase();
-    let mut search_start = 0;
-    let mut last_match = None;
-
-    while let Some(relative_index) = lower_line[search_start..].find(&lower_family) {
-        let after_family_index = search_start + relative_index + lower_family.len();
-        if let Some(version) = scan_version_token(&line[after_family_index..]) {
-            last_match = Some(version);
+fn collect_model_ids_from_help_line(
+    help_text: &str,
+    predicate: &dyn Fn(&str) -> bool,
+    model_ids: &mut Vec<String>,
+) {
+    for line in help_text.lines() {
+        if !line.contains("--model") {
+            continue;
         }
-        search_start = after_family_index;
-    }
 
-    last_match
+        for candidate in extract_single_quoted_segments(line)
+            .into_iter()
+            .chain(extract_quoted_segments(line))
+        {
+            if !candidate.contains(char::is_whitespace) && predicate(&candidate) {
+                push_unique_model_id(model_ids, &candidate);
+            }
+        }
+    }
 }
 
-fn latest_version_in_text(text: &str, family: &str) -> Option<String> {
-    for line in text.lines() {
-        if let Some(version) = latest_version_in_line(line, family) {
-            return Some(version);
-        }
-    }
-    None
+fn build_detected_models(
+    model_ids: Vec<String>,
+    source_provider: &str,
+    subscription_label: &str,
+) -> Vec<DetectedModelOption> {
+    model_ids
+        .into_iter()
+        .map(|model_id| DetectedModelOption {
+            display_name: model_id.clone(),
+            model_id,
+            source_provider: Some(source_provider.to_string()),
+            family: None,
+            subscription_label: subscription_label.to_string(),
+            supports_pair_execution: true,
+            runnable: true,
+        })
+        .collect()
 }
 
-fn resolve_claude_version_hints_from_sources(
-    help_text: Option<&str>,
-    changelog_text: Option<&str>,
-) -> ClaudeVersionHints {
-    let mut hints = ClaudeVersionHints::default();
-
-    for source in [help_text, changelog_text].into_iter().flatten() {
-        if hints.sonnet.is_none() {
-            hints.sonnet = latest_version_in_text(source, "sonnet");
-        }
-        if hints.opus.is_none() {
-            hints.opus = latest_version_in_text(source, "opus");
-        }
-        if hints.haiku.is_none() {
-            hints.haiku = latest_version_in_text(source, "haiku");
-        }
-    }
-
-    hints
+fn is_codex_model_id(value: &str) -> bool {
+    value.starts_with("gpt-")
+        || value.starts_with("codex-")
+        || value
+            .strip_prefix('o')
+            .and_then(|suffix| suffix.chars().next())
+            .map(|ch| ch.is_ascii_digit())
+            .unwrap_or(false)
 }
 
-fn claude_model_labels_from_sources(
-    help_text: Option<&str>,
-    changelog_text: Option<&str>,
-) -> ClaudeModelLabels {
-    let hints = resolve_claude_version_hints_from_sources(help_text, changelog_text);
+fn is_gemini_model_id(value: &str) -> bool {
+    value.starts_with("gemini-")
+}
 
-    let sonnet_version = hints.sonnet.as_deref();
-    let opus_version = hints.opus.as_deref();
-    let haiku_version = hints.haiku.as_deref();
+fn is_claude_model_id(value: &str) -> bool {
+    value.starts_with("claude-")
+}
 
-    ClaudeModelLabels {
-        sonnet: match sonnet_version {
-            Some(version) => format!("Claude Sonnet {}", version),
-            None => "Claude Sonnet".to_string(),
-        },
-        sonnet_1m: match sonnet_version {
-            Some(version) => format!("Claude Sonnet {} 1M", version),
-            None => "Claude Sonnet 1M".to_string(),
-        },
-        opus: match opus_version {
-            Some(version) => format!("Claude Opus {}", version),
-            None => "Claude Opus".to_string(),
-        },
-        haiku: match haiku_version {
-            Some(version) => format!("Claude Haiku {}", version),
-            None => "Claude Haiku".to_string(),
-        },
+fn discover_codex_model_ids(home: &std::path::Path) -> Vec<String> {
+    let predicate = |value: &str| is_codex_model_id(value);
+    let mut model_ids = Vec::new();
+    let config_path = home.join(".codex/config.toml");
+    let models_cache_path = home.join(".codex/models_cache.json");
+
+    collect_model_ids_from_json_file(&models_cache_path, &["slug"], &predicate, &mut model_ids);
+
+    if let Ok(content) = fs::read_to_string(config_path) {
+        collect_model_ids_from_toml_text(&content, &predicate, &mut model_ids);
     }
+
+    collect_model_ids_from_recent_files(
+        &home.join(".codex"),
+        &["json", "jsonl"],
+        &["model", "slug"],
+        &predicate,
+        2,
+        20,
+        &mut model_ids,
+    );
+
+    model_ids
+}
+
+fn discover_gemini_model_ids(home: &std::path::Path) -> Vec<String> {
+    let predicate = |value: &str| is_gemini_model_id(value);
+    let mut model_ids = Vec::new();
+    let settings_path = home.join(".gemini/settings.json");
+
+    collect_model_ids_from_json_file(&settings_path, &["model", "name"], &predicate, &mut model_ids);
+    collect_model_ids_from_recent_files(
+        &home.join(".gemini/tmp"),
+        &["json", "jsonl"],
+        &["model", "name"],
+        &predicate,
+        4,
+        25,
+        &mut model_ids,
+    );
+
+    model_ids
+}
+
+fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
+    let mut model_ids = Vec::new();
+
+    if let Some(help_text) = capture_claude_help_text() {
+        let help_predicate =
+            |value: &str| !value.contains(char::is_whitespace) && !value.starts_with("--");
+        collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
+    }
+
+    let history_predicate = |value: &str| is_claude_model_id(value);
+    collect_model_ids_from_recent_files(
+        &home.join(".claude/projects"),
+        &["json", "jsonl"],
+        &["model"],
+        &history_predicate,
+        3,
+        25,
+        &mut model_ids,
+    );
+
+    model_ids
 }
 
 fn capture_claude_help_text() -> Option<String> {
@@ -237,71 +442,6 @@ fn capture_claude_help_text() -> Option<String> {
     }
 
     String::from_utf8(output.stdout).ok()
-}
-
-fn read_claude_changelog(home: &std::path::Path) -> Option<String> {
-    let path = home.join(".claude/cache/changelog.md");
-    fs::read_to_string(path).ok()
-}
-
-fn resolve_claude_model_labels(home: &std::path::Path) -> ClaudeModelLabels {
-    claude_model_labels_from_sources(
-        capture_claude_help_text().as_deref(),
-        read_claude_changelog(home).as_deref(),
-    )
-}
-
-fn claude_model_catalog(
-    subscription_label: &str,
-    labels: &ClaudeModelLabels,
-) -> Vec<DetectedModelOption> {
-    vec![
-        DetectedModelOption {
-            model_id: "default".to_string(),
-            display_name: "Claude Default".to_string(),
-            source_provider: Some("anthropic".into()),
-            family: None,
-            subscription_label: subscription_label.to_string(),
-            supports_pair_execution: true,
-            runnable: true,
-        },
-        DetectedModelOption {
-            model_id: "sonnet".to_string(),
-            display_name: labels.sonnet.clone(),
-            source_provider: Some("anthropic".into()),
-            family: None,
-            subscription_label: subscription_label.to_string(),
-            supports_pair_execution: true,
-            runnable: true,
-        },
-        DetectedModelOption {
-            model_id: "opus".to_string(),
-            display_name: labels.opus.clone(),
-            source_provider: Some("anthropic".into()),
-            family: None,
-            subscription_label: subscription_label.to_string(),
-            supports_pair_execution: true,
-            runnable: true,
-        },
-        DetectedModelOption {
-            model_id: "haiku".to_string(),
-            display_name: labels.haiku.clone(),
-            source_provider: Some("anthropic".into()),
-            family: None,
-            subscription_label: subscription_label.to_string(),
-            supports_pair_execution: true,
-            runnable: true,
-        },
-        DetectedModelOption {
-            model_id: "sonnet[1m]".to_string(),
-            display_name: labels.sonnet_1m.clone(),
-            source_provider: Some("anthropic".into()),
-            family: None,
-            subscription_label: subscription_label.to_string(),
-            supports_pair_execution: true,
-            runnable: true,
-        },
-    ]
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -333,12 +473,12 @@ pub struct ProviderRegistry;
 
 impl ProviderRegistry {
     pub fn detect_all() -> Vec<DetectedProviderProfile> {
-        let mut profiles = Vec::new();
-        profiles.push(Self::detect_opencode());
-        profiles.push(Self::detect_codex());
-        profiles.push(Self::detect_claude());
-        profiles.push(Self::detect_gemini());
-        profiles
+        vec![
+            Self::detect_opencode(),
+            Self::detect_codex(),
+            Self::detect_claude(),
+            Self::detect_gemini(),
+        ]
     }
 
     pub fn detect_all_mock() -> Vec<DetectedProviderProfile> {
@@ -358,10 +498,7 @@ impl ProviderRegistry {
                     supports_pair_execution: true,
                     runnable: true,
                 }],
-                detected_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as u64,
+                detected_at: detected_at_now(),
             },
             DetectedProviderProfile {
                 kind: ProviderKind::Claude,
@@ -378,10 +515,7 @@ impl ProviderRegistry {
                     supports_pair_execution: true,
                     runnable: true,
                 }],
-                detected_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as u64,
+                detected_at: detected_at_now(),
             },
         ]
     }
@@ -495,21 +629,6 @@ impl ProviderRegistry {
             }
         }
 
-        // Fallback defaults if still empty
-        if models.is_empty() && installed {
-            for m in &["claude-3-5-sonnet", "gpt-4o"] {
-                models.push(DetectedModelOption {
-                    model_id: format!("opencode/{}", m),
-                    display_name: m.to_string(),
-                    source_provider: Some("openai".into()),
-                    family: None,
-                    subscription_label: "zen-backed".into(),
-                    supports_pair_execution: true,
-                    runnable: true,
-                });
-            }
-        }
-
         DetectedProviderProfile {
             kind: ProviderKind::Opencode,
             installed,
@@ -517,10 +636,7 @@ impl ProviderRegistry {
             runnable: installed,
             subscription_label: "multi-provider".into(),
             current_models: models,
-            detected_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            detected_at: detected_at_now(),
         }
     }
 
@@ -531,47 +647,16 @@ impl ProviderRegistry {
         let config_path = homedir.join(".codex/config.toml");
 
         let authenticated = auth_path.exists();
-        let mut models = Vec::new();
         let subscription_label = "subscription-backed".to_string();
-
-        if authenticated || config_path.exists() {
-            // Default common models
-            let mut model_ids = vec![
-                "gpt-4o".to_string(),
-                "gpt-4o-mini".to_string(),
-                "o1".to_string(),
-                "o3".to_string(),
-            ];
-
-            // Try to extract current model from config.toml
-            if config_path.exists() {
-                if let Ok(content) = fs::read_to_string(&config_path) {
-                    // Primitive regex-like matching for "model = \"...\""
-                    for line in content.lines() {
-                        let line = line.trim();
-                        if line.starts_with("model =") {
-                            if let Some(m) = line.split('"').nth(1) {
-                                if !model_ids.contains(&m.to_string()) {
-                                    model_ids.push(m.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            for m in model_ids {
-                models.push(DetectedModelOption {
-                    model_id: m.clone(),
-                    display_name: m,
-                    source_provider: Some("openai".into()),
-                    family: None,
-                    subscription_label: subscription_label.clone(),
-                    supports_pair_execution: true,
-                    runnable: true,
-                });
-            }
-        }
+        let models = if installed {
+            build_detected_models(
+                discover_codex_model_ids(&homedir),
+                "openai",
+                &subscription_label,
+            )
+        } else {
+            Vec::new()
+        };
 
         DetectedProviderProfile {
             kind: ProviderKind::Codex,
@@ -580,10 +665,7 @@ impl ProviderRegistry {
             runnable: installed && (authenticated || config_path.exists()),
             subscription_label,
             current_models: models,
-            detected_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            detected_at: detected_at_now(),
         }
     }
 
@@ -592,7 +674,7 @@ impl ProviderRegistry {
         let homedir = homedir();
         let mut authenticated = false;
         let mut subscription_label = "api-backed".to_string();
-        let mut models = Vec::new();
+        let mut model_ids = Vec::new();
 
         if installed {
             let output = Command::new("claude").arg("auth").arg("status").output();
@@ -616,9 +698,10 @@ impl ProviderRegistry {
                 authenticated = true;
             }
 
-            let labels = resolve_claude_model_labels(&homedir);
-            models = claude_model_catalog(&subscription_label, &labels);
+            model_ids = discover_claude_model_ids(&homedir);
         }
+
+        let models = build_detected_models(model_ids, "anthropic", &subscription_label);
 
         DetectedProviderProfile {
             kind: ProviderKind::Claude,
@@ -627,10 +710,7 @@ impl ProviderRegistry {
             runnable: installed && authenticated,
             subscription_label,
             current_models: models,
-            detected_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            detected_at: detected_at_now(),
         }
     }
 
@@ -639,46 +719,20 @@ impl ProviderRegistry {
         let homedir = homedir();
         let settings_path = homedir.join(".gemini/settings.json");
         let mut authenticated = false;
-        let mut models = Vec::new();
-        let mut current_model = "gemini-1.5-pro".to_string();
 
         if settings_path.exists() {
             authenticated = true;
-            if let Some(settings) = safe_read_json::<serde_json::Value>(settings_path) {
-                if let Some(name) = settings
-                    .get("model")
-                    .and_then(|m| m.get("name"))
-                    .and_then(|n| n.as_str())
-                {
-                    current_model = name.to_string();
-                }
-            }
         }
 
-        if installed {
-            let model_ids = vec![
-                "gemini-1.5-pro".to_string(),
-                "gemini-1.5-flash".to_string(),
-                "gemini-2.0-flash".to_string(),
-                "gemini-2.0-pro-exp".to_string(),
-                "gemini-2.5-pro".to_string(),
-                "gemini-2.5-flash".to_string(),
-            ];
-
-            for m in model_ids {
-                // Check if this is the currently selected model in settings
-                let _is_current = m == current_model;
-                models.push(DetectedModelOption {
-                    model_id: m.clone(),
-                    display_name: m,
-                    source_provider: Some("google".into()),
-                    family: None,
-                    subscription_label: "subscription-backed".into(),
-                    supports_pair_execution: true,
-                    runnable: true,
-                });
-            }
-        }
+        let models = if installed {
+            build_detected_models(
+                discover_gemini_model_ids(&homedir),
+                "google",
+                "subscription-backed",
+            )
+        } else {
+            Vec::new()
+        };
 
         DetectedProviderProfile {
             kind: ProviderKind::Gemini,
@@ -687,10 +741,7 @@ impl ProviderRegistry {
             runnable: installed && authenticated,
             subscription_label: "subscription-backed".into(),
             current_models: models,
-            detected_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            detected_at: detected_at_now(),
         }
     }
 }
@@ -719,31 +770,54 @@ mod tests {
         path
     }
 
-    fn test_claude_model_labels() -> ClaudeModelLabels {
-        ClaudeModelLabels {
-            sonnet: "Claude Sonnet Aurora".to_string(),
-            sonnet_1m: "Claude Sonnet Aurora 1M".to_string(),
-            opus: "Claude Opus Aurora".to_string(),
-            haiku: "Claude Haiku Aurora".to_string(),
-        }
-    }
-
     #[test]
-    fn claude_model_catalog_uses_injected_labels() {
-        let labels = test_claude_model_labels();
-        let models = claude_model_catalog("subscription-backed", &labels);
+    fn detect_opencode_does_not_invent_models_without_local_sources() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let opencode_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
+        fs::create_dir_all(&opencode_dir).expect("failed to create temp opencode dir");
 
-        assert_eq!(models.len(), 5);
-        assert_eq!(models[0].model_id, "default");
-        assert_eq!(models[0].display_name, "Claude Default");
-        assert_eq!(models[1].model_id, "sonnet");
-        assert_eq!(models[1].display_name, labels.sonnet);
-        assert_eq!(models[2].model_id, "opus");
-        assert_eq!(models[2].display_name, labels.opus);
-        assert_eq!(models[3].model_id, "haiku");
-        assert_eq!(models[3].display_name, labels.haiku);
-        assert_eq!(models[4].model_id, "sonnet[1m]");
-        assert_eq!(models[4].display_name, labels.sonnet_1m);
+        write_executable_script(
+            &opencode_dir,
+            "opencode",
+            r#"#!/bin/sh
+if [ "$1" = "models" ]; then
+  exit 0
+fi
+exit 0
+"#,
+        );
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", opencode_dir.display(), existing.to_string_lossy())
+        } else {
+            opencode_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+
+        let profile = ProviderRegistry::detect_opencode();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert!(profile.installed);
+        assert!(
+            profile.current_models.is_empty(),
+            "OpenCode should not invent fallback models when no local sources are present"
+        );
     }
 
     #[cfg(unix)]
@@ -760,8 +834,10 @@ mod tests {
             r#"#!/bin/sh
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
   printf '%s\n' '{"loggedIn":false,"authMethod":"none","apiProvider":"firstParty"}'
+elif [ "$1" = "--help" ]; then
+  printf '%s\n' "  --model <model>  Use aliases like 'sonnet' and full names like 'claude-sonnet-4-6'"
 else
-  printf '%s\n' '{"loggedIn":false}'
+  exit 0
 fi
 "#,
         );
@@ -795,8 +871,166 @@ fi
             profile
                 .current_models
                 .iter()
-                .any(|model| model.model_id == "sonnet"),
-            "logged-out Claude Code should still expose the native model catalog"
+                .any(|model| model.model_id == "claude-sonnet-4-6"),
+            "logged-out Claude Code should still expose help-discovered models"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_codex_reads_models_from_config_toml() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let codex_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
+        let codex_config_dir = temp_home.join(".codex");
+        fs::create_dir_all(&codex_dir).expect("failed to create temp codex dir");
+        fs::create_dir_all(&codex_config_dir).expect("failed to create temp codex config dir");
+
+        write_executable_script(
+            &codex_dir,
+            "codex",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+
+        fs::write(
+            codex_config_dir.join("config.toml"),
+            r#"
+model = "gpt-5.4"
+
+[profiles.fast]
+model = "gpt-5.4-mini"
+
+[notice.model_migrations]
+"gpt-5.1-codex-mini" = "gpt-5.4"
+"#,
+        )
+        .expect("failed to write codex config");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", codex_dir.display(), existing.to_string_lossy())
+        } else {
+            codex_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+
+        let profile = ProviderRegistry::detect_codex();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert!(profile.installed);
+        assert!(profile.runnable);
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gpt-5.4-mini"),
+            "Codex should expose profile models declared in config.toml"
+        );
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gpt-5.4"),
+            "Codex should expose the primary configured model"
+        );
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gpt-5.1-codex-mini"),
+            "Codex should preserve migration-linked model ids seen in config"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_codex_reads_models_from_local_cache() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let codex_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
+        let codex_config_dir = temp_home.join(".codex");
+        fs::create_dir_all(&codex_dir).expect("failed to create temp codex dir");
+        fs::create_dir_all(&codex_config_dir).expect("failed to create temp codex config dir");
+
+        write_executable_script(
+            &codex_dir,
+            "codex",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+
+        fs::write(
+            codex_config_dir.join("config.toml"),
+            r#"model = "gpt-5.4""#,
+        )
+        .expect("failed to write codex config");
+
+        fs::write(
+            codex_config_dir.join("models_cache.json"),
+            r#"{
+  "models": [
+    { "slug": "gpt-9-coder-preview" },
+    { "slug": "codex-ultra-latest" }
+  ]
+}"#,
+        )
+        .expect("failed to write codex models cache");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", codex_dir.display(), existing.to_string_lossy())
+        } else {
+            codex_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+
+        let profile = ProviderRegistry::detect_codex();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gpt-9-coder-preview"),
+            "Codex should discover model slugs from the local models cache"
+        );
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "codex-ultra-latest"),
+            "Codex should preserve additional cache-backed model ids"
         );
     }
 
@@ -854,7 +1088,7 @@ exit 0
 
         fs::write(
             settings_dir.join("settings.json"),
-            r#"{"model":{"name":"gemini-2.5-pro"}}"#,
+            r#"{"model":{"name":"gemini-3.1-pro-preview"}}"#,
         )
         .expect("failed to write settings file");
 
@@ -879,6 +1113,162 @@ exit 0
         assert!(
             !profile.current_models.is_empty(),
             "Gemini CLI should surface native models when installed in an NVM layout"
+        );
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gemini-3.1-pro-preview"),
+            "gemini should expose the configured model from settings"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_gemini_reads_models_from_recent_local_history() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let gemini_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
+        let settings_dir = temp_home.join(".gemini");
+        let chats_dir = settings_dir.join("tmp/sample/chats");
+        fs::create_dir_all(&gemini_dir).expect("failed to create temp gemini dir");
+        fs::create_dir_all(&chats_dir).expect("failed to create temp chat dir");
+
+        write_executable_script(
+            &gemini_dir,
+            "gemini",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+
+        fs::write(
+            settings_dir.join("settings.json"),
+            r#"{"model":{"name":"gemini-3.1-pro-preview"}}"#,
+        )
+        .expect("failed to write settings file");
+
+        fs::write(
+            chats_dir.join("session.json"),
+            r#"{
+  "messages": [
+    { "model": "gemini-9-pro-experimental" },
+    { "model": "gemini-9-flash-experimental" }
+  ]
+}"#,
+        )
+        .expect("failed to write recent gemini history");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", "/usr/bin:/bin");
+
+        let profile = ProviderRegistry::detect_gemini();
+
+        if let Some(value) = original_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(value) = original_path {
+            std::env::set_var("PATH", value);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gemini-9-pro-experimental"),
+            "Gemini should discover model ids from recent local session history"
+        );
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "gemini-9-flash-experimental"),
+            "Gemini should surface multiple history-backed model ids"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_claude_reads_models_from_help_and_recent_history() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let claude_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
+        let claude_projects_dir = temp_home.join(".claude/projects/example");
+        fs::create_dir_all(&claude_dir).expect("failed to create temp claude dir");
+        fs::create_dir_all(&claude_projects_dir).expect("failed to create temp claude project dir");
+
+        write_executable_script(
+            &claude_dir,
+            "claude",
+            r#"#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  printf '%s\n' '{"loggedIn":true,"authMethod":"oauth"}'
+elif [ "$1" = "--help" ]; then
+  printf '%s\n' "  --model <model>  Use aliases like 'sonnet' and full names like 'claude-sonnet-9-9'"
+else
+  exit 0
+fi
+"#,
+        );
+
+        fs::write(
+            claude_projects_dir.join("session.jsonl"),
+            "{\"message\":{\"model\":\"claude-opus-9-1\"}}\n",
+        )
+        .expect("failed to write recent claude history");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let original_api_key = std::env::var_os("ANTHROPIC_API_KEY");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", claude_dir.display(), existing.to_string_lossy())
+        } else {
+            claude_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+        std::env::remove_var("ANTHROPIC_API_KEY");
+
+        let profile = ProviderRegistry::detect_claude();
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(value) = original_api_key {
+            std::env::set_var("ANTHROPIC_API_KEY", value);
+        }
+
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "claude-sonnet-9-9"),
+            "Claude should discover full model names from CLI help output"
+        );
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "claude-opus-9-1"),
+            "Claude should discover full model names from recent local history"
         );
     }
 }

@@ -1,18 +1,13 @@
 use crate::provider_registry::ProviderKind;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TokenUsageSource {
     Live,
     Final,
+    #[default]
     None,
-}
-
-impl Default for TokenUsageSource {
-    fn default() -> Self {
-        TokenUsageSource::None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]

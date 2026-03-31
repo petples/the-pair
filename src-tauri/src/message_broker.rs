@@ -131,11 +131,9 @@ impl MessageBroker {
 
     pub fn get_pair_state(&self, pair_id: &str) -> Option<(crate::types::AgentRole, Vec<Message>)> {
         let pair_states = self.pair_states.lock().unwrap();
-        if let Some(state) = pair_states.get(pair_id) {
-            Some((state.turn.clone(), state.messages.clone()))
-        } else {
-            None
-        }
+        pair_states
+            .get(pair_id)
+            .map(|state| (state.turn.clone(), state.messages.clone()))
     }
 
     pub fn add_message(&self, pair_id: &str, mut message: Message) {

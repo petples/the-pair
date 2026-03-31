@@ -493,10 +493,7 @@ pub fn pair_delete(
 
     let worktree_path: Option<String> = {
         let manager = state.lock().unwrap();
-        manager
-            .get_pair(&pair_id)
-            .map(|p| p.worktree_path.clone())
-            .flatten()
+        manager.get_pair(&pair_id).and_then(|p| p.worktree_path.clone())
     };
 
     if let Some(wt_path) = worktree_path {
