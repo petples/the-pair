@@ -1,4 +1,5 @@
-use crate::config_paths::opencode_config_path;
+use crate::config_paths::{opencode_auth_path, opencode_config_path};
+use crate::path_env::fallback_path_dirs;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -78,29 +79,32 @@ fn safe_read_json<T: DeserializeOwned>(path: impl AsRef<std::path::Path>) -> Opt
 }
 
 fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool {
-    #[cfg(not(target_os = "windows"))]
-    {
-        let mut fallback_dirs = vec![
-            PathBuf::from("/opt/homebrew/bin"),
-            PathBuf::from("/usr/local/bin"),
-            PathBuf::from("/usr/bin"),
-            home.join(".local/bin"),
-            home.join(".npm-global/bin"),
-            home.join(".volta/bin"),
-        ];
-
-        let nvm_versions = home.join(".nvm/versions/node");
-        if let Ok(entries) = fs::read_dir(nvm_versions) {
-            for entry in entries.flatten() {
-                fallback_dirs.push(entry.path().join("bin"));
-            }
+    let fallback_dirs = fallback_path_dirs(Some(home.to_path_buf()), None, None, false);
+    for dir in &fallback_dirs {
+        if binary_exists_in_dir(dir, name) {
+            return true;
         }
+    }
 
-        for dir in &fallback_dirs {
-            let candidate = dir.join(name);
-            if candidate.exists() {
-                return true;
-            }
+    let windows_fallback_dirs = fallback_path_dirs(Some(home.to_path_buf()), None, None, true);
+    for dir in &windows_fallback_dirs {
+        if binary_exists_in_dir(dir, name) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn binary_exists_in_dir(dir: &std::path::Path, name: &str) -> bool {
+    let candidate = dir.join(name);
+    if candidate.exists() {
+        return true;
+    }
+
+    for suffix in [".cmd", ".exe", ".bat"] {
+        if dir.join(format!("{name}{suffix}")).exists() {
+            return true;
         }
     }
 
@@ -416,7 +420,8 @@ impl ProviderRegistry {
         }
 
         // 2. Detect from ~/.local/share/opencode/auth.json (internal providers via /connect)
-        let auth_path = homedir().join(".local/share/opencode/auth.json");
+        let auth_path =
+            opencode_auth_path().unwrap_or_else(|| homedir().join(".local/share/opencode/auth.json"));
         let mut internal_providers = Vec::new();
         if auth_path.exists() {
             authenticated = true;
@@ -813,6 +818,19 @@ exit 0
         assert!(
             binary_exists_at_known_locations("gemini", &temp_root),
             "gemini should be discoverable in a common NVM layout even when PATH is empty"
+        );
+    }
+
+    #[test]
+    fn binary_exists_at_known_locations_finds_windows_global_npm_bins() {
+        let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let roaming_npm_dir = temp_root.join("AppData/Roaming/npm");
+        fs::create_dir_all(&roaming_npm_dir).expect("failed to create roaming npm dir");
+        fs::write(roaming_npm_dir.join("claude.cmd"), "@echo off\r\n").expect("failed to seed cmd");
+
+        assert!(
+            binary_exists_at_known_locations("claude", &temp_root),
+            "claude should be discoverable in the standard Windows global npm directory"
         );
     }
 

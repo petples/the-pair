@@ -42,13 +42,20 @@ impl MessageBroker {
         }
     }
 
-    pub fn initialize_pair(&self, pair_id: &str, input: CreatePairInput, effective_directory: Option<&str>) -> Result<(), String> {
+    pub fn initialize_pair(
+        &self,
+        pair_id: &str,
+        input: CreatePairInput,
+        effective_directory: Option<&str>,
+    ) -> Result<(), String> {
         println!(
             "[MessageBroker::initialize_pair] Initializing pair: {}",
             pair_id
         );
 
-        let directory = effective_directory.map(|s| s.to_string()).unwrap_or(input.directory.clone());
+        let directory = effective_directory
+            .map(|s| s.to_string())
+            .unwrap_or(input.directory.clone());
 
         let empty_resources = PairResources {
             mentor: ResourceInfo {
@@ -411,11 +418,7 @@ impl MessageBroker {
 
                     crate::git_tracker::GitTracker::update_state(state);
                     let active = active_processes.clone();
-                    crate::resource_monitor::ResourceMonitor::update_state(
-                        state,
-                        &mut sys,
-                        active,
-                    );
+                    crate::resource_monitor::ResourceMonitor::update_state(state, &mut sys, active);
 
                     if let Some(handle) = &app_handle {
                         let _ = handle.emit("pair:state", state.clone());
@@ -482,7 +485,8 @@ impl MessageBroker {
                         state.executor.status = PairStatus::Idle;
                         state.executor_activity.phase = ActivityPhase::Waiting;
                         state.executor_activity.label = "Executor standing by".to_string();
-                        state.executor_activity.detail = Some("Executor paused for review".to_string());
+                        state.executor_activity.detail =
+                            Some("Executor paused for review".to_string());
                         state.executor_activity.updated_at = Self::now();
                     }
                 } else {
@@ -564,12 +568,7 @@ impl MessageBroker {
         }
     }
 
-    pub fn update_token_usage(
-        &self,
-        pair_id: &str,
-        role: &str,
-        usage: TurnTokenUsage,
-    ) {
+    pub fn update_token_usage(&self, pair_id: &str, role: &str, usage: TurnTokenUsage) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
             let agent_state = if role == "mentor" {
@@ -812,7 +811,9 @@ mod tests {
     #[test]
     fn prepare_run_advances_idle_mentor_pairs_into_mentoring() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker
             .restore_state(pair_state(PairStatus::Mentoring, 0))
             .unwrap();
@@ -841,7 +842,9 @@ mod tests {
     #[test]
     fn prepare_run_switches_mentor_turns_after_executor_work_into_reviewing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker
             .restore_state(pair_state(PairStatus::Executing, 1))
             .unwrap();
@@ -868,7 +871,9 @@ mod tests {
     #[test]
     fn set_pair_status_marks_paused_pairs_as_idle_with_pause_copy() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker
             .restore_state(pair_state(PairStatus::Paused, 4))
             .unwrap();
@@ -900,7 +905,9 @@ mod tests {
     #[test]
     fn add_message_only_persists_high_signal_messages_and_handoffs_turns() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
 
         broker.add_message(
             "pair-1",
@@ -973,7 +980,9 @@ mod tests {
     #[test]
     fn record_human_feedback_approval_persists_feedback_and_returns_next_role() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker
             .restore_state(pair_state(PairStatus::AwaitingHumanReview, 2))
             .unwrap();
@@ -1025,7 +1034,9 @@ mod tests {
     #[test]
     fn resume_run_restores_paused_mentor_planning_as_mentoring_not_reviewing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker
             .restore_state(paused_mentor_planning_state())
             .unwrap();
@@ -1064,11 +1075,13 @@ mod tests {
             "executor should be standing by"
         );
         assert_eq!(
-            state.mentor.status, PairStatus::Executing,
+            state.mentor.status,
+            PairStatus::Executing,
             "mentor status should be Executing (not flattened to Mentoring)"
         );
         assert_eq!(
-            state.executor.status, PairStatus::Idle,
+            state.executor.status,
+            PairStatus::Idle,
             "executor status should be Idle (not flattened)"
         );
     }
@@ -1076,7 +1089,9 @@ mod tests {
     #[test]
     fn resume_run_restores_paused_mentor_review_as_reviewing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker.restore_state(paused_mentor_review_state()).unwrap();
 
         broker.resume_run(
@@ -1104,11 +1119,13 @@ mod tests {
             ActivityPhase::Waiting
         ));
         assert_eq!(
-            state.mentor.status, PairStatus::Reviewing,
+            state.mentor.status,
+            PairStatus::Reviewing,
             "mentor status should be Reviewing (not flattened)"
         );
         assert_eq!(
-            state.executor.status, PairStatus::Idle,
+            state.executor.status,
+            PairStatus::Idle,
             "executor status should be Idle (not flattened)"
         );
     }
@@ -1116,7 +1133,9 @@ mod tests {
     #[test]
     fn resume_run_restores_paused_executor_as_executing() {
         let broker = MessageBroker::new();
-        broker.initialize_pair("pair-1", sample_input(), None).unwrap();
+        broker
+            .initialize_pair("pair-1", sample_input(), None)
+            .unwrap();
         broker.restore_state(paused_executor_state()).unwrap();
 
         broker.resume_run(
@@ -1152,11 +1171,13 @@ mod tests {
             "mentor should be observing"
         );
         assert_eq!(
-            state.executor.status, PairStatus::Executing,
+            state.executor.status,
+            PairStatus::Executing,
             "executor status should be Executing (not flattened)"
         );
         assert_eq!(
-            state.mentor.status, PairStatus::Idle,
+            state.mentor.status,
+            PairStatus::Idle,
             "mentor status should be Idle (not flattened)"
         );
     }

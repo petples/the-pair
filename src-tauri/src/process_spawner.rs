@@ -42,7 +42,8 @@ fn mock_responses(role: &str, iteration: u32) -> Vec<String> {
     match (role, iteration) {
         ("mentor", 1) => vec![
             "I'll analyze the task and create a plan.".to_string(),
-            "## Plan\n1. Read the existing code\n2. Implement the changes\n3. Verify the result".to_string(),
+            "## Plan\n1. Read the existing code\n2. Implement the changes\n3. Verify the result"
+                .to_string(),
         ],
         ("mentor", _) => vec![
             "The implementation looks correct.".to_string(),
@@ -159,7 +160,7 @@ fn extract_event_texts(event: &serde_json::Value) -> Vec<String> {
 
 fn extract_token_usage_from_claude(event: &serde_json::Value) -> Option<TurnTokenUsage> {
     let event_type = event.get("type").and_then(|v| v.as_str())?;
-    
+
     let (usage_obj, is_final) = match event_type {
         "result" => {
             let usage = event.get("usage")?;
@@ -200,7 +201,7 @@ fn extract_token_usage_from_claude(event: &serde_json::Value) -> Option<TurnToke
 
 fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnTokenUsage> {
     let usage = event.get("usage")?;
-    
+
     let output_tokens = usage
         .get("completion_tokens")
         .and_then(|v| v.as_u64())
@@ -225,7 +226,7 @@ fn extract_token_usage_from_codex(event: &serde_json::Value) -> Option<TurnToken
 
 fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTokenUsage> {
     let usage = event.get("usage")?;
-    
+
     let output_tokens = usage
         .get("output_tokens")
         .or_else(|| usage.get("completion_tokens"))
@@ -257,7 +258,7 @@ fn extract_token_usage_from_opencode(event: &serde_json::Value) -> Option<TurnTo
 
 fn extract_token_usage_from_gemini(event: &serde_json::Value) -> Option<TurnTokenUsage> {
     let usage = event.get("usageMetadata")?;
-    
+
     let output_tokens = usage
         .get("candidatesTokenCount")
         .or_else(|| usage.get("output_tokens"))
@@ -287,7 +288,10 @@ fn extract_token_usage_from_gemini(event: &serde_json::Value) -> Option<TurnToke
     })
 }
 
-fn extract_token_usage(provider_kind: ProviderKind, event: &serde_json::Value) -> Option<TurnTokenUsage> {
+fn extract_token_usage(
+    provider_kind: ProviderKind,
+    event: &serde_json::Value,
+) -> Option<TurnTokenUsage> {
     match provider_kind {
         ProviderKind::Claude => extract_token_usage_from_claude(event),
         ProviderKind::Codex => extract_token_usage_from_codex(event),
@@ -592,11 +596,7 @@ impl ProcessSpawner {
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
                     let broker = broker.lock().unwrap();
-                    broker.update_token_usage(
-                        &pair_id_mock,
-                        &role_mock,
-                        mock_token_usage(),
-                    );
+                    broker.update_token_usage(&pair_id_mock, &role_mock, mock_token_usage());
                 }
 
                 let mut should_handoff = true;
@@ -972,8 +972,7 @@ impl ProcessSpawner {
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker_state.lock().unwrap();
 
-                if role_clone == "mentor"
-                    && should_finish_after_mentor_turn(mentor_finish_signaled)
+                if role_clone == "mentor" && should_finish_after_mentor_turn(mentor_finish_signaled)
                 {
                     println!(
                         "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
@@ -1181,7 +1180,8 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_claude(&result_event).expect("should parse claude result");
+        let usage =
+            extract_token_usage_from_claude(&result_event).expect("should parse claude result");
         assert_eq!(usage.output_tokens, 250);
         assert_eq!(usage.input_tokens, Some(100));
         assert!(matches!(usage.source, TokenUsageSource::Final));
@@ -1194,7 +1194,8 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_claude(&streaming_event).expect("should parse claude streaming");
+        let usage = extract_token_usage_from_claude(&streaming_event)
+            .expect("should parse claude streaming");
         assert_eq!(usage.output_tokens, 75);
         assert!(matches!(usage.source, TokenUsageSource::Live));
     }
@@ -1225,7 +1226,8 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_opencode(&live_event).expect("should parse opencode live");
+        let usage =
+            extract_token_usage_from_opencode(&live_event).expect("should parse opencode live");
         assert_eq!(usage.output_tokens, 120);
         assert!(matches!(usage.source, TokenUsageSource::Live));
 
@@ -1237,7 +1239,8 @@ mod tests {
             }
         });
 
-        let usage = extract_token_usage_from_opencode(&final_event).expect("should parse opencode final");
+        let usage =
+            extract_token_usage_from_opencode(&final_event).expect("should parse opencode final");
         assert_eq!(usage.output_tokens, 150);
         assert!(matches!(usage.source, TokenUsageSource::Final));
     }
@@ -1277,7 +1280,8 @@ mod tests {
             "type": "result",
             "usage": { "output_tokens": 100 }
         });
-        let usage = extract_token_usage(ProviderKind::Claude, &claude_event).expect("claude dispatch");
+        let usage =
+            extract_token_usage(ProviderKind::Claude, &claude_event).expect("claude dispatch");
         assert_eq!(usage.output_tokens, 100);
 
         let codex_event = json!({
@@ -1290,14 +1294,16 @@ mod tests {
             "type": "result",
             "usage": { "output_tokens": 300 }
         });
-        let usage = extract_token_usage(ProviderKind::Opencode, &opencode_event).expect("opencode dispatch");
+        let usage = extract_token_usage(ProviderKind::Opencode, &opencode_event)
+            .expect("opencode dispatch");
         assert_eq!(usage.output_tokens, 300);
 
         let gemini_event = json!({
             "type": "result",
             "usageMetadata": { "candidatesTokenCount": 400 }
         });
-        let usage = extract_token_usage(ProviderKind::Gemini, &gemini_event).expect("gemini dispatch");
+        let usage =
+            extract_token_usage(ProviderKind::Gemini, &gemini_event).expect("gemini dispatch");
         assert_eq!(usage.output_tokens, 400);
     }
 
@@ -1319,11 +1325,13 @@ mod tests {
             }
         });
 
-        let live_usage = extract_token_usage(ProviderKind::Claude, &live_event).expect("live usage");
+        let live_usage =
+            extract_token_usage(ProviderKind::Claude, &live_event).expect("live usage");
         assert_eq!(live_usage.output_tokens, 120);
         assert!(matches!(live_usage.source, TokenUsageSource::Live));
 
-        let final_usage = extract_token_usage(ProviderKind::Claude, &final_event).expect("final usage");
+        let final_usage =
+            extract_token_usage(ProviderKind::Claude, &final_event).expect("final usage");
         assert_eq!(final_usage.output_tokens, 150);
         assert!(matches!(final_usage.source, TokenUsageSource::Final));
         assert!(final_usage.output_tokens >= live_usage.output_tokens);
@@ -1399,16 +1407,24 @@ mod tests {
             "delta": { "text": "some text" }
         });
         let before_no_usage = last_token_usage.clone();
-        last_token_usage = update_last_token_usage(last_token_usage, &event_no_usage, ProviderKind::Claude);
-        assert_eq!(last_token_usage, before_no_usage, "should preserve last usage when event has no usage");
+        last_token_usage =
+            update_last_token_usage(last_token_usage, &event_no_usage, ProviderKind::Claude);
+        assert_eq!(
+            last_token_usage, before_no_usage,
+            "should preserve last usage when event has no usage"
+        );
 
         let final_event = json!({
             "type": "result",
             "usage": { "output_tokens": 350, "input_tokens": 50 }
         });
-        last_token_usage = update_last_token_usage(last_token_usage, &final_event, ProviderKind::Claude);
+        last_token_usage =
+            update_last_token_usage(last_token_usage, &final_event, ProviderKind::Claude);
         assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 350);
-        assert!(matches!(last_token_usage.as_ref().unwrap().source, TokenUsageSource::Final));
+        assert!(matches!(
+            last_token_usage.as_ref().unwrap().source,
+            TokenUsageSource::Final
+        ));
     }
 
     #[test]
@@ -1427,14 +1443,16 @@ mod tests {
             "type": "stream",
             "usage": { "output_tokens": 500, "input_tokens": 100 }
         });
-        last_token_usage = update_last_token_usage(last_token_usage, &live_event, ProviderKind::Opencode);
+        last_token_usage =
+            update_last_token_usage(last_token_usage, &live_event, ProviderKind::Opencode);
         assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 500);
 
         let final_no_usage = json!({
             "type": "result",
             "content": "done"
         });
-        last_token_usage = update_last_token_usage(last_token_usage, &final_no_usage, ProviderKind::Opencode);
+        last_token_usage =
+            update_last_token_usage(last_token_usage, &final_no_usage, ProviderKind::Opencode);
         assert!(
             last_token_usage.is_some(),
             "last live usage should be preserved when final event lacks usage"

@@ -3,8 +3,13 @@ use crate::process_spawner::ProcessSpawner;
 use crate::provider_adapter::ProviderAdapter;
 use crate::session_snapshot::delete_pair_snapshot;
 use crate::session_snapshot::persist_current_pair_snapshot;
-use crate::types::{AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus};
-use crate::worktree_manager::{check_repo_state, create_worktree, delete_worktree, ensure_gitignore_worktrees, ensure_local_tracking_branch, BranchInfo, RepoState};
+use crate::types::{
+    AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus,
+};
+use crate::worktree_manager::{
+    check_repo_state, create_worktree, delete_worktree, ensure_gitignore_worktrees,
+    ensure_local_tracking_branch, BranchInfo, RepoState,
+};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -48,13 +53,18 @@ impl PairManager {
 
         println!("[PairManager::create_pair] Generated pair_id: {}", pair_id);
 
-        let (directory, branch, repo_path, worktree_path) = if let Some(selected_branch) = &input.branch {
+        let (directory, branch, repo_path, worktree_path) = if let Some(selected_branch) =
+            &input.branch
+        {
             let repo_state = check_repo_state(&input.directory);
             if !repo_state.is_git_repo {
-                return Err("Directory is not a git repository. Cannot create worktree.".to_string());
+                return Err(
+                    "Directory is not a git repository. Cannot create worktree.".to_string()
+                );
             }
 
-            let is_current_branch = repo_state.current_branch.as_deref() == Some(selected_branch.as_str());
+            let is_current_branch =
+                repo_state.current_branch.as_deref() == Some(selected_branch.as_str());
 
             if is_current_branch {
                 println!("[PairManager::create_pair] Selected branch '{}' is the current branch — working in-place without worktree", selected_branch);
@@ -75,7 +85,10 @@ impl PairManager {
                     ));
                 }
 
-                let is_local = repo_state.branches.iter().any(|b| b.name == selected_branch.as_str() && b.is_local);
+                let is_local = repo_state
+                    .branches
+                    .iter()
+                    .any(|b| b.name == selected_branch.as_str() && b.is_local);
 
                 let effective_branch = if !is_local {
                     println!("[PairManager::create_pair] Remote branch detected, creating local tracking branch for {}", selected_branch);
@@ -85,19 +98,37 @@ impl PairManager {
                 };
 
                 let worktree_rel_path = format!(".worktrees/pair-{}", pair_id);
-                println!("[PairManager::create_pair] Creating worktree at {} for branch {}", worktree_rel_path, effective_branch);
+                println!(
+                    "[PairManager::create_pair] Creating worktree at {} for branch {}",
+                    worktree_rel_path, effective_branch
+                );
 
                 match ensure_gitignore_worktrees(&input.directory) {
-                    Ok(true) => println!("[PairManager::create_pair] Added .worktrees/ to .gitignore in {}", input.directory),
+                    Ok(true) => println!(
+                        "[PairManager::create_pair] Added .worktrees/ to .gitignore in {}",
+                        input.directory
+                    ),
                     Ok(false) => {}
-                    Err(e) => println!("[PairManager::create_pair] Warning: could not update .gitignore: {}", e),
+                    Err(e) => println!(
+                        "[PairManager::create_pair] Warning: could not update .gitignore: {}",
+                        e
+                    ),
                 }
 
-                let worktree_full_path = create_worktree(&input.directory, &effective_branch, &worktree_rel_path)?;
+                let worktree_full_path =
+                    create_worktree(&input.directory, &effective_branch, &worktree_rel_path)?;
 
-                println!("[PairManager::create_pair] Worktree created at {}", worktree_full_path);
+                println!(
+                    "[PairManager::create_pair] Worktree created at {}",
+                    worktree_full_path
+                );
 
-                (worktree_full_path.clone(), Some(effective_branch), Some(input.directory.clone()), Some(worktree_full_path))
+                (
+                    worktree_full_path.clone(),
+                    Some(effective_branch),
+                    Some(input.directory.clone()),
+                    Some(worktree_full_path),
+                )
             }
         } else {
             (input.directory.clone(), None, None, None)
@@ -129,7 +160,10 @@ impl PairManager {
         let effective_dir = pair.worktree_path.as_deref().or(Some(&pair.directory));
         if let Err(e) = broker.initialize_pair(&pair_id, input, effective_dir) {
             if let Some(wt_path) = &pair.worktree_path {
-                println!("[PairManager::create_pair] Broker init failed, cleaning up worktree: {}", wt_path);
+                println!(
+                    "[PairManager::create_pair] Broker init failed, cleaning up worktree: {}",
+                    wt_path
+                );
                 let _ = delete_worktree(wt_path);
             }
             self.pairs.remove(&pair_id);
@@ -221,7 +255,10 @@ pub async fn pair_create(
         // Set up process context
         {
             let mut ctx_guard = spawner.pair_contexts.lock().unwrap();
-            let effective_directory = pair.worktree_path.clone().unwrap_or_else(|| pair.directory.clone());
+            let effective_directory = pair
+                .worktree_path
+                .clone()
+                .unwrap_or_else(|| pair.directory.clone());
             ctx_guard.insert(
                 pair_id.clone(),
                 crate::process_spawner::ProcessContext {
@@ -309,14 +346,20 @@ pub async fn pair_assign_task(
             .unwrap_or(&pair.executor_model)
             .clone();
 
-        let inferred_mentor_provider = ProviderAdapter::infer_provider_kind(&effective_mentor_model);
-        let inferred_executor_provider = ProviderAdapter::infer_provider_kind(&effective_executor_model);
+        let inferred_mentor_provider =
+            ProviderAdapter::infer_provider_kind(&effective_mentor_model);
+        let inferred_executor_provider =
+            ProviderAdapter::infer_provider_kind(&effective_executor_model);
 
-        let (existing_mentor_provider, existing_executor_provider, existing_mentor_sid, existing_executor_sid) =
-            existing
-                .as_ref()
-                .map(|(mp, ep, ms, es, _, _)| (*mp, *ep, ms.clone(), es.clone()))
-                .unwrap_or((pair.mentor_provider, pair.executor_provider, None, None));
+        let (
+            existing_mentor_provider,
+            existing_executor_provider,
+            existing_mentor_sid,
+            existing_executor_sid,
+        ) = existing
+            .as_ref()
+            .map(|(mp, ep, ms, es, _, _)| (*mp, *ep, ms.clone(), es.clone()))
+            .unwrap_or((pair.mentor_provider, pair.executor_provider, None, None));
 
         let mentor_provider_changed = inferred_mentor_provider != existing_mentor_provider;
         let executor_provider_changed = inferred_executor_provider != existing_executor_provider;
@@ -329,16 +372,25 @@ pub async fn pair_assign_task(
             effective_executor_model
         );
         if mentor_provider_changed {
-            println!("[pair_assign_task] Mentor provider changed from {:?} → {:?}, clearing session", existing_mentor_provider, inferred_mentor_provider);
+            println!(
+                "[pair_assign_task] Mentor provider changed from {:?} → {:?}, clearing session",
+                existing_mentor_provider, inferred_mentor_provider
+            );
         }
         if executor_provider_changed {
-            println!("[pair_assign_task] Executor provider changed from {:?} → {:?}, clearing session", existing_executor_provider, inferred_executor_provider);
+            println!(
+                "[pair_assign_task] Executor provider changed from {:?} → {:?}, clearing session",
+                existing_executor_provider, inferred_executor_provider
+            );
         }
 
         ctx_guard.insert(
             pair_id.clone(),
             crate::process_spawner::ProcessContext {
-                directory: pair.worktree_path.clone().unwrap_or_else(|| pair.directory.clone()),
+                directory: pair
+                    .worktree_path
+                    .clone()
+                    .unwrap_or_else(|| pair.directory.clone()),
                 mentor_provider: inferred_mentor_provider,
                 executor_provider: inferred_executor_provider,
                 mentor_model: effective_mentor_model,
@@ -353,7 +405,9 @@ pub async fn pair_assign_task(
                 } else {
                     existing_executor_sid
                 },
-                mentor_reasoning_effort: resolve_reasoning_effort(pair.mentor_reasoning_effort.clone()),
+                mentor_reasoning_effort: resolve_reasoning_effort(
+                    pair.mentor_reasoning_effort.clone(),
+                ),
                 executor_reasoning_effort: resolve_reasoning_effort(
                     pair.executor_reasoning_effort.clone(),
                 ),
@@ -439,7 +493,10 @@ pub fn pair_delete(
 
     let worktree_path: Option<String> = {
         let manager = state.lock().unwrap();
-        manager.get_pair(&pair_id).map(|p| p.worktree_path.clone()).flatten()
+        manager
+            .get_pair(&pair_id)
+            .map(|p| p.worktree_path.clone())
+            .flatten()
     };
 
     if let Some(wt_path) = worktree_path {
@@ -499,11 +556,17 @@ fn find_last_message_by_role(messages: &[Message], role: MessageSender) -> Optio
     messages
         .iter()
         .rev()
-        .find(|m| m.from == role && (m.msg_type == MessageType::Plan || m.msg_type == MessageType::Result))
+        .find(|m| {
+            m.from == role && (m.msg_type == MessageType::Plan || m.msg_type == MessageType::Result)
+        })
         .map(|m| m.content.trim().to_string())
 }
 
-fn build_live_resume_prompt(turn: &str, last_mentor: Option<String>, last_executor: Option<String>) -> String {
+fn build_live_resume_prompt(
+    turn: &str,
+    last_mentor: Option<String>,
+    last_executor: Option<String>,
+) -> String {
     if turn == "executor" {
         let mentor_msg = last_mentor.unwrap_or_default();
         format!(
@@ -542,8 +605,14 @@ async fn resume_pair_core(
             .pairs
             .get(pair_id)
             .ok_or_else(|| format!("Pair {} not found", pair_id))?;
-        if !matches!(pair.status, PairStatus::Paused | PairStatus::AwaitingHumanReview) {
-            return Err(format!("Pair {} is not paused (status: {:?})", pair_id, pair.status));
+        if !matches!(
+            pair.status,
+            PairStatus::Paused | PairStatus::AwaitingHumanReview
+        ) {
+            return Err(format!(
+                "Pair {} is not paused (status: {:?})",
+                pair_id, pair.status
+            ));
         }
 
         let broker_guard = broker.lock().unwrap();
@@ -561,8 +630,7 @@ async fn resume_pair_core(
             find_last_message_by_role(&messages, MessageSender::Mentor).or(lm.map(|m| m.content));
         let last_executor_msg =
             find_last_message_by_role(&messages, MessageSender::Executor).or(le.map(|m| m.content));
-        let prompt =
-            build_live_resume_prompt(role_str, last_mentor_msg, last_executor_msg);
+        let prompt = build_live_resume_prompt(role_str, last_mentor_msg, last_executor_msg);
 
         (role_str.to_string(), prompt)
     };
@@ -594,9 +662,7 @@ pub async fn pair_resume(
 
     let _ = persist_current_pair_snapshot(&app, &pair_id);
 
-    spawner
-        .trigger_turn(app, pair_id, role_str, prompt)
-        .await?;
+    spawner.trigger_turn(app, pair_id, role_str, prompt).await?;
 
     Ok(())
 }
@@ -605,8 +671,12 @@ pub async fn pair_resume(
 pub fn repo_check_state(directory: String) -> Result<RepoState, String> {
     println!("[repo_check_state] Called with directory: {}", directory);
     let result = check_repo_state(&directory);
-    println!("[repo_check_state] Result: is_git_repo={}, is_dirty={}, branches_count={}", 
-        result.is_git_repo, result.is_dirty, result.branches.len());
+    println!(
+        "[repo_check_state] Result: is_git_repo={}, is_dirty={}, branches_count={}",
+        result.is_git_repo,
+        result.is_dirty,
+        result.branches.len()
+    );
     Ok(result)
 }
 
@@ -667,7 +737,11 @@ mod tests {
             branch: None,
         };
         let broker_new = broker.lock().unwrap();
-        manager.lock().unwrap().create_pair(input, &broker_new).unwrap();
+        manager
+            .lock()
+            .unwrap()
+            .create_pair(input, &broker_new)
+            .unwrap();
         let created_pair_id = manager.lock().unwrap().list_pairs()[0].pair_id.clone();
         drop(broker_new);
 
@@ -728,11 +802,13 @@ mod tests {
         );
         assert_eq!(state.mentor_activity.label, "Analyzing task");
         assert_eq!(
-            state.mentor.status, PairStatus::Executing,
+            state.mentor.status,
+            PairStatus::Executing,
             "mentor status should be Executing (not flattened to Mentoring)"
         );
         assert_eq!(
-            state.executor.status, PairStatus::Idle,
+            state.executor.status,
+            PairStatus::Idle,
             "executor status should be Idle (not overwritten by set_pair_status)"
         );
     }
@@ -761,11 +837,13 @@ mod tests {
         );
         assert_eq!(state.mentor_activity.label, "Reviewing changes");
         assert_eq!(
-            state.mentor.status, PairStatus::Reviewing,
+            state.mentor.status,
+            PairStatus::Reviewing,
             "mentor status should be Reviewing (not flattened)"
         );
         assert_eq!(
-            state.executor.status, PairStatus::Idle,
+            state.executor.status,
+            PairStatus::Idle,
             "executor status should be Idle (not overwritten by set_pair_status)"
         );
     }
@@ -792,11 +870,13 @@ mod tests {
         assert_eq!(state.executor_activity.label, "Executing plan");
         assert_eq!(state.mentor_activity.label, "Mentor observing");
         assert_eq!(
-            state.executor.status, PairStatus::Executing,
+            state.executor.status,
+            PairStatus::Executing,
             "executor status should be Executing (not flattened)"
         );
         assert_eq!(
-            state.mentor.status, PairStatus::Idle,
+            state.mentor.status,
+            PairStatus::Idle,
             "mentor status should be Idle (not overwritten by set_pair_status)"
         );
     }
@@ -837,10 +917,7 @@ mod tests {
             resolve_reasoning_effort(Some("medium".to_string())),
             Some("medium".to_string())
         );
-        assert_eq!(
-            resolve_reasoning_effort(None),
-            None
-        );
+        assert_eq!(resolve_reasoning_effort(None), None);
     }
 
     fn sample_input() -> CreatePairInput {
@@ -923,8 +1000,10 @@ mod tests {
         pair_updated.executor_model = input.executor_model.clone();
         pair_updated.pending_mentor_model = input.pending_mentor_model.clone();
         pair_updated.pending_executor_model = input.pending_executor_model.clone();
-        pair_updated.mentor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
-        pair_updated.executor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
+        pair_updated.mentor_provider =
+            ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
+        pair_updated.executor_provider =
+            ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
 
         let pair = manager.get_pair(&pair_id).unwrap();
         assert_eq!(
@@ -950,8 +1029,10 @@ mod tests {
         let pair_updated = manager.pairs.get_mut(&pair_id).unwrap();
         pair_updated.mentor_model = "gemini-2.5-pro".to_string();
         pair_updated.executor_model = "claude-3-5-sonnet".to_string();
-        pair_updated.mentor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
-        pair_updated.executor_provider = ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
+        pair_updated.mentor_provider =
+            ProviderAdapter::infer_provider_kind(&pair_updated.mentor_model);
+        pair_updated.executor_provider =
+            ProviderAdapter::infer_provider_kind(&pair_updated.executor_model);
 
         let pair = manager.get_pair(&pair_id).unwrap();
         assert_eq!(
