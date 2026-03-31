@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type {
+  AcceptanceRecord,
   AvailableModel,
   CreatePairInput,
   PairModelSelection,
@@ -19,6 +20,11 @@ import {
   getModelByQualifiedId,
   inferProviderFromModel
 } from '../lib/providerResolution'
+import {
+  buildExecutorAcceptanceFollowupPrompt,
+  buildMentorAcceptanceRepairPrompt,
+  buildMentorAcceptancePrompt
+} from '../lib/acceptance'
 import {
   resolveEffectiveModels,
   buildUpdateModelsPayload,
@@ -80,7 +86,7 @@ export interface Message {
   timestamp: number
   from: 'mentor' | 'executor' | 'human'
   to: 'mentor' | 'executor' | 'both' | 'human'
-  type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
+  type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff' | 'acceptance'
   content: string
   attachments?: { path: string; description: string }[]
   iteration: number
@@ -109,6 +115,7 @@ export interface PairRunSummary {
   executorModel: string
   iterations: number
   messages: Message[]
+  latestAcceptance?: AcceptanceRecord
 }
 
 export interface Pair {
@@ -140,6 +147,7 @@ export interface Pair {
   modifiedFiles: ModifiedFile[]
   gitTracking: GitTracking
   automationMode: AutomationMode
+  latestAcceptance?: AcceptanceRecord
   turn: 'mentor' | 'executor'
   currentTurnCard?: TurnCard
   runCount: number
@@ -168,6 +176,7 @@ interface PairStateSnapshot {
   modifiedFiles?: ModifiedFile[]
   gitTracking?: GitTracking
   automationMode?: AutomationMode
+  latestAcceptance?: AcceptanceRecord
   mentor?: { tokenUsage: TurnTokenUsage | null }
   executor?: { tokenUsage: TurnTokenUsage | null }
 }
@@ -194,6 +203,7 @@ interface BackendPairState {
   pairId?: string
   status?: PairStatus | string
   messages?: Message[]
+  latestAcceptance?: AcceptanceRecord
 }
 
 interface PairStore {
@@ -289,6 +299,7 @@ function snapshotPair(pair: Pair): SessionSnapshotDraft {
       gitReviewAvailable: undefined
     },
     automationMode: pair.automationMode,
+    latestAcceptance: pair.latestAcceptance,
     currentTurnCard: pair.currentTurnCard,
     runCount: pair.runCount,
     runHistory: pair.runHistory,
@@ -334,6 +345,7 @@ function snapshotToPair(snapshot: SessionSnapshotRecord): Pair {
       rootPath: snapshot.gitTracking.rootPath
     },
     automationMode: snapshot.automationMode,
+    latestAcceptance: snapshot.latestAcceptance,
     turn: snapshot.turn,
     currentTurnCard: snapshot.currentTurnCard,
     runCount: snapshot.runCount,
@@ -390,6 +402,13 @@ function createTurnCard(
   }
 }
 
+function castMessageType(
+  type: string
+): 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff' | 'acceptance' {
+  if (type === 'acceptance') return 'acceptance'
+  return type as 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
+}
+
 export function turnCardToMessage(card: TurnCard): Message {
   const result = turnCardToMessageImpl(card as TokenUsageTurnCard) as TokenUsageMessage
   return {
@@ -397,7 +416,7 @@ export function turnCardToMessage(card: TurnCard): Message {
     timestamp: result.timestamp,
     from: result.from,
     to: result.to as 'mentor' | 'executor' | 'both' | 'human',
-    type: result.type as 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff',
+    type: castMessageType(result.type),
     content: result.content,
     iteration: result.iteration,
     tokenUsage: result.tokenUsage
@@ -502,7 +521,8 @@ function createRunSummary(pair: Pair): PairRunSummary | null {
     mentorModel: pair.mentorModel,
     executorModel: pair.executorModel,
     iterations: pair.iterations,
-    messages: pair.messages
+    messages: pair.messages,
+    latestAcceptance: pair.latestAcceptance
   }
 }
 
@@ -624,6 +644,7 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
     modifiedFiles: state.modifiedFiles ?? pair.modifiedFiles,
     gitTracking: state.gitTracking ?? pair.gitTracking,
     automationMode: state.automationMode ?? pair.automationMode,
+    latestAcceptance: state.latestAcceptance ?? pair.latestAcceptance,
     mentorTokenUsage: syncTokenUsage(state.mentor?.tokenUsage, pair.mentorTokenUsage),
     executorTokenUsage: syncTokenUsage(state.executor?.tokenUsage, pair.executorTokenUsage),
     currentRunFinishedAt: state.finishedAt ?? (closedNow ? Date.now() : pair.currentRunFinishedAt)
@@ -896,6 +917,7 @@ export const usePairStore = create<PairStore>((set) => ({
                     ...messages,
                     {
                       ...incoming,
+                      type: castMessageType(incoming.type),
                       content:
                         incoming.content.trim() || buildTurnCardContent(nextActivity, 'Working...')
                     }
@@ -1010,12 +1032,30 @@ export const usePairStore = create<PairStore>((set) => ({
       let message = ''
       const lastMentorMessage = [...contextMessages]
         .reverse()
-        .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'result'))
+        .find(
+          (m) =>
+            m.from === 'mentor' &&
+            (m.type === 'plan' || m.type === 'result' || m.type === 'acceptance')
+        )
       const lastExecutorMessage = [...contextMessages]
         .reverse()
         .find((m) => m.from === 'executor' && (m.type === 'plan' || m.type === 'result'))
+      const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
 
       if (data.nextRole === 'executor') {
+        if (latestAcceptance?.verdict?.nextStep.action === 'continue' && lastExecutorMessage) {
+          message = buildExecutorAcceptanceFollowupPrompt({
+            taskSpec: pair.spec,
+            previousExecutorResult: lastExecutorMessage.content,
+            verdict: latestAcceptance.verdict,
+            acceptance: latestAcceptance
+          })
+
+          const { assignTask } = state
+          await assignTask(data.pairId, message, data.nextRole)
+          return
+        }
+
         if (!lastMentorMessage || !hasExecutablePlanShape(lastMentorMessage.content)) {
           const mentorRepairPrompt =
             '### ROLE: MENTOR\n' +
@@ -1047,6 +1087,26 @@ export const usePairStore = create<PairStore>((set) => ({
             'The mentor has not provided a specific plan. Please analyze the current state and ask for a plan.'
         }
       } else {
+        if (latestAcceptance?.error && (latestAcceptance.repairAttempts ?? 0) > 0) {
+          message = buildMentorAcceptanceRepairPrompt(latestAcceptance.error)
+
+          const { assignTask } = state
+          await assignTask(data.pairId, message, data.nextRole)
+          return
+        }
+
+        if (latestAcceptance && lastExecutorMessage) {
+          message = buildMentorAcceptancePrompt({
+            taskSpec: pair.spec,
+            executorResult: lastExecutorMessage.content,
+            acceptance: latestAcceptance
+          })
+
+          const { assignTask } = state
+          await assignTask(data.pairId, message, data.nextRole)
+          return
+        }
+
         message =
           '### ROLE: MENTOR\n' +
           'Your mission is ONLY to PLAN and REVIEW. \n' +

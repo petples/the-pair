@@ -79,9 +79,24 @@ export const overlayVariants: Variants = {
 }
 
 export const turnCardFinalize: Variants = {
-  live: { opacity: 1 },
-  finalizing: { opacity: 0, transition: { duration: 0.12, ease: 'easeIn' } },
-  final: { opacity: 1, transition: { duration: 0.2, delay: 0.08, ease: 'easeOut' } }
+  live: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { duration: 0 }
+  },
+  finalizing: {
+    opacity: 0.85,
+    scale: 0.985,
+    y: -2,
+    transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] }
+  },
+  final: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] }
+  }
 }
 
 export const modalVariants: Variants = {

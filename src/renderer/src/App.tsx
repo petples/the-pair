@@ -1,5 +1,15 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react'
-import { Pause, Play, RefreshCw, RotateCcw, Terminal, Trash2, Zap } from 'lucide-react'
+import React, { useEffect, useState, useRef, useMemo, useTransition } from 'react'
+import {
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  ShieldAlert,
+  ShieldCheck,
+  Terminal,
+  Trash2,
+  Zap
+} from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -9,8 +19,8 @@ import { cn, stripSystemPrompt } from './lib/utils'
 import { usePairStore, Pair, Message, TurnCard } from './store/usePairStore'
 import { TokenChip } from './components/TokenChip'
 import { useThemeStore } from './store/useThemeStore'
-import { usePrevious } from './lib/usePrevious'
 import { turnCardFinalize } from './lib/animations'
+import { usePrevious } from './lib/usePrevious'
 import { useUpdateStore } from './store/useUpdateStore'
 import { CreatePairModal } from './components/CreatePairModal'
 import { StatusBadge } from './components/StatusBadge'
@@ -32,6 +42,7 @@ import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { parseAcceptanceVerdict } from './lib/acceptance'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
@@ -365,6 +376,7 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const isHuman = msg.from === 'human'
 
   const displayContent = isHuman ? stripSystemPrompt(msg.content.trim()) : msg.content.trim()
+  const isAcceptance = msg.type === 'acceptance'
 
   // Filter out technical handoff messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
@@ -463,7 +475,11 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
               : 'text-[14px] text-foreground/90 font-sans'
           )}
         >
-          <MarkdownContent content={displayContent} />
+          {isAcceptance ? (
+            <AcceptanceMessageBody content={displayContent} />
+          ) : (
+            <MarkdownContent content={displayContent} />
+          )}
         </div>
 
         {!isExpanded && displayContent.length > 600 && (
@@ -483,24 +499,112 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   )
 }
 
-function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
-  const prevState = usePrevious(card.state)
-  const prevFinalizedAt = usePrevious(card.finalizedAt)
-
-  let animationState: 'live' | 'finalizing' | 'final'
-  if (card.state === 'live') {
-    animationState = 'live'
-  } else if (!card.finalizedAt) {
-    animationState = 'live'
-  } else if (
-    prevState === 'live' &&
-    card.state === 'final' &&
-    card.finalizedAt === prevFinalizedAt
-  ) {
-    animationState = 'finalizing'
-  } else {
-    animationState = 'final'
+function AcceptanceMessageBody({ content }: { content: string }): React.ReactNode {
+  let verdict
+  try {
+    verdict = parseAcceptanceVerdict(content)
+  } catch (err) {
+    console.warn('[AcceptanceMessageBody] Failed to parse acceptance verdict:', err)
+    return <MarkdownContent content={content} />
   }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em]',
+            verdict.verdict === 'pass'
+              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+              : 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300'
+          )}
+        >
+          {verdict.verdict === 'pass' ? <ShieldCheck size={11} /> : <ShieldAlert size={11} />}
+          {verdict.verdict}
+        </span>
+        <span className="rounded-full border border-border/40 bg-background/40 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground/80">
+          risk {verdict.risk}
+        </span>
+        <span className="rounded-full border border-border/40 bg-background/40 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground/80">
+          next {verdict.nextStep.action}
+        </span>
+      </div>
+
+      <p className="text-[13px] leading-relaxed text-foreground/90">{verdict.summary}</p>
+
+      <div className="space-y-1">
+        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+          Evidence
+        </div>
+        <ul className="space-y-1 text-[12px] leading-relaxed text-foreground/85">
+          {verdict.evidence.map((item) => (
+            <li key={item} className="flex gap-2">
+              <span className="text-muted-foreground/50">•</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {verdict.nextStep.instructions.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Next Step
+          </div>
+          <ol className="space-y-1 text-[12px] leading-relaxed text-foreground/85">
+            {verdict.nextStep.instructions.map((step, index) => (
+              <li key={`${index}-${step}`} className="flex gap-2">
+                <span className="text-muted-foreground/50">{index + 1}.</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
+  const [animState, setAnimState] = useState<'live' | 'finalizing' | 'final'>('live')
+  const [, startTransition] = useTransition()
+  const prevCardId = usePrevious(card.id)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wasAlreadyFinalOnMount = useMemo(
+    () => card.state === 'final' && !!card.finalizedAt,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [card.id]
+  )
+
+  useEffect(() => {
+    if (prevCardId !== undefined && prevCardId !== card.id) {
+      startTransition(() => setAnimState('live'))
+    }
+  }, [prevCardId, card.id])
+
+  useEffect(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    if (card.state === 'live' || !card.finalizedAt) {
+      startTransition(() => setAnimState('live'))
+      return
+    }
+    if (card.state === 'final' && card.finalizedAt && wasAlreadyFinalOnMount) {
+      startTransition(() => setAnimState('final'))
+      return
+    }
+    startTransition(() => setAnimState('finalizing'))
+    timerRef.current = setTimeout(() => {
+      startTransition(() => setAnimState('final'))
+    }, 300)
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
+  }, [card.state, card.finalizedAt, wasAlreadyFinalOnMount])
 
   const isMentor = card.role === 'mentor'
   const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
@@ -515,7 +619,7 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
   return (
     <motion.div
-      animate={animationState}
+      animate={animState}
       variants={turnCardFinalize}
       className={cn(
         'relative overflow-hidden rounded-2xl border p-5 shadow-lg',
@@ -753,6 +857,44 @@ function PairDetail({
               onRetry={handleRetryTurn}
             />
           )}
+          {pair.latestAcceptance && (
+            <div className="rounded-2xl border border-border/40 bg-background/25 p-4">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Latest Acceptance
+                </h3>
+                <span className="rounded-full border border-border/40 bg-background/40 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground/80">
+                  {pair.latestAcceptance.risk}
+                </span>
+              </div>
+              <p className="text-[12px] leading-relaxed text-foreground/85">
+                {pair.latestAcceptance.summary}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[9px]">
+                {pair.latestAcceptance.verdict && (
+                  <span
+                    className={cn(
+                      'rounded-full border px-2 py-1 font-bold uppercase tracking-[0.16em]',
+                      pair.latestAcceptance.verdict.verdict === 'pass'
+                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                        : 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300'
+                    )}
+                  >
+                    {pair.latestAcceptance.verdict.verdict}
+                  </span>
+                )}
+                <span className="rounded-full border border-border/40 bg-background/40 px-2 py-1 font-bold uppercase tracking-[0.16em] text-muted-foreground/80">
+                  {pair.latestAcceptance.checks.filter((check) => check.status === 'failed').length}{' '}
+                  failed checks
+                </span>
+                {pair.latestAcceptance.error && (
+                  <span className="rounded-full border border-red-500/20 bg-red-500/10 px-2 py-1 font-bold uppercase tracking-[0.16em] text-red-600 dark:text-red-300">
+                    verdict error
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           <div>
             <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -978,10 +1120,9 @@ function PairDetail({
                   <div className="pt-1">
                     <AnimatePresence mode="wait">
                       <motion.div
-                        key={pair.currentTurnCard.id + pair.currentTurnCard.state}
+                        key={pair.currentTurnCard.id}
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8, transition: { duration: 0.15 } }}
                       >
                         <TurnCardView card={pair.currentTurnCard} />
                       </motion.div>

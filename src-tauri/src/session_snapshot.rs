@@ -3,9 +3,15 @@ use crate::pair_manager::PairManager;
 use crate::process_spawner::{ProcessContext, ProcessSpawner};
 use crate::provider_adapter::ProviderAdapter;
 use crate::provider_registry::ProviderKind;
+use crate::{
+    acceptance::{
+        build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
+        build_mentor_acceptance_repair_prompt,
+    },
+};
 use crate::types::{
-    AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType, ModifiedFile, Pair,
-    PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
+    AcceptanceRecord, AgentActivity, AgentRole, GitTracking, Message, MessageSender, MessageType,
+    ModifiedFile, Pair, PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -45,6 +51,8 @@ pub struct SnapshotRunSummary {
     pub messages: Vec<Message>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_output_tokens: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_acceptance: Option<AcceptanceRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +97,8 @@ pub struct SessionSnapshotRecord {
     pub modified_files: Vec<ModifiedFile>,
     pub git_tracking: GitTracking,
     pub automation_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_acceptance: Option<AcceptanceRecord>,
     pub current_turn_card: Option<SnapshotTurnCard>,
     pub run_count: u32,
     pub run_history: Vec<SnapshotRunSummary>,
@@ -134,6 +144,8 @@ pub struct SessionSnapshotDraft {
     pub modified_files: Vec<ModifiedFile>,
     pub git_tracking: GitTracking,
     pub automation_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_acceptance: Option<AcceptanceRecord>,
     pub current_turn_card: Option<SnapshotTurnCard>,
     pub run_count: u32,
     pub run_history: Vec<SnapshotRunSummary>,
@@ -208,6 +220,30 @@ Return ONLY a concrete PLAN with numbered executable steps (no intent-only prefa
 }
 
 fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
+    if let Some(acceptance) = snapshot.latest_acceptance.as_ref() {
+        if let Some(verdict) = acceptance.verdict.as_ref() {
+            if matches!(verdict.next_step.action, crate::types::AcceptanceNextAction::Continue) {
+                let previous_executor_result = snapshot
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| {
+                        matches!(message.from, MessageSender::Executor)
+                            && matches!(message.msg_type, MessageType::Result)
+                    })
+                    .map(|message| message.content.trim().to_string())
+                    .unwrap_or_default();
+
+                return build_executor_acceptance_followup_prompt(
+                    &snapshot.spec,
+                    &previous_executor_result,
+                    verdict,
+                    acceptance,
+                );
+            }
+        }
+    }
+
     let last_mentor_message = snapshot
         .messages
         .iter()
@@ -253,6 +289,22 @@ fn build_mentor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
 
     match snapshot.status {
         PairStatus::Reviewing => {
+            if let Some(acceptance) = snapshot.latest_acceptance.as_ref() {
+                if let Some(error) = acceptance.error.as_ref() {
+                    if acceptance.repair_attempts > 0 {
+                        return build_mentor_acceptance_repair_prompt(error);
+                    }
+                }
+
+                let executor_result = if last_executor_message.is_empty() {
+                    snapshot.spec.clone()
+                } else {
+                    last_executor_message
+                };
+
+                return build_mentor_acceptance_prompt(&snapshot.spec, &executor_result, acceptance);
+            }
+
             let mut prompt = String::from(
                 "### ROLE: MENTOR\n\
  Continue the restored review session.\n\
@@ -602,6 +654,7 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
         automation_mode: snapshot.automation_mode.clone(),
         git_review_available: snapshot.git_tracking.git_review_available.unwrap_or(false),
         finished_at: snapshot.current_run_finished_at,
+        latest_acceptance: snapshot.latest_acceptance.clone(),
         worktree_path: snapshot.worktree_path.clone(),
     }
 }
@@ -683,6 +736,7 @@ fn build_snapshot_from_state(
         modified_files: state.modified_files.clone(),
         git_tracking: state.git_tracking.clone(),
         automation_mode: state.automation_mode.clone(),
+        latest_acceptance: state.latest_acceptance.clone(),
         current_turn_card,
         run_count: 1,
         run_history: Vec::new(),
@@ -750,6 +804,7 @@ fn build_snapshot_from_draft(
         modified_files: draft.modified_files,
         git_tracking: draft.git_tracking,
         automation_mode: draft.automation_mode,
+        latest_acceptance: draft.latest_acceptance,
         current_turn_card: draft.current_turn_card,
         run_count: draft.run_count,
         run_history: draft.run_history,
@@ -816,6 +871,7 @@ pub fn persist_pair_snapshot_from_state(
     snapshot.modified_files = state.modified_files.clone();
     snapshot.git_tracking = state.git_tracking.clone();
     snapshot.automation_mode = state.automation_mode.clone();
+    snapshot.latest_acceptance = state.latest_acceptance.clone();
     if snapshot.current_run_finished_at.is_none()
         && matches!(
             state.status,
@@ -1137,6 +1193,7 @@ mod tests {
                 git_review_available: Some(true),
             },
             automation_mode: "full-auto".to_string(),
+            latest_acceptance: None,
             current_turn_card: Some(SnapshotTurnCard {
                 id: "turn-1".to_string(),
                 role: turn.clone(),
@@ -1206,6 +1263,7 @@ mod tests {
                 git_review_available: Some(false),
             },
             automation_mode: "full-auto".to_string(),
+            latest_acceptance: None,
             current_turn_card: None,
             run_count: 1,
             run_history: vec![],

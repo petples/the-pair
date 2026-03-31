@@ -10,6 +10,89 @@ pub enum TokenUsageSource {
     None,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AcceptanceCheckStatus {
+    Passed,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AcceptanceRisk {
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AcceptanceVerdictDecision {
+    Pass,
+    Fail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AcceptanceNextAction {
+    Continue,
+    Finish,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptanceCheckRun {
+    pub name: String,
+    pub command: String,
+    pub status: AcceptanceCheckStatus,
+    pub exit_code: Option<i32>,
+    pub duration_ms: u64,
+    pub summary: String,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptanceNextStep {
+    pub action: AcceptanceNextAction,
+    pub instructions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptanceVerdict {
+    pub verdict: AcceptanceVerdictDecision,
+    pub risk: AcceptanceRisk,
+    pub evidence: Vec<String>,
+    pub summary: String,
+    pub next_step: AcceptanceNextStep,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptanceRecord {
+    pub iteration: u32,
+    pub risk: AcceptanceRisk,
+    pub checks: Vec<AcceptanceCheckRun>,
+    pub summary: String,
+    pub started_at: u64,
+    pub finished_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<AcceptanceVerdict>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_verdict: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub repair_attempts: u32,
+}
+
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnTokenUsage {
@@ -49,6 +132,7 @@ pub enum MessageType {
     Progress,
     Result,
     Question,
+    Acceptance,
     Handoff,
 }
 
@@ -210,6 +294,8 @@ pub struct PairState {
     pub git_review_available: bool,
     #[serde(rename = "finishedAt")]
     pub finished_at: Option<u64>,
+    #[serde(rename = "latestAcceptance", skip_serializing_if = "Option::is_none")]
+    pub latest_acceptance: Option<AcceptanceRecord>,
     #[serde(rename = "worktreePath")]
     pub worktree_path: Option<String>,
 }

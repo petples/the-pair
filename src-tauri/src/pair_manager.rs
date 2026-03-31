@@ -1,3 +1,7 @@
+use crate::acceptance::{
+    build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
+    build_mentor_acceptance_repair_prompt,
+};
 use crate::message_broker::MessageBroker;
 use crate::process_spawner::ProcessSpawner;
 use crate::provider_adapter::ProviderAdapter;
@@ -561,10 +565,25 @@ fn find_last_message_by_role(messages: &[Message], role: MessageSender) -> Optio
 
 fn build_live_resume_prompt(
     turn: &str,
+    task_spec: &str,
     last_mentor: Option<String>,
     last_executor: Option<String>,
+    latest_acceptance: Option<crate::types::AcceptanceRecord>,
 ) -> String {
     if turn == "executor" {
+        if let Some(acceptance) = latest_acceptance.as_ref() {
+            if let Some(verdict) = acceptance.verdict.as_ref() {
+                if matches!(verdict.next_step.action, crate::types::AcceptanceNextAction::Continue) {
+                    return build_executor_acceptance_followup_prompt(
+                        task_spec,
+                        &last_executor.unwrap_or_default(),
+                        verdict,
+                        acceptance,
+                    );
+                }
+            }
+        }
+
         let mentor_msg = last_mentor.unwrap_or_default();
         format!(
             "### ROLE: EXECUTOR\n\
@@ -578,6 +597,20 @@ Continue the previously paused session.\n\
             mentor_msg
         )
     } else {
+        if let Some(acceptance) = latest_acceptance.as_ref() {
+            if let Some(error) = acceptance.error.as_ref() {
+                if acceptance.repair_attempts > 0 {
+                    return build_mentor_acceptance_repair_prompt(error);
+                }
+            }
+
+            return build_mentor_acceptance_prompt(
+                task_spec,
+                &last_executor.unwrap_or_default(),
+                acceptance,
+            );
+        }
+
         let executor_msg = last_executor.unwrap_or_default();
         format!(
             "### ROLE: MENTOR\n\
@@ -614,20 +647,32 @@ async fn resume_pair_core(
 
         let broker_guard = broker.lock().unwrap();
         let (lm, le) = broker_guard.get_last_messages(pair_id);
-        let (turn, messages) = broker_guard
-            .get_pair_state(pair_id)
+        let state = broker_guard
+            .get_state(pair_id)
             .ok_or_else(|| format!("No broker state found for pair {}", pair_id))?;
 
-        let role_str = match turn {
+        let role_str = match state.turn {
             crate::types::AgentRole::Mentor => "mentor",
             crate::types::AgentRole::Executor => "executor",
         };
 
-        let last_mentor_msg =
-            find_last_message_by_role(&messages, MessageSender::Mentor).or(lm.map(|m| m.content));
-        let last_executor_msg =
-            find_last_message_by_role(&messages, MessageSender::Executor).or(le.map(|m| m.content));
-        let prompt = build_live_resume_prompt(role_str, last_mentor_msg, last_executor_msg);
+        let last_mentor_msg = find_last_message_by_role(&state.messages, MessageSender::Mentor)
+            .or(lm.map(|m| m.content));
+        let last_executor_msg = find_last_message_by_role(&state.messages, MessageSender::Executor)
+            .or(le.map(|m| m.content));
+        let task_spec = state
+            .messages
+            .iter()
+            .find(|message| matches!(message.from, MessageSender::Human) && message.to == "mentor")
+            .map(|message| message.content.clone())
+            .unwrap_or_default();
+        let prompt = build_live_resume_prompt(
+            role_str,
+            &task_spec,
+            last_mentor_msg,
+            last_executor_msg,
+            state.latest_acceptance.clone(),
+        );
 
         (role_str.to_string(), prompt)
     };

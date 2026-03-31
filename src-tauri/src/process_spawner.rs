@@ -1,7 +1,12 @@
+use crate::acceptance::{
+    canonical_acceptance_verdict_json, parse_acceptance_verdict, run_acceptance_checks,
+};
 use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
 use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
 use crate::session_snapshot::persist_current_pair_snapshot;
-use crate::types::{TokenUsageSource, TurnTokenUsage};
+use crate::types::{
+    AcceptanceRecord, PairStatus, TokenUsageSource, TurnTokenUsage,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -452,6 +457,87 @@ fn should_finish_after_mentor_turn(mentor_finish_signaled: bool) -> bool {
     mentor_finish_signaled
 }
 
+struct AcceptanceVerdictOutcome {
+    parsed_acceptance: Option<AcceptanceRecord>,
+    acceptance_error: Option<String>,
+    stored_output: String,
+}
+
+fn process_mentor_review_verdict(
+    existing_acceptance: Option<AcceptanceRecord>,
+    raw_output: &str,
+    stored_output: String,
+) -> AcceptanceVerdictOutcome {
+    let Some(mut acceptance) = existing_acceptance else {
+        return AcceptanceVerdictOutcome {
+            parsed_acceptance: None,
+            acceptance_error: Some("Missing acceptance record for mentor review".to_string()),
+            stored_output,
+        };
+    };
+
+    match parse_acceptance_verdict(raw_output) {
+        Ok(verdict) => {
+            let output = canonical_acceptance_verdict_json(&verdict);
+            acceptance.raw_verdict = Some(raw_output.trim().to_string());
+            acceptance.verdict = Some(verdict);
+            acceptance.error = None;
+            AcceptanceVerdictOutcome {
+                parsed_acceptance: Some(acceptance),
+                acceptance_error: None,
+                stored_output: output,
+            }
+        }
+        Err(error) => {
+            acceptance.error = Some(error.clone());
+            acceptance.raw_verdict = Some(raw_output.trim().to_string());
+            acceptance.repair_attempts += 1;
+            AcceptanceVerdictOutcome {
+                parsed_acceptance: Some(acceptance),
+                acceptance_error: Some(error),
+                stored_output,
+            }
+        }
+    }
+}
+
+async fn maybe_run_executor_acceptance(
+    app: &tauri::AppHandle,
+    pair_id: &str,
+    final_output: &str,
+) -> Result<Option<AcceptanceRecord>, String> {
+    use crate::message_broker::MessageBroker;
+    use tauri::Manager;
+
+    let state = {
+        let Some(broker_state) = app.try_state::<Mutex<MessageBroker>>() else {
+            return Ok(None);
+        };
+        let broker = broker_state.lock().unwrap();
+        broker.get_state(pair_id)
+    };
+
+    let Some(state) = state else {
+        return Ok(None);
+    };
+
+    let acceptance = run_acceptance_checks(
+        std::path::Path::new(&state.directory),
+        &state.modified_files,
+        final_output,
+        state.iteration,
+        state.max_iterations,
+    )
+    .await;
+
+    if let Some(broker_state) = app.try_state::<Mutex<MessageBroker>>() {
+        let broker = broker_state.lock().unwrap();
+        broker.set_latest_acceptance(pair_id, Some(acceptance.clone()));
+    }
+
+    Ok(Some(acceptance))
+}
+
 fn has_signal_token_on_own_line(content: &str, token: &str) -> bool {
     let upper_token = token.to_ascii_uppercase();
 
@@ -617,8 +703,39 @@ impl ProcessSpawner {
                 }
 
                 let final_output = responses.join("\n");
+                let state_before_completion =
+                    if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker.get_state(&pair_id_mock)
+                    } else {
+                        None
+                    };
+
+                let is_mentor_review_turn = matches!(
+                    state_before_completion.as_ref().map(|state| &state.status),
+                    Some(PairStatus::Reviewing)
+                ) && role_mock == "mentor";
+
+                let (stored_output, parsed_acceptance, acceptance_error) =
+                    if is_mentor_review_turn {
+                        let outcome = process_mentor_review_verdict(
+                            state_before_completion
+                                .as_ref()
+                                .and_then(|state| state.latest_acceptance.clone()),
+                            &final_output,
+                            final_output.clone(),
+                        );
+                        (outcome.stored_output, outcome.parsed_acceptance, outcome.acceptance_error)
+                    } else {
+                        (final_output.clone(), None, None)
+                    };
+
                 let outgoing_type = if role_mock == "mentor" {
-                    MessageType::Plan
+                    if is_mentor_review_turn {
+                        MessageType::Acceptance
+                    } else {
+                        MessageType::Plan
+                    }
                 } else {
                     MessageType::Result
                 };
@@ -640,11 +757,33 @@ impl ProcessSpawner {
                             },
                             to: "human".to_string(),
                             msg_type: outgoing_type,
-                            content: final_output.clone(),
+                            content: stored_output.clone(),
                             iteration: current_iteration,
                             token_usage: Some(mock_token_usage()),
                         },
                     );
+                }
+
+                if let Some(acceptance) = parsed_acceptance.clone() {
+                    if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker.lock().unwrap();
+                        broker.set_latest_acceptance(&pair_id_mock, Some(acceptance));
+                    }
+                }
+
+                if role_mock == "executor" && mock_scenario != "error" {
+                    if let Ok(Some(acceptance)) =
+                        maybe_run_executor_acceptance(&app_mock, &pair_id_mock, &final_output).await
+                    {
+                        if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
+                            let broker = broker.lock().unwrap();
+                            broker.set_pair_status(
+                                &pair_id_mock,
+                                PairStatus::Reviewing,
+                                Some(format!("Acceptance checks complete. {}", acceptance.summary)),
+                            );
+                        }
+                    }
                 }
 
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
@@ -653,6 +792,11 @@ impl ProcessSpawner {
                 }
 
                 let mut should_handoff = true;
+                let mut next_role = if role_mock == "mentor" {
+                    "executor"
+                } else {
+                    "mentor"
+                };
                 let mentor_finish_signaled = role_mock == "mentor"
                     && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
 
@@ -668,7 +812,40 @@ impl ProcessSpawner {
                 if let Some(broker) = app_mock.try_state::<Mutex<MessageBroker>>() {
                     let broker = broker.lock().unwrap();
 
-                    if role_mock == "mentor"
+                    if is_mentor_review_turn {
+                        if let Some(acceptance) = parsed_acceptance.as_ref() {
+                            if matches!(
+                                acceptance
+                                    .verdict
+                                    .as_ref()
+                                    .map(|verdict| &verdict.next_step.action),
+                                Some(crate::types::AcceptanceNextAction::Finish)
+                            ) {
+                                broker.set_pair_status(
+                                    &pair_id_mock,
+                                    crate::types::PairStatus::Finished,
+                                    Some("Mock: Mentor acceptance marked task finished".to_string()),
+                                );
+                                should_handoff = false;
+                            }
+                        } else if let Some(error) = acceptance_error.as_ref() {
+                            let repair_attempts = parsed_acceptance
+                                .as_ref()
+                                .map(|a| a.repair_attempts)
+                                .unwrap_or(0);
+
+                            if repair_attempts > 1 {
+                                broker.set_pair_status(
+                                    &pair_id_mock,
+                                    crate::types::PairStatus::Paused,
+                                    Some(format!("Acceptance verdict parse failed: {}", error)),
+                                );
+                                should_handoff = false;
+                            } else {
+                                next_role = "mentor";
+                            }
+                        }
+                    } else if role_mock == "mentor"
                         && should_finish_after_mentor_turn(mentor_finish_signaled)
                     {
                         println!(
@@ -714,11 +891,6 @@ impl ProcessSpawner {
                 }
 
                 if should_handoff {
-                    let next_role = if role_mock == "mentor" {
-                        "executor"
-                    } else {
-                        "mentor"
-                    };
                     println!(
                         "[ProcessSpawner] [MOCK] [{}] Triggering handoff to {}",
                         pair_id_mock, next_role
@@ -960,12 +1132,6 @@ impl ProcessSpawner {
                 final_output = EMPTY_OUTPUT_PLACEHOLDER.to_string();
             }
 
-            let outgoing_type = if role_clone == "mentor" {
-                MessageType::Plan
-            } else {
-                MessageType::Result
-            };
-
             let no_text_output = final_output.trim() == EMPTY_OUTPUT_PLACEHOLDER;
             if no_text_output {
                 final_output = format!(
@@ -973,6 +1139,43 @@ impl ProcessSpawner {
                     role_clone
                 );
             }
+
+            let state_before_completion =
+                if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker_state.lock().unwrap();
+                    broker.get_state(&pair_id_clone)
+                } else {
+                    None
+                };
+
+            let is_mentor_review_turn = matches!(
+                state_before_completion.as_ref().map(|state| &state.status),
+                Some(PairStatus::Reviewing)
+            ) && role_clone == "mentor";
+
+            let (stored_output, parsed_acceptance, acceptance_error) =
+                if is_mentor_review_turn && !no_text_output {
+                    let outcome = process_mentor_review_verdict(
+                        state_before_completion
+                            .as_ref()
+                            .and_then(|state| state.latest_acceptance.clone()),
+                        &final_output,
+                        final_output.clone(),
+                    );
+                    (outcome.stored_output, outcome.parsed_acceptance, outcome.acceptance_error)
+                } else {
+                    (final_output.clone(), None, None)
+                };
+
+            let outgoing_type = if role_clone == "mentor" {
+                if is_mentor_review_turn {
+                    MessageType::Acceptance
+                } else {
+                    MessageType::Plan
+                }
+            } else {
+                MessageType::Result
+            };
 
             if let Some(broker) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker.lock().unwrap();
@@ -991,11 +1194,33 @@ impl ProcessSpawner {
                         },
                         to: "human".to_string(),
                         msg_type: outgoing_type,
-                        content: final_output.clone(),
+                        content: stored_output.clone(),
                         iteration: current_iteration,
                         token_usage: last_token_usage.clone(),
                     },
                 );
+            }
+
+            if let Some(acceptance) = parsed_acceptance.clone() {
+                if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker_state.lock().unwrap();
+                    broker.set_latest_acceptance(&pair_id_clone, Some(acceptance));
+                }
+            }
+
+            if role_clone == "executor" && !no_text_output {
+                if let Ok(Some(acceptance)) =
+                    maybe_run_executor_acceptance(&app_clone, &pair_id_clone, &final_output).await
+                {
+                    if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                        let broker = broker_state.lock().unwrap();
+                        broker.set_pair_status(
+                            &pair_id_clone,
+                            PairStatus::Reviewing,
+                            Some(format!("Acceptance checks complete. {}", acceptance.summary)),
+                        );
+                    }
+                }
             }
 
             // Clean up from active processes
@@ -1016,6 +1241,11 @@ impl ProcessSpawner {
             }
 
             let mut should_handoff = true;
+            let mut next_role = if role_clone == "mentor" {
+                "executor"
+            } else {
+                "mentor"
+            };
             let mentor_finish_signaled = role_clone == "mentor"
                 && has_signal_token_on_own_line(&final_output, MENTOR_FINISH_SIGNAL);
 
@@ -1031,7 +1261,45 @@ impl ProcessSpawner {
             if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
                 let broker = broker_state.lock().unwrap();
 
-                if role_clone == "mentor" && should_finish_after_mentor_turn(mentor_finish_signaled)
+                if is_mentor_review_turn {
+                    if let Some(acceptance) = parsed_acceptance.as_ref() {
+                        if matches!(
+                            acceptance
+                                .verdict
+                                .as_ref()
+                                .map(|verdict| &verdict.next_step.action),
+                            Some(crate::types::AcceptanceNextAction::Finish)
+                        ) {
+                            println!(
+                                "[ProcessSpawner] [{}] Mentor acceptance finished the task",
+                                pair_id_clone
+                            );
+                            broker.set_pair_status(
+                                &pair_id_clone,
+                                crate::types::PairStatus::Finished,
+                                Some("Mentor acceptance marked the task finished".to_string()),
+                            );
+                            should_handoff = false;
+                        }
+                    } else if let Some(error) = acceptance_error.as_ref() {
+                        let repair_attempts = parsed_acceptance
+                            .as_ref()
+                            .map(|a| a.repair_attempts)
+                            .unwrap_or(0);
+
+                        if repair_attempts > 1 {
+                            broker.set_pair_status(
+                                &pair_id_clone,
+                                crate::types::PairStatus::Paused,
+                                Some(format!("Acceptance verdict parse failed: {}", error)),
+                            );
+                            should_handoff = false;
+                        } else {
+                            next_role = "mentor";
+                        }
+                    }
+                } else if role_clone == "mentor"
+                    && should_finish_after_mentor_turn(mentor_finish_signaled)
                 {
                     println!(
                         "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
@@ -1076,11 +1344,6 @@ impl ProcessSpawner {
             }
 
             if should_handoff {
-                let next_role = if role_clone == "mentor" {
-                    "executor"
-                } else {
-                    "mentor"
-                };
                 println!(
                     "[ProcessSpawner] [{}] Triggering handoff to {}",
                     pair_id_clone, next_role

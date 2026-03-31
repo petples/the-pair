@@ -1,3 +1,4 @@
+mod acceptance;
 mod config_paths;
 mod file_cache;
 mod git_tracker;

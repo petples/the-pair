@@ -1,6 +1,7 @@
 use crate::types::{
-    ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput, GitTracking, Message,
-    MessageSender, MessageType, PairResources, PairState, PairStatus, ResourceInfo, TurnTokenUsage,
+    AcceptanceRecord, ActivityPhase, AgentActivity, AgentRole, AgentState, CreatePairInput,
+    GitTracking, Message, MessageSender, MessageType, PairResources, PairState, PairStatus,
+    ResourceInfo, TurnTokenUsage,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -107,6 +108,7 @@ impl MessageBroker {
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
             finished_at: None,
+            latest_acceptance: None,
             worktree_path: effective_directory.map(|s| s.to_string()),
         };
 
@@ -129,13 +131,6 @@ impl MessageBroker {
         }
     }
 
-    pub fn get_pair_state(&self, pair_id: &str) -> Option<(crate::types::AgentRole, Vec<Message>)> {
-        let pair_states = self.pair_states.lock().unwrap();
-        pair_states
-            .get(pair_id)
-            .map(|state| (state.turn.clone(), state.messages.clone()))
-    }
-
     pub fn add_message(&self, pair_id: &str, mut message: Message) {
         let mut pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get_mut(pair_id) {
@@ -143,7 +138,10 @@ impl MessageBroker {
             message.iteration = state.iteration;
 
             // Update last message for the sender - only for high-signal messages
-            if message.msg_type == MessageType::Plan || message.msg_type == MessageType::Result {
+            if matches!(
+                message.msg_type,
+                MessageType::Plan | MessageType::Result | MessageType::Acceptance
+            ) {
                 if matches!(message.from, MessageSender::Mentor) {
                     state.mentor.last_message = Some(message.clone());
                 } else if matches!(message.from, MessageSender::Executor) {
@@ -336,6 +334,7 @@ impl MessageBroker {
                 if is_planning_turn {
                     state.iteration = 1;
                     state.status = PairStatus::Mentoring;
+                    state.latest_acceptance = None;
                     state.mentor.status = PairStatus::Executing;
                     state.mentor_activity.phase = ActivityPhase::Thinking;
                     state.mentor_activity.label = "Analyzing task".to_string();
@@ -530,6 +529,14 @@ impl MessageBroker {
     pub fn get_state(&self, pair_id: &str) -> Option<PairState> {
         let pair_states = self.pair_states.lock().unwrap();
         pair_states.get(pair_id).cloned()
+    }
+
+    pub fn set_latest_acceptance(&self, pair_id: &str, acceptance: Option<AcceptanceRecord>) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.latest_acceptance = acceptance;
+            self.notify_state_update(pair_id, state);
+        }
     }
 
     pub fn restore_state(&self, state: PairState) -> Result<(), String> {
@@ -779,6 +786,7 @@ mod tests {
             automation_mode: "full-auto".to_string(),
             git_review_available: false,
             finished_at: None,
+            latest_acceptance: None,
             worktree_path: None,
         }
     }

@@ -2,6 +2,48 @@ export type ProviderKind = 'opencode' | 'codex' | 'claude' | 'gemini'
 
 export type TokenUsageSource = 'live' | 'final' | 'none'
 
+export type AcceptanceCheckStatus = 'passed' | 'failed' | 'skipped'
+export type AcceptanceRisk = 'low' | 'medium' | 'high'
+export type AcceptanceVerdictDecision = 'pass' | 'fail'
+export type AcceptanceNextAction = 'continue' | 'finish'
+
+export interface AcceptanceCheckRun {
+  name: string
+  command: string
+  status: AcceptanceCheckStatus
+  exitCode: number | null
+  durationMs: number
+  summary: string
+  stdout: string
+  stderr: string
+}
+
+export interface AcceptanceNextStep {
+  action: AcceptanceNextAction
+  instructions: string[]
+}
+
+export interface AcceptanceVerdict {
+  verdict: AcceptanceVerdictDecision
+  risk: AcceptanceRisk
+  evidence: string[]
+  summary: string
+  nextStep: AcceptanceNextStep
+}
+
+export interface AcceptanceRecord {
+  iteration: number
+  risk: AcceptanceRisk
+  checks: AcceptanceCheckRun[]
+  summary: string
+  startedAt: number
+  finishedAt: number
+  verdict?: AcceptanceVerdict
+  rawVerdict?: string
+  error?: string
+  repairAttempts?: number
+}
+
 export interface TurnTokenUsage {
   outputTokens: number
   inputTokens?: number
@@ -96,13 +138,14 @@ export interface PairRunSummary {
     timestamp: number
     from: 'mentor' | 'executor' | 'human'
     to: 'mentor' | 'executor' | 'both' | 'human'
-    type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
+    type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff' | 'acceptance'
     content: string
     attachments?: { path: string; description: string }[]
     iteration: number
     tokenUsage?: TurnTokenUsage
   }>
   totalOutputTokens?: number
+  latestAcceptance?: AcceptanceRecord
 }
 
 export interface SessionSnapshotDraft {
@@ -127,7 +170,7 @@ export interface SessionSnapshotDraft {
     timestamp: number
     from: 'mentor' | 'executor' | 'human'
     to: 'mentor' | 'executor' | 'both' | 'human'
-    type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff'
+    type: 'plan' | 'feedback' | 'progress' | 'result' | 'question' | 'handoff' | 'acceptance'
     content: string
     attachments?: { path: string; description: string }[]
     iteration: number
@@ -149,6 +192,7 @@ export interface SessionSnapshotDraft {
     gitReviewAvailable?: boolean
   }
   automationMode: 'full-auto'
+  latestAcceptance?: AcceptanceRecord
   currentTurnCard?: SnapshotTurnCard
   runCount: number
   runHistory: PairRunSummary[]

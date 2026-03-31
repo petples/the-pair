@@ -111,6 +111,23 @@ export function TaskHistoryPanel({
                     <span className="text-purple-500/70 font-medium">
                       {modelShort(run.executorModel)}
                     </span>
+                    {run.latestAcceptance?.verdict && (
+                      <>
+                        <span
+                          className={cn(
+                            'rounded-full border px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em]',
+                            run.latestAcceptance.verdict.verdict === 'pass'
+                              ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+                              : 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-300'
+                          )}
+                        >
+                          {run.latestAcceptance.verdict.verdict}
+                        </span>
+                        <span className="rounded-full border border-border/40 bg-background/40 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-muted-foreground/70">
+                          {run.latestAcceptance.risk}
+                        </span>
+                      </>
+                    )}
                     <span className="ml-auto">{formatDate(run.startedAt)}</span>
                   </div>
                 </button>
