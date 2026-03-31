@@ -85,12 +85,6 @@ export const turnCardFinalize: Variants = {
     y: 0,
     transition: { duration: 0 }
   },
-  finalizing: {
-    opacity: 0.85,
-    scale: 0.985,
-    y: -2,
-    transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] }
-  },
   final: {
     opacity: 1,
     scale: 1,

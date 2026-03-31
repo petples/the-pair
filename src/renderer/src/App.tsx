@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useMemo, useTransition } from 'react'
+import React, { useEffect, useState, useRef, useMemo } from 'react'
 import {
   Pause,
   Play,
@@ -566,45 +566,13 @@ function AcceptanceMessageBody({ content }: { content: string }): React.ReactNod
 }
 
 function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
-  const [animState, setAnimState] = useState<'live' | 'finalizing' | 'final'>('live')
-  const [, startTransition] = useTransition()
   const prevCardId = usePrevious(card.id)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const wasAlreadyFinalOnMount = useMemo(
-    () => card.state === 'final' && !!card.finalizedAt,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [card.id]
-  )
+
+  const animState = card.state === 'final' && card.finalizedAt ? 'final' : 'live'
 
   useEffect(() => {
-    if (prevCardId !== undefined && prevCardId !== card.id) {
-      startTransition(() => setAnimState('live'))
-    }
+    // reset handled by key change in parent wrapper
   }, [prevCardId, card.id])
-
-  useEffect(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-      timerRef.current = null
-    }
-    if (card.state === 'live' || !card.finalizedAt) {
-      startTransition(() => setAnimState('live'))
-      return
-    }
-    if (card.state === 'final' && card.finalizedAt && wasAlreadyFinalOnMount) {
-      startTransition(() => setAnimState('final'))
-      return
-    }
-    startTransition(() => setAnimState('finalizing'))
-    timerRef.current = setTimeout(() => {
-      startTransition(() => setAnimState('final'))
-    }, 300)
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current)
-      }
-    }
-  }, [card.state, card.finalizedAt, wasAlreadyFinalOnMount])
 
   const isMentor = card.role === 'mentor'
   const accent = isMentor ? 'text-blue-500' : 'text-purple-500'
@@ -617,13 +585,27 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
     'Working...'
   ).trim()
 
+  const isAcceptance = useMemo(() => {
+    if (card.role !== 'mentor' || card.state !== 'final') return false
+    try {
+      parseAcceptanceVerdict(currentAction)
+      return true
+    } catch {
+      return false
+    }
+  }, [card.role, card.state, currentAction])
+
   return (
     <motion.div
+      initial="live"
       animate={animState}
       variants={turnCardFinalize}
+      layout
       className={cn(
-        'relative overflow-hidden rounded-2xl border p-5 shadow-lg',
+        'relative overflow-hidden rounded-2xl border p-5 shadow-lg transition-colors duration-300',
         borderAccent,
+        animState === 'final' && isMentor && 'border-blue-400/40',
+        animState === 'final' && !isMentor && 'border-purple-400/40',
         bg,
         'metal-sheen-surface'
       )}
@@ -633,18 +615,22 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
         <span className={cn('text-[10px] font-black uppercase tracking-[0.16em]', accent)}>
           {card.role.toUpperCase()}
         </span>
-        <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70">
+        <span className="text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground/70 transition-all duration-300">
           {card.state === 'live' ? 'working' : 'result'}
         </span>
         <TokenChip usage={card.tokenUsage} isLive={card.state === 'live'} className="ml-auto" />
       </div>
       <div
         className={cn(
-          'text-sm leading-relaxed [overflow-wrap:anywhere]',
+          'text-sm leading-relaxed [overflow-wrap:anywhere] transition-colors duration-300',
           card.state === 'live' ? 'text-foreground/90' : 'text-foreground'
         )}
       >
-        <MarkdownContent content={currentAction} />
+        {isAcceptance ? (
+          <AcceptanceMessageBody content={currentAction} />
+        ) : (
+          <MarkdownContent content={currentAction} />
+        )}
       </div>
     </motion.div>
   )
@@ -1121,8 +1107,10 @@ function PairDetail({
                     <AnimatePresence mode="wait">
                       <motion.div
                         key={pair.currentTurnCard.id}
-                        initial={{ opacity: 0, y: 8 }}
+                        initial={false}
                         animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, transition: { duration: 0.15 } }}
+                        transition={{ duration: 0.15 }}
                       >
                         <TurnCardView card={pair.currentTurnCard} />
                       </motion.div>
