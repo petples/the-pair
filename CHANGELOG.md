@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-03-31
+
+### Fixed
+
+- **Cross-platform provider detection**: Fixed CLI tool discovery on Windows and macOS when launched from GUI contexts (Dock, Finder, Explorer). Previously only Codex was detected; Claude and OpenCode are now correctly discovered.
+- **PATH fallback directories**: Added Windows npm install locations (`%APPDATA%\npm`, `%LOCALAPPDATA%\npm`) and Unix user bin directories (`~/.local/bin`, `~/.npm-global/bin`, `~/.volta/bin`, NVM version dirs) to PATH fallback list.
+- **Binary discovery**: Added `.cmd`/`.exe`/`.bat` extension checks for Windows npm shims, enabling detection of `claude.cmd`, `opencode.cmd`, etc.
+- **OpenCode auth path**: Fixed OpenCode auth.json path resolution on Windows to use `%APPDATA%\opencode\auth.json`.
+- **Environment variable passthrough**: All CLI child processes now explicitly receive `HOME`, `USERPROFILE`, `APPDATA`, and `LOCALAPPDATA` environment variables, ensuring config files are discoverable regardless of GUI app environment isolation.
+- **Claude credential fallback**: Added file-based auth detection for Claude using `~/.claude/.credentials.json` and Windows AppData paths when `claude auth status` subprocess fails.
+
+### Changed
+
+- **Dynamic model discovery**: Replaced hardcoded model catalogs with dynamic discovery from config files, CLI help output, and session history for all providers (Claude, Codex, Gemini, OpenCode).
+- **Gemini event parsing**: Added structured text extraction for Gemini's `candidates`, `serverContent`, and `modelTurn` event formats.
+- **Noise filtering**: Improved plain output filtering to skip punctuation-only protocol artifacts.
+
 ## [1.3.1] - 2026-03-31
 
 ### Added
