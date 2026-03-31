@@ -2,6 +2,7 @@ use crate::config_paths::{opencode_auth_path, opencode_config_path};
 use crate::path_env::fallback_path_dirs;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -39,12 +40,70 @@ pub struct DetectedProviderProfile {
     pub detected_at: u64,
 }
 
-fn homedir() -> PathBuf {
+pub(crate) fn homedir() -> PathBuf {
     #[cfg(target_os = "windows")]
-    let home = std::env::var("USERPROFILE").unwrap_or_default();
+    let home = std::env::var("USERPROFILE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("APPDATA").ok().and_then(|value| {
+                std::path::Path::new(&value)
+                    .parent()
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+        })
+        .or_else(|| {
+            std::env::var("LOCALAPPDATA").ok().and_then(|value| {
+                std::path::Path::new(&value)
+                    .parent()
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+        })
+        .unwrap_or_default();
     #[cfg(not(target_os = "windows"))]
     let home = std::env::var("HOME").unwrap_or_default();
     PathBuf::from(home)
+}
+
+pub(crate) fn cli_environment_overrides(home: &std::path::Path) -> Vec<(OsString, OsString)> {
+    let mut overrides = Vec::new();
+
+    if !home.as_os_str().is_empty() {
+        overrides.push((OsString::from("HOME"), home.as_os_str().to_owned()));
+        overrides.push((OsString::from("USERPROFILE"), home.as_os_str().to_owned()));
+
+        #[cfg(target_os = "windows")]
+        {
+            if std::env::var_os("APPDATA").is_none() {
+                overrides.push((
+                    OsString::from("APPDATA"),
+                    home.join("AppData/Roaming").into_os_string(),
+                ));
+            }
+            if std::env::var_os("LOCALAPPDATA").is_none() {
+                overrides.push((
+                    OsString::from("LOCALAPPDATA"),
+                    home.join("AppData/Local").into_os_string(),
+                ));
+            }
+        }
+    }
+
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        overrides.push((OsString::from("APPDATA"), appdata));
+    }
+
+    if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
+        overrides.push((OsString::from("LOCALAPPDATA"), local_appdata));
+    }
+
+    overrides
+}
+
+fn prepare_cli_command(command: &mut Command, home: &std::path::Path) {
+    for (key, value) in cli_environment_overrides(home) {
+        command.env(key, value);
+    }
 }
 
 fn which_binary(name: &str) -> bool {
@@ -86,14 +145,22 @@ fn detected_at_now() -> u64 {
 }
 
 fn binary_exists_at_known_locations(name: &str, home: &std::path::Path) -> bool {
-    let fallback_dirs = fallback_path_dirs(Some(home.to_path_buf()), None, None, false);
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from);
+    let local_appdata = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let fallback_dirs = fallback_path_dirs(
+        Some(home.to_path_buf()),
+        appdata.clone(),
+        local_appdata.clone(),
+        false,
+    );
     for dir in &fallback_dirs {
         if binary_exists_in_dir(dir, name) {
             return true;
         }
     }
 
-    let windows_fallback_dirs = fallback_path_dirs(Some(home.to_path_buf()), None, None, true);
+    let windows_fallback_dirs =
+        fallback_path_dirs(Some(home.to_path_buf()), appdata, local_appdata, true);
     for dir in &windows_fallback_dirs {
         if binary_exists_in_dir(dir, name) {
             return true;
@@ -415,7 +482,7 @@ fn discover_gemini_model_ids(home: &std::path::Path) -> Vec<String> {
 fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
     let mut model_ids = Vec::new();
 
-    if let Some(help_text) = capture_claude_help_text() {
+    if let Some(help_text) = capture_claude_help_text(home) {
         let help_predicate =
             |value: &str| !value.contains(char::is_whitespace) && !value.starts_with("--");
         collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
@@ -435,13 +502,36 @@ fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
     model_ids
 }
 
-fn capture_claude_help_text() -> Option<String> {
-    let output = Command::new("claude").arg("--help").output().ok()?;
+fn capture_claude_help_text(home: &std::path::Path) -> Option<String> {
+    let mut command = Command::new("claude");
+    command.arg("--help");
+    prepare_cli_command(&mut command, home);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
 
     String::from_utf8(output.stdout).ok()
+}
+
+fn claude_credentials_paths(home: &std::path::Path) -> Vec<PathBuf> {
+    let mut paths = vec![home.join(".claude/.credentials.json")];
+
+    if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+        paths.push(appdata.join("Claude/.credentials.json"));
+    }
+
+    if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        paths.push(local_appdata.join("Claude/.credentials.json"));
+    }
+
+    paths
+}
+
+fn has_claude_credentials(home: &std::path::Path) -> bool {
+    claude_credentials_paths(home)
+        .into_iter()
+        .any(|path| path.exists() && safe_read_json::<serde_json::Value>(&path).is_some())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -570,7 +660,10 @@ impl ProviderRegistry {
 
         // 3. Detect from 'opencode models' command output
         if installed {
-            let output = Command::new("opencode").arg("models").output();
+            let mut command = Command::new("opencode");
+            command.arg("models");
+            prepare_cli_command(&mut command, &homedir());
+            let output = command.output();
 
             if let Ok(o) = output {
                 if o.status.success() {
@@ -677,7 +770,10 @@ impl ProviderRegistry {
         let mut model_ids = Vec::new();
 
         if installed {
-            let output = Command::new("claude").arg("auth").arg("status").output();
+            let mut command = Command::new("claude");
+            command.arg("auth").arg("status");
+            prepare_cli_command(&mut command, &homedir);
+            let output = command.output();
 
             if let Ok(o) = output {
                 let status_str = String::from_utf8_lossy(&o.stdout);
@@ -691,6 +787,11 @@ impl ProviderRegistry {
                         subscription_label = "subscription-backed".to_string();
                     }
                 }
+            }
+
+            if !authenticated && has_claude_credentials(&homedir) {
+                authenticated = true;
+                subscription_label = "subscription-backed".to_string();
             }
 
             // Also check for ANTHROPIC_API_KEY env var as fallback auth
@@ -1068,6 +1169,88 @@ exit 0
         );
     }
 
+    #[test]
+    fn binary_exists_at_known_locations_uses_custom_appdata_env_paths() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_root = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let roaming = temp_root.join("enterprise/roaming");
+        let local = temp_root.join("enterprise/local");
+        let original_appdata = std::env::var_os("APPDATA");
+        let original_local_appdata = std::env::var_os("LOCALAPPDATA");
+        fs::create_dir_all(roaming.join("npm")).expect("failed to create roaming npm dir");
+        fs::create_dir_all(local.join("npm")).expect("failed to create local npm dir");
+        fs::write(roaming.join("npm/opencode.cmd"), "@echo off\r\n")
+            .expect("failed to seed roaming binary");
+
+        std::env::set_var("APPDATA", &roaming);
+        std::env::set_var("LOCALAPPDATA", &local);
+
+        let found = binary_exists_at_known_locations("opencode", &temp_root.join("home"));
+
+        if let Some(value) = original_appdata {
+            std::env::set_var("APPDATA", value);
+        } else {
+            std::env::remove_var("APPDATA");
+        }
+
+        if let Some(value) = original_local_appdata {
+            std::env::set_var("LOCALAPPDATA", value);
+        } else {
+            std::env::remove_var("LOCALAPPDATA");
+        }
+
+        assert!(
+            found,
+            "Windows fallback lookup should honor APPDATA/LOCALAPPDATA env values"
+        );
+    }
+
+    #[test]
+    fn cli_environment_overrides_preserve_custom_appdata_values() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let roaming = temp_home.join("enterprise/Roaming");
+        let local = temp_home.join("enterprise/Local");
+        let original_appdata = std::env::var_os("APPDATA");
+        let original_local_appdata = std::env::var_os("LOCALAPPDATA");
+
+        std::env::set_var("APPDATA", &roaming);
+        std::env::set_var("LOCALAPPDATA", &local);
+
+        let overrides: HashMap<_, _> = cli_environment_overrides(&temp_home)
+            .into_iter()
+            .collect();
+
+        if let Some(value) = original_appdata {
+            std::env::set_var("APPDATA", value);
+        } else {
+            std::env::remove_var("APPDATA");
+        }
+
+        if let Some(value) = original_local_appdata {
+            std::env::set_var("LOCALAPPDATA", value);
+        } else {
+            std::env::remove_var("LOCALAPPDATA");
+        }
+
+        assert_eq!(
+            overrides.get(&OsString::from("HOME")),
+            Some(&temp_home.as_os_str().to_owned())
+        );
+        assert_eq!(
+            overrides.get(&OsString::from("USERPROFILE")),
+            Some(&temp_home.as_os_str().to_owned())
+        );
+        assert_eq!(
+            overrides.get(&OsString::from("APPDATA")),
+            Some(&roaming.as_os_str().to_owned())
+        );
+        assert_eq!(
+            overrides.get(&OsString::from("LOCALAPPDATA")),
+            Some(&local.as_os_str().to_owned())
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn detect_gemini_finds_models_from_nvm_style_installation() {
@@ -1269,6 +1452,80 @@ fi
                 .iter()
                 .any(|model| model.model_id == "claude-opus-9-1"),
             "Claude should discover full model names from recent local history"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detect_claude_uses_credentials_file_when_auth_status_fails() {
+        let _guard = ENV_LOCK.lock().expect("env lock should be available");
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", Uuid::new_v4()));
+        let claude_dir = temp_home.join(".nvm/versions/node/v24.14.0/bin");
+        let credentials_dir = temp_home.join(".claude");
+        fs::create_dir_all(&claude_dir).expect("failed to create temp claude dir");
+        fs::create_dir_all(&credentials_dir).expect("failed to create temp credentials dir");
+
+        write_executable_script(
+            &claude_dir,
+            "claude",
+            r#"#!/bin/sh
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  exit 1
+elif [ "$1" = "--help" ]; then
+  printf '%s\n' "  --model <model>  Use aliases like 'sonnet' and full names like 'claude-sonnet-4-7'"
+else
+  exit 0
+fi
+"#,
+        );
+
+        fs::write(
+            credentials_dir.join(".credentials.json"),
+            r#"{"accessToken":"test-token"}"#,
+        )
+        .expect("failed to write claude credentials");
+
+        let original_home = std::env::var_os("HOME");
+        let original_path = std::env::var_os("PATH");
+        let original_api_key = std::env::var_os("ANTHROPIC_API_KEY");
+        let new_path = if let Some(existing) = &original_path {
+            format!("{}:{}", claude_dir.display(), existing.to_string_lossy())
+        } else {
+            claude_dir.display().to_string()
+        };
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::set_var("PATH", new_path);
+        std::env::remove_var("ANTHROPIC_API_KEY");
+
+        let profile = ProviderRegistry::detect_claude();
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(value) = original_api_key {
+            std::env::set_var("ANTHROPIC_API_KEY", value);
+        }
+
+        assert!(profile.installed);
+        assert!(profile.authenticated);
+        assert!(profile.runnable);
+        assert_eq!(profile.subscription_label, "subscription-backed");
+        assert!(
+            profile
+                .current_models
+                .iter()
+                .any(|model| model.model_id == "claude-sonnet-4-7"),
+            "Claude should still discover models when auth falls back to local credentials"
         );
     }
 }

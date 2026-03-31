@@ -1,5 +1,5 @@
 use crate::provider_adapter::{ProviderAdapter, ProviderTurnRequest};
-use crate::provider_registry::ProviderKind;
+use crate::provider_registry::{cli_environment_overrides, homedir, ProviderKind};
 use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{TokenUsageSource, TurnTokenUsage};
 use serde::{Deserialize, Serialize};
@@ -75,6 +75,12 @@ fn mock_token_usage() -> crate::types::TurnTokenUsage {
             .as_millis() as u64,
         source: crate::types::TokenUsageSource::Final,
         provider: Some("mock".to_string()),
+    }
+}
+
+fn apply_provider_cli_env(command: &mut Command) {
+    for (key, value) in cli_environment_overrides(&homedir()) {
+        command.env(key, value);
     }
 }
 
@@ -750,11 +756,15 @@ impl ProcessSpawner {
             executable, args, spec
         );
 
-        let mut child = Command::new(&executable)
+        let mut child_command = Command::new(&executable);
+        child_command
             .args(&args)
             .current_dir(&directory)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        apply_provider_cli_env(&mut child_command);
+
+        let mut child = child_command
             .spawn()
             .map_err(|e| format!("Failed to spawn process: {}", e))?;
 
@@ -1099,6 +1109,7 @@ mod tests {
     use super::*;
     use crate::provider_registry::ProviderKind;
     use serde_json::json;
+    use std::collections::HashMap;
 
     #[test]
     fn parse_json_event_handles_raw_and_data_prefixed_payloads() {
@@ -1553,5 +1564,71 @@ mod tests {
             "last live usage should be preserved when final event lacks usage"
         );
         assert_eq!(last_token_usage.as_ref().unwrap().output_tokens, 500);
+    }
+
+    #[test]
+    fn apply_provider_cli_env_propagates_home_and_appdata_overrides() {
+        let temp_home = std::env::temp_dir().join(format!("the-pair-test-{}", uuid::Uuid::new_v4()));
+        let roaming = temp_home.join("enterprise/Roaming");
+        let local = temp_home.join("enterprise/Local");
+        let original_home = std::env::var_os("HOME");
+        let original_userprofile = std::env::var_os("USERPROFILE");
+        let original_appdata = std::env::var_os("APPDATA");
+        let original_local_appdata = std::env::var_os("LOCALAPPDATA");
+
+        std::env::set_var("HOME", &temp_home);
+        std::env::remove_var("USERPROFILE");
+        std::env::set_var("APPDATA", &roaming);
+        std::env::set_var("LOCALAPPDATA", &local);
+
+        let mut command = Command::new("opencode");
+        apply_provider_cli_env(&mut command);
+
+        let envs: HashMap<_, _> = command
+            .as_std()
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key.to_owned(), value.to_owned())))
+            .collect();
+
+        if let Some(value) = original_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        if let Some(value) = original_userprofile {
+            std::env::set_var("USERPROFILE", value);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
+
+        if let Some(value) = original_appdata {
+            std::env::set_var("APPDATA", value);
+        } else {
+            std::env::remove_var("APPDATA");
+        }
+
+        if let Some(value) = original_local_appdata {
+            std::env::set_var("LOCALAPPDATA", value);
+        } else {
+            std::env::remove_var("LOCALAPPDATA");
+        }
+
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("HOME")),
+            Some(&temp_home.as_os_str().to_owned())
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("USERPROFILE")),
+            Some(&temp_home.as_os_str().to_owned())
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("APPDATA")),
+            Some(&roaming.as_os_str().to_owned())
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("LOCALAPPDATA")),
+            Some(&local.as_os_str().to_owned())
+        );
     }
 }
