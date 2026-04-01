@@ -63,7 +63,7 @@ export function ErrorDetailPanel({
         <>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="mb-3 flex w-full items-center justify-between rounded-xl border border-border/40 bg-background/40 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-background/60"
+            className="mb-3 flex w-full items-center justify-between rounded-xl border border-border/40 bg-background/40 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-background/60 cursor-pointer"
           >
             <span>View error details</span>
             {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}

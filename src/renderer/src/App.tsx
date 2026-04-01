@@ -42,7 +42,7 @@ import { ConfirmModal } from './components/ui/ConfirmModal'
 import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { parseAcceptanceVerdict } from './lib/acceptance'
+import { isAcceptanceVerdictContent, parseAcceptanceVerdict } from './lib/acceptance'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
@@ -376,7 +376,9 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   const isHuman = msg.from === 'human'
 
   const displayContent = isHuman ? stripSystemPrompt(msg.content.trim()) : msg.content.trim()
-  const isAcceptance = msg.type === 'acceptance'
+  const isAcceptance =
+    msg.type === 'acceptance' ||
+    (msg.from === 'mentor' && isAcceptanceVerdictContent(displayContent))
 
   // Filter out technical handoff messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
@@ -449,7 +451,7 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
                     : 'text-green-500'
               )}
             >
-              {msg.type.toUpperCase()}
+              {(isAcceptance ? 'acceptance' : msg.type).toUpperCase()}
             </span>
           </div>
         </div>
@@ -490,7 +492,7 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
       {displayContent.length > 600 && (
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-fit text-[10px] font-bold uppercase tracking-widest text-primary hover:underline transition-all"
+          className="w-fit text-[10px] font-bold uppercase tracking-widest text-primary hover:underline transition-all cursor-pointer"
         >
           {isExpanded ? 'Collapse' : 'Expand full report'}
         </button>
@@ -587,12 +589,7 @@ function TurnCardView({ card }: { card: TurnCard }): React.ReactNode {
 
   const isAcceptance = useMemo(() => {
     if (card.role !== 'mentor' || card.state !== 'final') return false
-    try {
-      parseAcceptanceVerdict(currentAction)
-      return true
-    } catch {
-      return false
-    }
+    return isAcceptanceVerdictContent(currentAction)
   }, [card.role, card.state, currentAction])
 
   return (

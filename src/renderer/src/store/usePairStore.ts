@@ -775,19 +775,6 @@ function parseProgressUpdate(
   }
 }
 
-function hasExecutablePlanShape(content: string): boolean {
-  const text = content.trim()
-  if (!text || text.length < 40) return false
-
-  const hasStructuredSteps =
-    /(?:^|\n)\s*(?:\d+[.)]|[-*])\s+/.test(text) || /(?:^|\n)\s*(?:步骤|step|plan|执行)/i.test(text)
-
-  // Guard against "intent-only" outputs that often lead to executor "no plan provided" replies.
-  const intentOnly = /^(?:我来|我将|让我|I'll|I will|Let me)\b/i.test(text) && text.length < 120
-
-  return hasStructuredSteps && !intentOnly
-}
-
 export const usePairStore = create<PairStore>((set) => ({
   pairs: [],
   availableModels: [],
@@ -998,6 +985,11 @@ export const usePairStore = create<PairStore>((set) => ({
         return
       }
 
+      if (backendState?.status === 'Paused') {
+        console.log('[usePairStore] Ignoring handoff - backend is paused')
+        return
+      }
+
       const state = usePairStore.getState()
       const pair = state.pairs.find((p) => p.id === data.pairId)
 
@@ -1053,20 +1045,6 @@ export const usePairStore = create<PairStore>((set) => ({
 
           const { assignTask } = state
           await assignTask(data.pairId, message, data.nextRole)
-          return
-        }
-
-        if (!lastMentorMessage || !hasExecutablePlanShape(lastMentorMessage.content)) {
-          const mentorRepairPrompt =
-            '### ROLE: MENTOR\n' +
-            'Your previous output was not an executable PLAN for the EXECUTOR.\n' +
-            '- DO NOT execute.\n' +
-            '- Return only a concrete PLAN with numbered steps.\n' +
-            '- Each step must be directly executable by the EXECUTOR.\n\n' +
-            'Please provide the corrected PLAN now.'
-
-          const { assignTask } = state
-          await assignTask(data.pairId, mentorRepairPrompt, 'mentor')
           return
         }
 

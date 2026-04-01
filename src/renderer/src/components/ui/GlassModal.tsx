@@ -44,7 +44,10 @@ export function GlassModal({
           animate="visible"
           exit="hidden"
         >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer"
+            onClick={onClose}
+          />
           <motion.div
             className={cn('glass-modal w-full max-w-lg shadow-2xl relative', className)}
             variants={modalVariants}
@@ -57,7 +60,7 @@ export function GlassModal({
                 <h2 className="text-lg font-semibold text-foreground tracking-tight">{title}</h2>
                 <button
                   onClick={onClose}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer"
                 >
                   <X size={16} />
                 </button>

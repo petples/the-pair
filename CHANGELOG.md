@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-04-02
+
+### Changed
+
+- **Console message classification**: Mentor acceptance verdicts are now recognized even when JSON is embedded in surrounding text, so archived turn cards and the live console consistently render review output as acceptance messages instead of generic plans.
+- **Interactive affordances**: Buttons, modal backdrops, and picker controls now consistently show pointer cursors across the app for clearer click targets.
+
+### Fixed
+
+- **Paused handoff guard**: Handoff events are now ignored when a pair is already paused, preventing accidental extra turns after manual pauses or iteration-limit pauses.
+- **Resume review fallback**: Restored review sessions now fall back to the task spec when no prior executor output is available, avoiding empty mentor review prompts.
+
 ## [1.3.2] - 2026-03-31
 
 ### Fixed

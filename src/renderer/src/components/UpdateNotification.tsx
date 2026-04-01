@@ -70,7 +70,7 @@ export function UpdateNotification(): React.ReactNode {
             exit="hidden"
           >
             <div
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer"
               onClick={handleCloseModal}
             />
             <motion.div
@@ -88,7 +88,7 @@ export function UpdateNotification(): React.ReactNode {
                   onClick={handleCloseModal}
                   disabled={isInstalling}
                   className={cn(
-                    'p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all',
+                    'p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer',
                     isInstalling && 'opacity-50 cursor-not-allowed'
                   )}
                 >
@@ -107,7 +107,7 @@ export function UpdateNotification(): React.ReactNode {
                     onClick={() => void installUpdate()}
                     disabled={isInstalling}
                     className={cn(
-                      'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                      'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer',
                       'bg-primary text-primary-foreground hover:bg-primary/90',
                       isInstalling && 'opacity-70 cursor-not-allowed'
                     )}
@@ -123,7 +123,7 @@ export function UpdateNotification(): React.ReactNode {
                     onClick={handleCloseModal}
                     disabled={isInstalling}
                     className={cn(
-                      'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                      'px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer',
                       'border border-border bg-background hover:bg-muted/50',
                       isInstalling && 'opacity-50 cursor-not-allowed'
                     )}

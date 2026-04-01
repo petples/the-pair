@@ -611,7 +611,11 @@ Continue the previously paused session.\n\
             );
         }
 
-        let executor_msg = last_executor.unwrap_or_default();
+        let executor_msg = last_executor
+            .as_ref()
+            .filter(|s| !s.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| task_spec.to_string());
         format!(
             "### ROLE: MENTOR\n\
 Continue the restored review session.\n\

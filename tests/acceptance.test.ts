@@ -5,6 +5,7 @@ import {
   buildExecutorAcceptanceFollowupPrompt,
   buildMentorAcceptanceRepairPrompt,
   buildMentorAcceptancePrompt,
+  isAcceptanceVerdictContent,
   parseAcceptanceVerdict
 } from '../src/renderer/src/lib/acceptance.ts'
 import type { AcceptanceRecord } from '../src/renderer/src/types.ts'
@@ -82,6 +83,30 @@ test('parseAcceptanceVerdict extracts JSON embedded in prose', () => {
   assert.equal(verdict.verdict, 'pass')
   assert.equal(verdict.nextStep.action, 'finish')
   assert.deepEqual(verdict.nextStep.instructions, [])
+})
+
+test('isAcceptanceVerdictContent detects valid verdict JSON embedded in text', () => {
+  assert.equal(
+    isAcceptanceVerdictContent(`Review complete.
+    {
+      "verdict": "pass",
+      "risk": "low",
+      "evidence": ["git diff --check passed"],
+      "summary": "Everything needed for this task is in place",
+      "nextStep": {
+        "action": "finish",
+        "instructions": []
+      }
+    }`),
+    true
+  )
+})
+
+test('isAcceptanceVerdictContent rejects ordinary mentor markdown', () => {
+  assert.equal(
+    isAcceptanceVerdictContent('## Plan\n\n1. Inspect the bug\n2. Patch the renderer'),
+    false
+  )
 })
 
 test('buildMentorAcceptancePrompt embeds executor result and acceptance report', () => {

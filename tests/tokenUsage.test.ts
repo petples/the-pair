@@ -99,6 +99,37 @@ test('turnCardToMessage preserves live tokenUsage for in-progress turns', () => 
   assert.equal(message.tokenUsage?.source, 'live')
 })
 
+test('turnCardToMessage archives mentor acceptance cards as acceptance messages', () => {
+  const card: TokenUsageTurnCard = {
+    id: 'turn-acceptance',
+    role: 'mentor',
+    state: 'final',
+    content: `{
+      "verdict": "fail",
+      "risk": "medium",
+      "evidence": ["Button alignment change is not visible"],
+      "summary": "The requested UI update is incomplete",
+      "nextStep": {
+        "action": "continue",
+        "instructions": ["Left-align the Step 3 action buttons", "Re-run verification"]
+      }
+    }`,
+    activity: {
+      phase: 'idle',
+      label: 'Done',
+      startedAt: 1000,
+      updatedAt: 2000
+    },
+    startedAt: 1000,
+    updatedAt: 2000,
+    finalizedAt: 2000
+  }
+
+  const message = turnCardToMessage(card)
+
+  assert.equal(message.type, 'acceptance')
+})
+
 test('mergeTokenUsage preserves existing when next is undefined', () => {
   const existingUsage: TurnTokenUsage = {
     outputTokens: 2500,

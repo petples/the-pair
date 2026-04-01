@@ -27,7 +27,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
     setLoading(true)
     try {
       const result = await invoke<SkillInfo[]>('discover_skills', {
-        projectDir: projectDir || null,
+        projectDir: projectDir || null
       })
       setSkills(result)
     } catch (error) {
@@ -97,7 +97,7 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
         ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer"
         title="Add skill"
       >
         <Sparkles size={16} />
@@ -125,14 +125,10 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
               type="button"
               onClick={() => void loadSkills()}
               disabled={loading}
-              className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50"
+              className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-50 cursor-pointer"
               title="Refresh skills"
             >
-              {loading ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <RefreshCw size={14} />
-              )}
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             </button>
           </div>
 
@@ -153,10 +149,8 @@ export function SkillPicker({ projectDir, onSelect }: SkillPickerProps) {
                   type="button"
                   onClick={() => handleSelect(skill)}
                   className={cn(
-                    'w-full text-left p-3 border-b border-border/30 last:border-0 transition-colors',
-                    index === selectedIndex
-                      ? 'bg-primary/10'
-                      : 'hover:bg-muted/30'
+                    'w-full text-left p-3 border-b border-border/30 last:border-0 transition-colors cursor-pointer',
+                    index === selectedIndex ? 'bg-primary/10' : 'hover:bg-muted/30'
                   )}
                 >
                   <div className="font-medium text-sm">{skill.name}</div>

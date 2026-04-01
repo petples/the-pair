@@ -1344,6 +1344,21 @@ impl ProcessSpawner {
             }
 
             if should_handoff {
+                if let Some(broker_state) = app_clone.try_state::<Mutex<MessageBroker>>() {
+                    let broker = broker_state.lock().unwrap();
+                    if let Some(state) = broker.get_state(&pair_id_clone) {
+                        if state.status == crate::types::PairStatus::Paused {
+                            println!(
+                                "[ProcessSpawner] [{}] Skipping handoff - pair is paused",
+                                pair_id_clone
+                            );
+                            should_handoff = false;
+                        }
+                    }
+                }
+            }
+
+            if should_handoff {
                 println!(
                     "[ProcessSpawner] [{}] Triggering handoff to {}",
                     pair_id_clone, next_role

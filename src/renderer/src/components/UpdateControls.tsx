@@ -83,7 +83,7 @@ export function UpdateControls(): React.ReactNode {
       {phase === 'available' && version && releaseBody && (
         <button
           onClick={handleShowReleaseNotes}
-          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer"
           title="View release notes"
         >
           <Info size={14} />

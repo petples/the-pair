@@ -187,7 +187,7 @@ export function BranchPicker({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
-          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer',
           'bg-white/5 dark:bg-zinc-800/50 border border-zinc-200/50 dark:border-zinc-700/50',
           'hover:bg-white/10 dark:hover:bg-zinc-700/50',
           value && 'border-blue-500/50 dark:border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10'
@@ -236,7 +236,7 @@ export function BranchPicker({
                 <button
                   type="button"
                   onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                 >
                   <X size={11} />
                 </button>
@@ -248,7 +248,7 @@ export function BranchPicker({
             type="button"
             onClick={handleClear}
             className={cn(
-              'w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700',
+              'w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer',
               !value && 'bg-zinc-100 dark:bg-zinc-700'
             )}
           >
@@ -275,7 +275,7 @@ export function BranchPicker({
                     disabled={repoState.isDirty && !isCurrent}
                     onClick={() => handleSelect(branch.name)}
                     className={cn(
-                      'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700',
+                      'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer',
                       value === branch.name && 'bg-blue-500/10 dark:bg-blue-500/20',
                       repoState.isDirty && !isCurrent && 'opacity-50 cursor-not-allowed'
                     )}
@@ -318,7 +318,7 @@ export function BranchPicker({
                   disabled={repoState.isDirty}
                   onClick={() => handleSelect(branch.name)}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700',
+                    'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer',
                     value === branch.name && 'bg-blue-500/10 dark:bg-blue-500/20',
                     repoState.isDirty && 'opacity-50 cursor-not-allowed'
                   )}

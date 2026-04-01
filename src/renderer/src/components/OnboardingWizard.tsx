@@ -212,7 +212,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
           <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={toggleTheme}
-              className="app-no-drag rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              className="app-no-drag rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground cursor-pointer"
               title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             >
               {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
@@ -280,7 +280,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
             onClick={handleLaunch}
             disabled={!canLaunch || isCreating}
             className={cn(
-              'relative flex items-center gap-2 overflow-hidden rounded-xl border px-6 py-2 text-sm font-semibold tracking-wide transition-all duration-200',
+              'relative flex items-center gap-2 overflow-hidden rounded-xl border px-6 py-2 text-sm font-semibold tracking-wide transition-all duration-200 cursor-pointer',
               'bg-gradient-to-b from-zinc-200 via-zinc-300 to-zinc-400',
               'dark:from-zinc-400 dark:via-zinc-600 dark:to-zinc-800',
               'border-zinc-400/60 dark:border-zinc-500/50',

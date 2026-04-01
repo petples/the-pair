@@ -101,7 +101,7 @@ export function ReasoningEffortPicker({
                   type="button"
                   onClick={() => handleSelect(level)}
                   className={cn(
-                    'flex-1 px-2 py-1 text-[10px] font-medium transition-all',
+                    'flex-1 px-2 py-1 text-[10px] font-medium transition-all cursor-pointer',
                     isActive
                       ? cn(tone.activeBg, tone.activeText)
                       : cn(tone.inactiveBg, tone.inactiveText, 'hover:bg-muted/40')
@@ -120,7 +120,7 @@ export function ReasoningEffortPicker({
               type="button"
               onClick={handleClear}
               className={cn(
-                'flex h-6 w-6 items-center justify-center rounded-md border',
+                'flex h-6 w-6 items-center justify-center rounded-md border cursor-pointer',
                 tone.inactiveBorder,
                 'text-muted-foreground hover:bg-muted/40 transition-all'
               )}

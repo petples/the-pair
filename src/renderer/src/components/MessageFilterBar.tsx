@@ -27,7 +27,7 @@ export function MessageFilterBar({
           key={key}
           onClick={() => onFilterChange(key)}
           className={cn(
-            'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-all',
+            'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-all cursor-pointer',
             activeFilter === key
               ? key === 'all'
                 ? 'bg-primary/15 text-primary border border-primary/25'

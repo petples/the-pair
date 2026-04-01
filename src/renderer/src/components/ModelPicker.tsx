@@ -96,7 +96,7 @@ function QuickPickCell({
       type="button"
       onClick={() => onSelect(model)}
       className={cn(
-        'flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all',
+        'flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all cursor-pointer',
         selected
           ? cn('ring-1', tone.border, tone.bgSelected, tone.ringSelected)
           : 'border-border/50 bg-background/30 hover:border-foreground/12 hover:bg-muted/30'
@@ -233,7 +233,7 @@ export function ModelPicker({
           type="button"
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
           className={cn(
-            'flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-all hover:border-foreground/12 hover:bg-muted/30',
+            'flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-all hover:border-foreground/12 hover:bg-muted/30 cursor-pointer',
             selectedModel && !recentModels.some((m) => getQualifiedModel(m) === value)
               ? tone.border
               : 'border-border/50'
@@ -308,7 +308,7 @@ export function ModelPicker({
                       type="button"
                       onClick={() => handleSelect(model)}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-all',
+                        'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-all cursor-pointer',
                         selected ? tone.bgSelected : 'hover:bg-muted/40'
                       )}
                     >

@@ -3,9 +3,11 @@ export interface HandoffEventLike {
   backendStatus?: string | null
 }
 
-export function shouldIgnoreHandoffEvent({
-  pairStatus,
-  backendStatus
-}: HandoffEventLike): boolean {
-  return backendStatus === 'Finished' || pairStatus === 'Finished'
+export function shouldIgnoreHandoffEvent({ pairStatus, backendStatus }: HandoffEventLike): boolean {
+  return (
+    backendStatus === 'Finished' ||
+    pairStatus === 'Finished' ||
+    backendStatus === 'Paused' ||
+    pairStatus === 'Paused'
+  )
 }

@@ -51,7 +51,10 @@ export function ConfirmModal({
           animate="visible"
           exit="hidden"
         >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-pointer"
+            onClick={onCancel}
+          />
           <motion.div
             className={cn('glass-modal w-full max-w-md shadow-2xl relative')}
             variants={modalVariants}

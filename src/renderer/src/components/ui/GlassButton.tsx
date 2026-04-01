@@ -54,7 +54,7 @@ export function GlassButton({
       title={title}
       data-testid={dataTestId}
       className={cn(
-        'flex items-center justify-center font-medium transition-all duration-200 border relative overflow-hidden',
+        'flex items-center justify-center font-medium transition-all duration-200 border relative overflow-hidden cursor-pointer',
         variantMap[variant],
         sizeMap[size],
         disabled && 'opacity-40 cursor-not-allowed pointer-events-none',

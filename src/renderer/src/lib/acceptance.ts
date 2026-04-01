@@ -136,6 +136,15 @@ export function parseAcceptanceVerdict(raw: string): AcceptanceVerdict {
   throw new Error(lastError)
 }
 
+export function isAcceptanceVerdictContent(raw: string): boolean {
+  try {
+    parseAcceptanceVerdict(raw)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function buildMentorAcceptancePrompt(input: {
   taskSpec: string
   executorResult: string

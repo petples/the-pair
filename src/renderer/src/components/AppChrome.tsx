@@ -60,7 +60,7 @@ export function AppChrome({
           {selectedPair ? (
             <button
               onClick={onBack}
-              className="app-no-drag flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+              className="app-no-drag flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/50 text-muted-foreground transition-all hover:bg-muted hover:text-foreground cursor-pointer"
               data-testid="chrome-back"
             >
               <ChevronLeft size={18} />
@@ -149,7 +149,7 @@ export function AppChrome({
 
           <button
             onClick={onToggleTheme}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground transition-all hover:bg-muted hover:text-foreground cursor-pointer"
             title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             data-testid="chrome-theme-toggle"
           >
