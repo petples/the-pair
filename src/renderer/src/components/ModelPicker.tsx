@@ -96,21 +96,21 @@ function QuickPickCell({
       type="button"
       onClick={() => onSelect(model)}
       className={cn(
-        'flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all cursor-pointer',
+        'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer',
         selected
           ? cn('ring-1', tone.border, tone.bgSelected, tone.ringSelected)
           : 'border-border/50 bg-background/30 hover:border-foreground/12 hover:bg-muted/30'
       )}
     >
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-semibold text-foreground leading-tight">
+        <div className="truncate text-xs font-semibold text-foreground leading-tight">
           {model.displayName}
         </div>
-        <div className="truncate text-[10px] text-muted-foreground leading-tight mt-0.5">
+        <div className="truncate pt-0.5 text-[11px] text-muted-foreground leading-tight">
           {model.providerLabel}
         </div>
       </div>
-      {selected && <CheckCircle2 size={11} className={cn('shrink-0', tone.text)} />}
+      {selected && <CheckCircle2 size={12} className={cn('shrink-0', tone.text)} />}
     </button>
   )
 }
@@ -204,16 +204,22 @@ export function ModelPicker({
     () => models.find((model) => getQualifiedModel(model) === value),
     [models, value]
   )
+  const isRecentSelection = recentModels.some((model) => getQualifiedModel(model) === value)
 
   const pickerContent = (
-    <div className="space-y-2.5">
-      {/* 2x2 quick-pick grid for recent models */}
+    <div className="space-y-3">
+      {/* Recent quick-picks */}
       {recentModels.length > 0 && (
         <div>
-          <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Recent
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div
+            className={cn(
+              'grid gap-2',
+              variant === 'card' ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'
+            )}
+          >
             {recentModels.map((model) => (
               <QuickPickCell
                 key={getQualifiedModel(model)}
@@ -232,26 +238,25 @@ export function ModelPicker({
         <button
           type="button"
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          aria-expanded={isDropdownOpen}
           className={cn(
-            'flex w-full items-center gap-2 rounded-xl border px-3 py-2 text-left transition-all hover:border-foreground/12 hover:bg-muted/30 cursor-pointer',
-            selectedModel && !recentModels.some((m) => getQualifiedModel(m) === value)
-              ? tone.border
-              : 'border-border/50'
+            'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all hover:border-foreground/12 hover:bg-muted/30 cursor-pointer',
+            selectedModel && !isRecentSelection ? tone.border : 'border-border/50'
           )}
         >
-          {selectedModel && !recentModels.some((m) => getQualifiedModel(m) === value) ? (
+          {selectedModel && !isRecentSelection ? (
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[11px] font-semibold text-foreground">
+              <div className="truncate text-sm font-semibold leading-tight text-foreground">
                 {selectedModel.displayName}
               </div>
-              <div className="truncate text-[10px] text-muted-foreground">
+              <div className="truncate pt-0.5 text-xs text-muted-foreground">
                 {selectedModel.providerLabel}
               </div>
             </div>
           ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <Search size={12} className="shrink-0 text-muted-foreground" />
-              <span className="text-[11px] text-muted-foreground">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Search size={14} className="shrink-0 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">
                 {recentModels.length > 0 ? 'All models...' : 'Select a model'}
               </span>
             </div>
@@ -275,8 +280,8 @@ export function ModelPicker({
             <div className="p-2">
               <div className="relative">
                 <Search
-                  size={12}
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  size={13}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
                 <input
                   ref={inputRef}
@@ -290,31 +295,34 @@ export function ModelPicker({
                     }
                   }}
                   placeholder="Search models..."
-                  className="w-full rounded-lg border border-border/60 bg-muted/30 py-1.5 pl-7 pr-3 text-[11px] text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
+                  className="w-full rounded-lg border border-border/60 bg-muted/30 py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
                 />
               </div>
             </div>
-            <div className="max-h-52 overflow-y-auto px-1.5 pb-1.5 scrollbar-thin">
+            <div className="max-h-60 overflow-y-auto px-2 pb-2 scrollbar-thin">
               {filteredDropdownModels.length === 0 ? (
-                <div className="py-4 text-center text-[11px] text-muted-foreground">
+                <div className="py-5 text-center text-sm text-muted-foreground">
                   No models found
                 </div>
               ) : (
                 filteredDropdownModels.map((model) => {
                   const selected = getQualifiedModel(model) === value
+                  const showSourceProvider =
+                    model.sourceProviderLabel && model.sourceProviderLabel !== model.providerLabel
+
                   return (
                     <button
                       key={getQualifiedModel(model)}
                       type="button"
                       onClick={() => handleSelect(model)}
                       className={cn(
-                        'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-all cursor-pointer',
+                        'flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-all cursor-pointer',
                         selected ? tone.bgSelected : 'hover:bg-muted/40'
                       )}
                     >
                       <div
                         className={cn(
-                          'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border',
+                          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
                           model.available ? tone.border : 'border-border',
                           model.available ? tone.background : 'bg-muted/40'
                         )}
@@ -326,30 +334,23 @@ export function ModelPicker({
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[11px] font-semibold text-foreground">
+                        <div className="truncate text-sm font-semibold leading-tight text-foreground">
                           {model.displayName}
                         </div>
-                        <div className="flex items-center gap-1 text-[10px]">
-                          {model.provider === 'claude' ? (
-                            <span className="font-medium text-blue-600 dark:text-blue-400">
-                              {model.modelId}
-                            </span>
-                          ) : (
-                            model.sourceProviderLabel &&
-                            model.sourceProviderLabel !== model.providerLabel && (
-                              <>
-                                <span className="font-medium text-blue-600 dark:text-blue-400">
-                                  {model.sourceProviderLabel}
-                                </span>
-                                <span className="text-muted-foreground">via</span>
-                              </>
-                            )
+                        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+                          {showSourceProvider && (
+                            <>
+                              <span className="font-medium text-blue-600 dark:text-blue-400">
+                                {model.sourceProviderLabel}
+                              </span>
+                              <span>via</span>
+                            </>
                           )}
                           <span className="font-medium text-foreground/80">
                             {model.providerLabel}
                           </span>
                           {model.planLabel && model.planLabel !== 'BYOK' && (
-                            <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1 py-0.5 text-[8px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
+                            <span className="inline-flex items-center rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-emerald-600 dark:text-emerald-400">
                               {model.planLabel}
                             </span>
                           )}
@@ -380,12 +381,18 @@ export function ModelPicker({
 
   if (variant === 'card') {
     return (
-      <div className={cn('flex flex-col rounded-2xl border p-4', tone.border, 'bg-background/40')}>
+      <div
+        className={cn(
+          'flex flex-col rounded-2xl border p-4 sm:p-5',
+          tone.border,
+          'bg-background/40'
+        )}
+      >
         {/* Card header */}
-        <div className="mb-3 flex items-center gap-2.5">
+        <div className="mb-3.5 flex items-center gap-3">
           <div
             className={cn(
-              'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border',
+              'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
               tone.border,
               tone.background
             )}
@@ -394,7 +401,7 @@ export function ModelPicker({
           </div>
           <div>
             <div className={cn('text-sm font-semibold', tone.text)}>{tone.label}</div>
-            <div className="text-[10px] text-muted-foreground">{tone.subtitle}</div>
+            <div className="text-xs text-muted-foreground">{tone.subtitle}</div>
           </div>
         </div>
         {pickerContent}

@@ -116,7 +116,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   }
 
   return (
-    <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-2xl">
+    <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-3xl">
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">Name</label>
@@ -157,7 +157,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
 
         {directory && <BranchPicker directory={directory} value={branch} onChange={setBranch} />}
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ModelPicker
             value={mentorModel}
             models={availableModels}

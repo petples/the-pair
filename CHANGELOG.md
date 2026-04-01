@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.4] - 2026-04-02
+
+### Changed
+
+- **Create Pair model picker layout**: Widened the Create New Pair modal and made the mentor/executor model cards stack on narrower widths so the picker UI has enough room instead of appearing squeezed.
+- **Model option readability**: Increased spacing, padding, and text sizing across recent-model chips, the selected-model trigger, and dropdown search/results rows for a cleaner, easier-to-scan selection flow.
+
+### Fixed
+
+- **Duplicate-looking model labels**: Simplified secondary metadata in model dropdown rows so options no longer appear to repeat the model name beneath the primary title.
+- **Cramped recent models in cards**: Switched card-mode recent models to a single-column layout so longer model names and provider labels no longer collide.
+- **Release test runner**: Updated the JavaScript test script to load TypeScript tests through `tsx`, so local release checks and GitHub Actions can execute the existing `.ts` test suite instead of failing on file extension errors.
+
 ## [1.3.3] - 2026-04-02
 
 ### Changed
