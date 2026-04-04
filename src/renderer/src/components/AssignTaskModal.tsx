@@ -139,23 +139,6 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     >
       <form onSubmit={handleSubmit} className="flex flex-col h-[70vh] max-h-[600px]">
         <div className="flex-1 overflow-y-auto min-h-0 space-y-5">
-          <div className="glass-card rounded-2xl p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/60">
-                <Sparkles size={16} className="text-foreground/70" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-foreground">
-                  Reuse this pair container
-                </div>
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  Workspace, pair identity, and default models stay attached to this pair. The new
-                  task starts as a fresh run with a cleared console and iteration counter.
-                </p>
-              </div>
-            </div>
-          </div>
-
           <div className="glass-card rounded-2xl p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               Workspace

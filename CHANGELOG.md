@@ -5,7 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.3.5] - 2026-04-04
+## [1.3.6] - 2026-04-05
+
+### Added
+
+- **Preset picker**: New `PresetPicker` component with categorized preset cards (bug-fix, refactor, feature, hardening), popover details, and inline preset selection for pair creation, onboarding, and task assignment flows.
+- **Preset utilities**: New `presetUtils` module with category/icon/color mapping and `usePresets` hook for loading and selecting pair configuration presets.
+- **Token usage in session snapshots**: Session snapshots now capture and persist token usage data for each pair run.
+- **Expandable markdown in report exports**: Report exports now render markdown content in expandable sections for cleaner long-form output.
+
+### Changed
+
+- **Create Pair modal**: Simplified the preset selection flow — removed the preset/custom toggle and now show the `PresetPicker` directly.
+- **Assign Task modal**: Removed the "Reuse this pair container" info card to reduce visual clutter.
+- **Spec initialization**: Simplified spec initialization logic when selecting presets by removing legacy template stripping.
+
+### Fixed
+
+- **Preset duplication**: Selecting a preset no longer duplicates model configuration when re-selecting or switching presets.
+- **Model dropdown light theme visibility**: Fixed text contrast in the model dropdown picker under light theme.
 
 ### Added
 

@@ -35,7 +35,6 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
-  const [configMode, setConfigMode] = useState<'preset' | 'custom'>('preset')
   const {
     presets,
     loading: presetsLoading,
@@ -147,7 +146,6 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       setExecutorReasoningEffort(undefined)
       setBranch(undefined)
       setSelectedPreset(null)
-      setConfigMode('preset')
       onClose()
     } catch {
       // Store already exposes the error copy
@@ -186,44 +184,14 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
             <Sparkles size={14} className="text-primary" />
             <span className="text-sm font-medium text-foreground">Choose a Preset</span>
           </div>
-          <div className="mb-4 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setConfigMode('preset')}
-              className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
-                configMode === 'preset'
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/60 bg-muted text-muted-foreground hover:border-foreground/12 hover:text-foreground hover:bg-muted/80'
-              }`}
-            >
-              Start from Preset
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setConfigMode('custom')
-                setSelectedPreset(null)
-              }}
-              className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
-                configMode === 'custom'
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/60 bg-muted text-muted-foreground hover:border-foreground/12 hover:text-foreground hover:bg-muted/80'
-              }`}
-            >
-              Custom Configuration
-            </button>
-          </div>
-
-          {configMode === 'preset' && (
-            <PresetPicker
-              presets={presets}
-              selectedPresetId={selectedPreset?.id ?? null}
-              onSelect={handlePresetSelect}
-              loading={presetsLoading}
-              onRetry={loadPresets}
-              error={presetsError}
-            />
-          )}
+          <PresetPicker
+            presets={presets}
+            selectedPresetId={selectedPreset?.id ?? null}
+            onSelect={handlePresetSelect}
+            loading={presetsLoading}
+            onRetry={loadPresets}
+            error={presetsError}
+          />
         </div>
 
         {selectedPreset && (
