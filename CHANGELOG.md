@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-04-04
+
+### Added
+
+- **Timeline panel**: New timeline view showing pair run events (mentor plans, executor results, reviews, handoffs) with timestamps, durations, and token usage in a vertical timeline layout.
+- **Run report export**: New report generation module for exporting pair run summaries and timelines.
+- **Run generation counter**: Monotonically increasing generation counter per pair run prevents stale spawned tasks from emitting handoff events after their process was killed.
+
+### Changed
+
+- **Acceptance risk classification**: Simplified backend-only risk classification — any backend file change now qualifies as medium risk regardless of frontend presence.
+- **Task assignment flow**: New runs now stop existing pair processes and reset the message broker session before starting, ensuring a clean state.
+- **Assign Task modal**: Improved modal layout with scrollable content area and fixed action bar for longer task specs.
+- **Process event filtering**: `tool_result` events are no longer filtered as noise in final event processing.
+
+### Fixed
+
+- **Acceptance verdict parsing**: Mentor review now handles verdict parse failures gracefully — pauses after repeated failures instead of hanging or proceeding with an invalid state.
+
 ## [1.3.4] - 2026-04-02
 
 ### Changed
