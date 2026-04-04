@@ -275,6 +275,7 @@ pub async fn pair_create(
                     executor_session_id: None,
                     mentor_reasoning_effort,
                     executor_reasoning_effort,
+                    run_generation: 0,
                 },
             );
         }
@@ -335,9 +336,16 @@ pub async fn pair_assign_task(
                 ctx.executor_session_id.clone(),
                 ctx.mentor_reasoning_effort.clone(),
                 ctx.executor_reasoning_effort.clone(),
+                ctx.run_generation,
             )
         });
         let is_new_run = input.role.is_none();
+
+        if is_new_run {
+            // remove_contexts=false: stop_pair_processes only locks active_processes,
+            // not pair_contexts, so no deadlock with ctx_guard held.
+            stop_pair_processes(&spawner, &pair_id, false);
+        }
 
         let effective_mentor_model = pair
             .pending_mentor_model
@@ -360,10 +368,11 @@ pub async fn pair_assign_task(
             existing_executor_provider,
             existing_mentor_sid,
             existing_executor_sid,
+            existing_run_generation,
         ) = existing
             .as_ref()
-            .map(|(mp, ep, ms, es, _, _)| (*mp, *ep, ms.clone(), es.clone()))
-            .unwrap_or((pair.mentor_provider, pair.executor_provider, None, None));
+            .map(|(mp, ep, ms, es, _, _, gen)| (*mp, *ep, ms.clone(), es.clone(), *gen))
+            .unwrap_or((pair.mentor_provider, pair.executor_provider, None, None, 0));
 
         let mentor_provider_changed = inferred_mentor_provider != existing_mentor_provider;
         let executor_provider_changed = inferred_executor_provider != existing_executor_provider;
@@ -415,6 +424,11 @@ pub async fn pair_assign_task(
                 executor_reasoning_effort: resolve_reasoning_effort(
                     pair.executor_reasoning_effort.clone(),
                 ),
+                run_generation: if is_new_run {
+                    existing_run_generation.wrapping_add(1)
+                } else {
+                    existing_run_generation
+                },
             },
         );
     }
@@ -428,6 +442,9 @@ pub async fn pair_assign_task(
 
     {
         let broker_guard = broker.lock().unwrap();
+        if input.role.is_none() {
+            broker_guard.reset_session(&pair_id);
+        }
         broker_guard.prepare_run(&pair_id, &role, spawner.active_processes.clone());
     }
 

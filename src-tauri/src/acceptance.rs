@@ -91,14 +91,10 @@ pub fn classify_acceptance_risk(modified_files: &[ModifiedFile]) -> AcceptanceRi
     });
 
     let mut has_backend = false;
-    let mut has_frontend = false;
     for file in modified_files {
         let path = file.path.to_lowercase();
         if path.contains("src-tauri/") || path.ends_with(".rs") {
             has_backend = true;
-        }
-        if path.contains("src/renderer/") || path.ends_with(".ts") || path.ends_with(".tsx") {
-            has_frontend = true;
         }
     }
 
@@ -106,7 +102,7 @@ pub fn classify_acceptance_risk(modified_files: &[ModifiedFile]) -> AcceptanceRi
         return AcceptanceRisk::High;
     }
 
-    if total_files >= 6 || (has_backend && has_frontend) || has_backend {
+    if total_files >= 6 || has_backend {
         return AcceptanceRisk::Medium;
     }
 

@@ -1,8 +1,10 @@
 import React from 'react'
-import { History, RotateCcw } from 'lucide-react'
+import { History, RotateCcw, Clipboard, Download } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
 import type { PairRunSummary } from '../store/usePairStore'
+import type { TimelineData } from '../lib/timeline'
+import { copyMarkdownReport, exportAsHtml } from '../lib/reportExport'
 
 interface TaskHistoryPanelProps {
   runHistory: PairRunSummary[]
@@ -10,6 +12,7 @@ interface TaskHistoryPanelProps {
   onSelectTask: (runId: string) => void
   onBackToCurrent: () => void
   onRestoreTask: (run: PairRunSummary) => void
+  timeline?: TimelineData | null
 }
 
 function formatDate(ts: number): string {
@@ -32,7 +35,8 @@ export function TaskHistoryPanel({
   viewingRunId,
   onSelectTask,
   onBackToCurrent,
-  onRestoreTask
+  onRestoreTask,
+  timeline
 }: TaskHistoryPanelProps): React.ReactNode {
   if (runHistory.length === 0) {
     return (
@@ -131,6 +135,33 @@ export function TaskHistoryPanel({
                     <span className="ml-auto">{formatDate(run.startedAt)}</span>
                   </div>
                 </button>
+
+                {isViewing && timeline && (
+                  <div className="mt-2 flex gap-1 px-3 pb-2">
+                    <GlassButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        await copyMarkdownReport(timeline)
+                      }}
+                      icon={<Clipboard size={9} />}
+                      className="h-6 px-2 text-[9px]"
+                    >
+                      Copy MD
+                    </GlassButton>
+                    <GlassButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        await exportAsHtml(timeline)
+                      }}
+                      icon={<Download size={9} />}
+                      className="h-6 px-2 text-[9px]"
+                    >
+                      Export HTML
+                    </GlassButton>
+                  </div>
+                )}
 
                 <div
                   className={cn(

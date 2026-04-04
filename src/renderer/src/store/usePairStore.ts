@@ -179,6 +179,7 @@ interface PairStateSnapshot {
   latestAcceptance?: AcceptanceRecord
   mentor?: { tokenUsage: TurnTokenUsage | null }
   executor?: { tokenUsage: TurnTokenUsage | null }
+  messages?: Message[]
 }
 
 interface PairMessageEvent {
@@ -581,49 +582,67 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
   let messages = pair.messages
   let currentTurnCard = pair.currentTurnCard
 
+  if (state.messages && state.messages.length > 0) {
+    // Merge: keep frontend messages that aren't in the backend (e.g. human mission card)
+    // so that reset_session on the backend doesn't erase them from the UI.
+    const backendIds = new Set(state.messages.map((m) => m.id))
+    const preservedMessages = pair.messages.filter((m) => !backendIds.has(m.id))
+    const existingTokenUsage = new Map(pair.messages.map((m) => [m.id, m.tokenUsage]))
+    messages = [
+      ...preservedMessages,
+      ...state.messages.map((m) => ({
+        ...m,
+        tokenUsage: m.tokenUsage ?? existingTokenUsage.get(m.id)
+      }))
+    ].sort((a, b) => a.timestamp - b.timestamp)
+  }
+
   if (currentTurnCard && currentTurnCard.role !== nextTurn) {
-    messages = [...messages, turnCardToMessage({ ...currentTurnCard, state: 'final' })]
     currentTurnCard = undefined
   }
 
   if (shouldHaveCurrentCard) {
-    const nextContent = buildTurnCardContent(
-      nextActiveActivity,
-      nextTurn === 'mentor' ? 'Mentor working' : 'Executor working'
-    )
-    const nextTokenUsage =
-      nextTurn === 'mentor'
-        ? resolveCurrentTurnTokenUsage(
-            state.mentor?.tokenUsage,
-            currentTurnCard?.tokenUsage,
-            pair.mentorTokenUsage
-          )
-        : resolveCurrentTurnTokenUsage(
-            state.executor?.tokenUsage,
-            currentTurnCard?.tokenUsage,
-            pair.executorTokenUsage
-          )
+    const latestFromTurn = [...messages].reverse().find((m) => m.from === nextTurn)
+    const hasFinalMessageFromTurnRole =
+      latestFromTurn !== undefined &&
+      (latestFromTurn.type === 'plan' ||
+        latestFromTurn.type === 'result' ||
+        latestFromTurn.type === 'acceptance')
+    if (hasFinalMessageFromTurnRole) {
+      currentTurnCard = undefined
+    } else {
+      const nextContent = buildTurnCardContent(
+        nextActiveActivity,
+        nextTurn === 'mentor' ? 'Mentor working' : 'Executor working'
+      )
+      const nextTokenUsage =
+        nextTurn === 'mentor'
+          ? resolveCurrentTurnTokenUsage(
+              state.mentor?.tokenUsage,
+              currentTurnCard?.tokenUsage,
+              pair.mentorTokenUsage
+            )
+          : resolveCurrentTurnTokenUsage(
+              state.executor?.tokenUsage,
+              currentTurnCard?.tokenUsage,
+              pair.executorTokenUsage
+            )
 
-    if (!currentTurnCard) {
-      currentTurnCard = createTurnCard(nextTurn, nextActiveActivity, nextContent, 'live')
-      currentTurnCard.tokenUsage = nextTokenUsage
-    } else if (currentTurnCard.role === nextTurn) {
-      currentTurnCard = {
-        ...currentTurnCard,
-        activity: nextActiveActivity,
-        content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
-        updatedAt: nextActiveActivity.updatedAt,
-        tokenUsage: nextTokenUsage
+      if (!currentTurnCard) {
+        currentTurnCard = createTurnCard(nextTurn, nextActiveActivity, nextContent, 'live')
+        currentTurnCard.tokenUsage = nextTokenUsage
+      } else if (currentTurnCard.role === nextTurn) {
+        currentTurnCard = {
+          ...currentTurnCard,
+          activity: nextActiveActivity,
+          content: currentTurnCard.state === 'live' ? nextContent : currentTurnCard.content,
+          updatedAt: nextActiveActivity.updatedAt,
+          tokenUsage: nextTokenUsage
+        }
       }
     }
   } else if (currentTurnCard) {
-    currentTurnCard = {
-      ...currentTurnCard,
-      activity: nextActiveActivity,
-      state: 'final',
-      updatedAt: nextActiveActivity.updatedAt,
-      finalizedAt: Date.now()
-    }
+    currentTurnCard = undefined
   }
 
   return {
@@ -688,8 +707,41 @@ function parseProgressUpdate(
         : typeof (part.name as string | undefined) === 'string'
           ? (part.name as string)
           : ''
+    // Build a meaningful action description for tool events
+    const toolActionDetail = (() => {
+      if (!toolName) return ''
+      const inputObj = part.input as Record<string, unknown> | undefined
+      const inputStr =
+        typeof inputObj?.command === 'string'
+          ? inputObj.command
+          : typeof inputObj?.file_path === 'string'
+            ? inputObj.file_path
+            : typeof inputObj?.path === 'string'
+              ? inputObj.path
+              : ''
+      const rawText = (inputStr || partText || '').split('\n')[0].trim()
+      const snippet = rawText.length > 80 ? rawText.slice(0, 77) + '...' : rawText
+      const lowerTool = toolName.toLowerCase()
+
+      if (snippet && !snippet.startsWith('{')) {
+        if (lowerTool === 'bash' || lowerTool === 'shell' || lowerTool.includes('exec'))
+          return `Running: ${snippet}`
+        if (['read', 'readfile'].some((n) => lowerTool.includes(n))) return `Reading: ${snippet}`
+        if (['write', 'writefile', 'edit', 'apply', 'create'].some((n) => lowerTool.includes(n)))
+          return `Editing: ${snippet}`
+        if (
+          lowerTool.includes('grep') ||
+          lowerTool.includes('search') ||
+          lowerTool.includes('glob')
+        )
+          return `Searching: ${snippet}`
+        return `${toolName}: ${snippet}`
+      }
+      return `Using ${toolName}`
+    })()
+
     const fallbackDetail =
-      toolName ||
+      toolActionDetail ||
       (lowerType.includes('tool')
         ? 'Using tools'
         : lowerType.includes('step_start')
@@ -710,11 +762,7 @@ function parseProgressUpdate(
 
     if (lowerType.includes('tool') || itemType.includes('tool') || toolName) {
       return {
-        detail: sanitizeProgressDetail(
-          toolName ? `Using tool: ${toolName}` : fallbackDetail,
-          fallbackDetail,
-          role
-        ),
+        detail: sanitizeProgressDetail(toolActionDetail || fallbackDetail, fallbackDetail, role),
         phase: 'using_tools'
       }
     }
@@ -890,16 +938,12 @@ export const usePairStore = create<PairStore>((set) => ({
                 let messages = p.messages
                 let currentTurnCard = p.currentTurnCard
 
-                if (currentTurnCard && currentTurnCard.role === role) {
-                  currentTurnCard = {
-                    ...currentTurnCard,
-                    activity: nextActivity,
-                    content: incoming.content.trim() || currentTurnCard.content,
-                    state: 'final',
-                    updatedAt: Date.now(),
-                    finalizedAt: Date.now()
-                  }
-                } else {
+                if (currentTurnCard) {
+                  currentTurnCard = undefined
+                }
+
+                const messageExists = messages.some((m) => m.id === incoming.id)
+                if (!messageExists) {
                   messages = [
                     ...messages,
                     {
@@ -1024,14 +1068,10 @@ export const usePairStore = create<PairStore>((set) => ({
       let message = ''
       const lastMentorMessage = [...contextMessages]
         .reverse()
-        .find(
-          (m) =>
-            m.from === 'mentor' &&
-            (m.type === 'plan' || m.type === 'result' || m.type === 'acceptance')
-        )
+        .find((m) => m.from === 'mentor' && (m.type === 'plan' || m.type === 'acceptance'))
       const lastExecutorMessage = [...contextMessages]
         .reverse()
-        .find((m) => m.from === 'executor' && (m.type === 'plan' || m.type === 'result'))
+        .find((m) => m.from === 'executor' && m.type === 'result')
       const latestAcceptance = backendState?.latestAcceptance ?? pair.latestAcceptance
 
       if (data.nextRole === 'executor') {

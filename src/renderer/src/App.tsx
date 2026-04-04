@@ -25,6 +25,7 @@ import { useUpdateStore } from './store/useUpdateStore'
 import { CreatePairModal } from './components/CreatePairModal'
 import { StatusBadge } from './components/StatusBadge'
 import { TaskHistoryPanel } from './components/TaskHistoryPanel'
+import { TimelinePanel } from './components/TimelinePanel'
 import { OnboardingWizard } from './components/OnboardingWizard'
 import { ScrollToBottomButton } from './components/ScrollToBottomButton'
 import { DashboardEmptyState } from './components/DashboardEmptyState'
@@ -43,6 +44,7 @@ import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { isAcceptanceVerdictContent, parseAcceptanceVerdict } from './lib/acceptance'
+import { buildTimeline } from './lib/timeline'
 
 function isPairRunning(status: Pair['status']): boolean {
   const normalized = String(status).toLowerCase()
@@ -657,6 +659,51 @@ function PairDetail({
     ? (pair.runHistory.find((run) => run.id === viewingRunId) ?? null)
     : null
 
+  const timelineData = useMemo(() => {
+    const source = viewingRun ?? {
+      name: pair.name,
+      spec: pair.spec,
+      mentorModel: pair.mentorModel,
+      executorModel: pair.executorModel,
+      status: pair.status,
+      messages: pair.messages,
+      latestAcceptance: pair.latestAcceptance,
+      modifiedFiles: pair.modifiedFiles,
+      currentRunStartedAt: pair.currentRunStartedAt,
+      currentRunFinishedAt: pair.currentRunFinishedAt
+    }
+
+    const messages = source.messages
+    if (messages.length === 0) return null
+
+    return buildTimeline(
+      messages.map((m) => ({
+        id: m.id,
+        timestamp: m.timestamp,
+        from: m.from,
+        to: m.to,
+        type: m.type,
+        content: m.content,
+        iteration: m.iteration,
+        tokenUsage: m.tokenUsage
+      })),
+      {
+        name: 'name' in source ? source.name : pair.name,
+        spec: source.spec,
+        mentorModel: source.mentorModel,
+        executorModel: source.executorModel,
+        status: source.status,
+        messages: messages,
+        latestAcceptance: source.latestAcceptance,
+        modifiedFiles: 'modifiedFiles' in source ? source.modifiedFiles : pair.modifiedFiles,
+        currentRunStartedAt:
+          'currentRunStartedAt' in source ? source.currentRunStartedAt : pair.currentRunStartedAt,
+        currentRunFinishedAt:
+          'currentRunFinishedAt' in source ? source.currentRunFinishedAt : pair.currentRunFinishedAt
+      }
+    )
+  }, [pair, viewingRun])
+
   const consoleMessages = useMemo(() => {
     const messages = viewingRun
       ? buildConsoleMessages(viewingRun.messages)
@@ -963,7 +1010,10 @@ function PairDetail({
             onSelectTask={(runId) => setViewingRunId(runId)}
             onBackToCurrent={() => setViewingRunId(null)}
             onRestoreTask={(run) => onRestoreTask(run.spec, run.mentorModel, run.executorModel)}
+            timeline={viewingRunId ? timelineData : null}
           />
+
+          <TimelinePanel timeline={timelineData} />
         </div>
 
         <div className="flex w-[46%] flex-col bg-muted/10">

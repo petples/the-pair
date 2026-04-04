@@ -214,12 +214,7 @@ export function ModelPicker({
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Recent
           </div>
-          <div
-            className={cn(
-              'grid gap-2',
-              variant === 'card' ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'
-            )}
-          >
+          <div className={cn('grid gap-2', 'grid-cols-2')}>
             {recentModels.map((model) => (
               <QuickPickCell
                 key={getQualifiedModel(model)}

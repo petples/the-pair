@@ -261,39 +261,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
                 onFileSelect={handleFileSelect}
                 onSkillSelect={handleSkillSelect}
                 isCompactLayout={isCompactLayout}
+                canLaunch={canLaunch}
+                isCreating={isCreating}
+                onLaunch={handleLaunch}
+                error={error}
               />
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="glass-toolbar shrink-0 border-t border-border/40 px-6 py-3 lg:px-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-center gap-3">
-          {error && (
-            <div className="flex items-center gap-1.5 text-xs text-destructive">
-              <AlertCircle size={13} />
-              {error}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={handleLaunch}
-            disabled={!canLaunch || isCreating}
-            className={cn(
-              'relative flex items-center gap-2 overflow-hidden rounded-xl border px-6 py-2 text-sm font-semibold tracking-wide transition-all duration-200 cursor-pointer',
-              'bg-gradient-to-b from-zinc-200 via-zinc-300 to-zinc-400',
-              'dark:from-zinc-400 dark:via-zinc-600 dark:to-zinc-800',
-              'border-zinc-400/60 dark:border-zinc-500/50',
-              'text-zinc-800 dark:text-zinc-100',
-              'shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_3px_rgba(0,0,0,0.18)]',
-              'dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_3px_rgba(0,0,0,0.4)]',
-              'hover:brightness-105 active:brightness-95 active:scale-[0.98]',
-              (!canLaunch || isCreating) && 'cursor-not-allowed opacity-40'
-            )}
-          >
-            <Rocket size={13} className="shrink-0" />
-            {isCreating ? 'Launching...' : 'Launch Pair'}
-          </button>
         </div>
       </div>
     </div>
@@ -465,7 +439,11 @@ function TaskSpecCard({
   onSpecChange,
   textareaRef,
   onFileSelect,
-  onSkillSelect
+  onSkillSelect,
+  canLaunch,
+  isCreating,
+  onLaunch,
+  error
 }: {
   name: string
   spec: string
@@ -476,6 +454,10 @@ function TaskSpecCard({
   onFileSelect: (path: string, content: string) => void
   onSkillSelect: (skillName: string) => void
   isCompactLayout: boolean
+  canLaunch: boolean
+  isCreating: boolean
+  onLaunch: () => void
+  error: string | null
 }): React.ReactNode {
   return (
     <GlassCard className="flex h-full flex-col p-4 space-y-3">
@@ -485,7 +467,7 @@ function TaskSpecCard({
         description="Give this pair a name and describe the desired outcome."
       />
 
-      <div className="space-y-3 flex-1">
+      <div className="space-y-3 flex-1 flex flex-col">
         <div>
           <label className="mb-1 block text-xs font-medium text-foreground">Pair Name</label>
           <input
@@ -497,7 +479,7 @@ function TaskSpecCard({
           />
         </div>
 
-        <div className="relative flex-1">
+        <div className="relative flex-1 flex flex-col">
           <label className="mb-1 block text-xs font-medium text-foreground">Task Description</label>
           <textarea
             ref={textareaRef}
@@ -505,7 +487,7 @@ function TaskSpecCard({
             onChange={(e) => onSpecChange(e.target.value)}
             placeholder="Describe the desired outcome as directly as possible... Use @filename to reference files."
             rows={4}
-            className="w-full resize-none rounded-xl glass-card px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full resize-none rounded-xl glass-card px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-h-[120px]"
           />
           {directory && (
             <div className="absolute right-2 top-6 flex items-center gap-1">
@@ -521,6 +503,34 @@ function TaskSpecCard({
           <p className="mt-1 text-[10px] text-muted-foreground">
             {spec.length} chars · Type @ to reference files
           </p>
+
+          <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
+            {error && (
+              <div className="flex items-center gap-1.5 text-xs text-destructive">
+                <AlertCircle size={13} />
+                {error}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onLaunch}
+              disabled={!canLaunch || isCreating}
+              className={cn(
+                'relative flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl border px-6 py-2 text-sm font-semibold tracking-wide transition-all duration-200 cursor-pointer',
+                'bg-gradient-to-b from-zinc-200 via-zinc-300 to-zinc-400',
+                'dark:from-zinc-400 dark:via-zinc-600 dark:to-zinc-800',
+                'border-zinc-400/60 dark:border-zinc-500/50',
+                'text-zinc-800 dark:text-zinc-100',
+                'shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_1px_3px_rgba(0,0,0,0.18)]',
+                'dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_1px_3px_rgba(0,0,0,0.4)]',
+                'hover:brightness-105 active:brightness-95 active:scale-[0.98]',
+                (!canLaunch || isCreating) && 'cursor-not-allowed opacity-40'
+              )}
+            >
+              <Rocket size={13} className="shrink-0" />
+              {isCreating ? 'Launching...' : 'Launch Pair'}
+            </button>
+          </div>
         </div>
       </div>
     </GlassCard>

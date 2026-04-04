@@ -289,6 +289,15 @@ impl MessageBroker {
         }
     }
 
+    pub fn reset_session(&self, pair_id: &str) {
+        let mut pair_states = self.pair_states.lock().unwrap();
+        if let Some(state) = pair_states.get_mut(pair_id) {
+            state.messages.clear();
+            state.iteration = 0;
+            println!("[MessageBroker] Session reset for pair {}", pair_id);
+        }
+    }
+
     pub fn prepare_run(
         &self,
         pair_id: &str,

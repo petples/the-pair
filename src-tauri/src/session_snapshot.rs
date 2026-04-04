@@ -60,6 +60,7 @@ pub struct SnapshotRunSummary {
 pub struct SnapshotProcessContext {
     pub mentor_session_id: Option<String>,
     pub executor_session_id: Option<String>,
+    pub run_generation: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -579,6 +580,7 @@ fn build_process_context(snapshot: &SessionSnapshotRecord) -> ProcessContext {
         executor_session_id: snapshot.provider_sessions.executor_session_id.clone(),
         mentor_reasoning_effort: snapshot.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: snapshot.executor_reasoning_effort.clone(),
+        run_generation: snapshot.provider_sessions.run_generation,
     }
 }
 
@@ -674,6 +676,7 @@ fn build_snapshot_from_state(
         executor_session_id: None,
         mentor_reasoning_effort: pair.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: pair.executor_reasoning_effort.clone(),
+        run_generation: 0,
     });
 
     let current_turn_card = state
@@ -750,6 +753,7 @@ fn build_snapshot_from_state(
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
             executor_session_id: context.executor_session_id.clone(),
+            run_generation: context.run_generation,
         },
         branch: pair.branch.clone(),
         repo_path: pair.repo_path.clone(),
@@ -771,6 +775,7 @@ fn build_snapshot_from_draft(
         executor_session_id: None,
         mentor_reasoning_effort: draft.mentor_reasoning_effort.clone(),
         executor_reasoning_effort: draft.executor_reasoning_effort.clone(),
+        run_generation: 0,
     });
 
     SessionSnapshotRecord {
@@ -814,6 +819,7 @@ fn build_snapshot_from_draft(
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id,
             executor_session_id: context.executor_session_id,
+            run_generation: context.run_generation,
         },
         branch: draft.branch,
         repo_path: draft.repo_path,
@@ -887,6 +893,7 @@ pub fn persist_pair_snapshot_from_state(
         executor_session_id: context
             .as_ref()
             .and_then(|ctx| ctx.executor_session_id.clone()),
+        run_generation: context.as_ref().map(|ctx| ctx.run_generation).unwrap_or(0),
     };
 
     upsert_snapshot_record(app, &snapshot)
@@ -1093,6 +1100,7 @@ pub async fn restore_session(
             .provider_sessions
             .executor_session_id
             .clone(),
+        run_generation: updated_snapshot.provider_sessions.run_generation,
     };
     upsert_snapshot_record(&app, &updated_snapshot)?;
 
@@ -1212,6 +1220,7 @@ mod tests {
             provider_sessions: SnapshotProcessContext {
                 mentor_session_id: Some("ses_mentor".to_string()),
                 executor_session_id: None,
+                run_generation: 0,
             },
             branch: None,
             repo_path: None,

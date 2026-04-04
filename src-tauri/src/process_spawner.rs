@@ -32,6 +32,10 @@ pub struct ProcessContext {
     pub executor_session_id: Option<String>,
     pub mentor_reasoning_effort: Option<String>,
     pub executor_reasoning_effort: Option<String>,
+    /// Monotonically increasing counter bumped on every new-run assignment.
+    /// Stale spawned tasks compare their captured value against the current one
+    /// to avoid emitting handoff events after their process was killed.
+    pub run_generation: u32,
 }
 
 const MENTOR_FINISH_SIGNAL: &str = "TASK_COMPLETE";
@@ -420,7 +424,7 @@ fn is_noise_event_type_for_final(event_type: &str) -> bool {
         || lower.contains("step_start")
         || lower.contains("step_finish")
         || lower.contains("step_end")
-        || lower.contains("tool")
+        || (lower.contains("tool") && !lower.contains("tool_result"))
         || lower.contains("progress")
         || lower.contains("error")
         || lower.contains("warning")
@@ -601,6 +605,7 @@ impl ProcessSpawner {
                 c.executor_session_id.clone(),
                 c.mentor_reasoning_effort.clone(),
                 c.executor_reasoning_effort.clone(),
+                c.run_generation,
             )
         };
 
@@ -614,6 +619,7 @@ impl ProcessSpawner {
             executor_sid,
             mentor_reasoning_effort,
             executor_reasoning_effort,
+            captured_run_generation,
         ) = ctx;
         let (model, session_id, provider_kind, reasoning_effort) = if role == "mentor" {
             (
@@ -814,38 +820,34 @@ impl ProcessSpawner {
 
                     if is_mentor_review_turn {
                         if let Some(acceptance) = parsed_acceptance.as_ref() {
-                            if matches!(
-                                acceptance
-                                    .verdict
-                                    .as_ref()
-                                    .map(|verdict| &verdict.next_step.action),
-                                Some(crate::types::AcceptanceNextAction::Finish)
-                            ) {
-                                broker.set_pair_status(
-                                    &pair_id_mock,
-                                    crate::types::PairStatus::Finished,
-                                    Some("Mock: Mentor acceptance marked task finished".to_string()),
-                                );
-                                should_handoff = false;
+                            if let Some(verdict) = acceptance.verdict.as_ref() {
+                                if matches!(
+                                    verdict.next_step.action,
+                                    crate::types::AcceptanceNextAction::Finish
+                                ) {
+                                    broker.set_pair_status(
+                                        &pair_id_mock,
+                                        crate::types::PairStatus::Finished,
+                                        Some("Mock: Mentor acceptance marked task finished".to_string()),
+                                    );
+                                    should_handoff = false;
+                                }
+                            } else if let Some(error) = acceptance_error.as_ref() {
+                                // Verdict parse failed — retry or pause
+                                let repair_attempts = acceptance.repair_attempts;
+                                if repair_attempts > 1 {
+                                    broker.set_pair_status(
+                                        &pair_id_mock,
+                                        crate::types::PairStatus::Paused,
+                                        Some(format!("Acceptance verdict parse failed: {}", error)),
+                                    );
+                                    should_handoff = false;
+                                } else {
+                                    next_role = "mentor";
+                                }
                             }
-                        } else if let Some(error) = acceptance_error.as_ref() {
-                            let repair_attempts = parsed_acceptance
-                                .as_ref()
-                                .map(|a| a.repair_attempts)
-                                .unwrap_or(0);
-
-                            if repair_attempts > 1 {
-                                broker.set_pair_status(
-                                    &pair_id_mock,
-                                    crate::types::PairStatus::Paused,
-                                    Some(format!("Acceptance verdict parse failed: {}", error)),
-                                );
-                                should_handoff = false;
-                            } else {
-                                next_role = "mentor";
                             }
-                        }
-                    } else if role_mock == "mentor"
+                        } else if role_mock == "mentor"
                         && should_finish_after_mentor_turn(mentor_finish_signaled)
                     {
                         println!(
@@ -951,6 +953,7 @@ impl ProcessSpawner {
         let app_clone = app.clone();
         let active_processes_for_cleanup = self.active_processes.clone();
         let provider_kind_clone = provider_kind;
+        let captured_run_gen = captured_run_generation;
 
         // Stderr watcher
         let pair_id_clone_err = pair_id.clone();
@@ -1263,23 +1266,43 @@ impl ProcessSpawner {
 
                 if is_mentor_review_turn {
                     if let Some(acceptance) = parsed_acceptance.as_ref() {
-                        if matches!(
-                            acceptance
-                                .verdict
-                                .as_ref()
-                                .map(|verdict| &verdict.next_step.action),
-                            Some(crate::types::AcceptanceNextAction::Finish)
-                        ) {
-                            println!(
-                                "[ProcessSpawner] [{}] Mentor acceptance finished the task",
-                                pair_id_clone
-                            );
-                            broker.set_pair_status(
-                                &pair_id_clone,
-                                crate::types::PairStatus::Finished,
-                                Some("Mentor acceptance marked the task finished".to_string()),
-                            );
-                            should_handoff = false;
+                        if let Some(verdict) = acceptance.verdict.as_ref() {
+                            if matches!(
+                                verdict.next_step.action,
+                                crate::types::AcceptanceNextAction::Finish
+                            ) {
+                                println!(
+                                    "[ProcessSpawner] [{}] Mentor acceptance finished the task",
+                                    pair_id_clone
+                                );
+                                broker.set_pair_status(
+                                    &pair_id_clone,
+                                    crate::types::PairStatus::Finished,
+                                    Some("Mentor acceptance marked the task finished".to_string()),
+                                );
+                                should_handoff = false;
+                            }
+                        } else if let Some(error) = acceptance_error.as_ref() {
+                            // Verdict parse failed — retry or pause
+                            let repair_attempts = acceptance.repair_attempts;
+                            if repair_attempts > 1 {
+                                println!(
+                                    "[ProcessSpawner] [{}] Acceptance verdict parse failed ({} attempts), pausing: {}",
+                                    pair_id_clone, repair_attempts, error
+                                );
+                                broker.set_pair_status(
+                                    &pair_id_clone,
+                                    crate::types::PairStatus::Paused,
+                                    Some(format!("Acceptance verdict parse failed: {}", error)),
+                                );
+                                should_handoff = false;
+                            } else {
+                                println!(
+                                    "[ProcessSpawner] [{}] Acceptance verdict parse failed, retrying mentor: {}",
+                                    pair_id_clone, error
+                                );
+                                next_role = "mentor";
+                            }
                         }
                     } else if let Some(error) = acceptance_error.as_ref() {
                         let repair_attempts = parsed_acceptance
@@ -1339,6 +1362,27 @@ impl ProcessSpawner {
                             );
                             should_handoff = false;
                         }
+                    }
+                }
+            }
+
+            if should_handoff {
+                // Check if a newer run was started while this process was running.
+                // If the run_generation in the context has advanced past the value we
+                // captured at the start of this turn, a new task was assigned and our
+                // handoff is stale.
+                if let Some(current_gen) = contexts
+                    .lock()
+                    .unwrap()
+                    .get(&pair_id_clone)
+                    .map(|c| c.run_generation)
+                {
+                    if current_gen != captured_run_gen {
+                        println!(
+                            "[ProcessSpawner] [{}] Stale run detected (captured gen={}, current gen={}), skipping handoff",
+                            pair_id_clone, captured_run_gen, current_gen
+                        );
+                        should_handoff = false;
                     }
                 }
             }
@@ -1473,6 +1517,9 @@ mod tests {
         ));
 
         assert!(is_noise_event_type_for_final("thread.started"));
+        assert!(is_noise_event_type_for_final("tool_call"));
+        assert!(is_noise_event_type_for_final("tool_start"));
+        assert!(!is_noise_event_type_for_final("tool_result"));
         assert!(is_noise_text_candidate("reconnecting..."));
         assert!(is_noise_text_candidate("}"));
         assert!(should_skip_plain_output_line(" ] "));
