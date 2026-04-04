@@ -268,7 +268,7 @@ export function ModelPicker({
         {isDropdownOpen && (
           <div
             className={cn(
-              'absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border bg-background/95 shadow-xl backdrop-blur-lg',
+              'absolute left-0 right-0 z-50 overflow-hidden rounded-xl border border-border/60 bg-popover shadow-2xl backdrop-blur-lg',
               dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
             )}
           >
@@ -290,7 +290,7 @@ export function ModelPicker({
                     }
                   }}
                   placeholder="Search models..."
-                  className="w-full rounded-lg border border-border/60 bg-muted/30 py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
+                  className="w-full rounded-lg border border-border/60 bg-muted/50 py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
                 />
               </div>
             </div>
@@ -378,7 +378,7 @@ export function ModelPicker({
     return (
       <div
         className={cn(
-          'flex flex-col rounded-2xl border p-4 sm:p-5',
+          'flex flex-col rounded-2xl border p-4 sm:p-5 ring-1 ring-border/20',
           tone.border,
           'bg-background/40'
         )}

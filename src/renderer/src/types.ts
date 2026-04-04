@@ -252,3 +252,18 @@ export interface RepoState {
   currentBranch?: string
   branches: BranchInfo[]
 }
+
+export interface PairPreset {
+  id: string
+  name: string
+  description: string
+  icon: string
+  mentorPromptTemplate: string
+  executorPromptTemplate: string
+  defaultMaxIterations: number
+  recommendedSkills: string[]
+  recommendedMentorModel?: string
+  recommendedExecutorModel?: string
+  pauseOnIteration?: number
+  autoAttachGitBaseline?: boolean
+}

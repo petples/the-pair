@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FolderOpen } from 'lucide-react'
+import { FolderOpen, Sparkles } from 'lucide-react'
 import { usePairStore } from '../store/usePairStore'
 import { GlassModal } from './ui/GlassModal'
 import { GlassButton } from './ui/GlassButton'
@@ -10,6 +10,64 @@ import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
 import { derivePairNameFromDirectory } from '../lib/workspace'
 import { BranchPicker } from './BranchPicker'
+import { PresetPicker } from './PresetPicker'
+import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
+import type { PairPreset } from '../types'
+
+const HARDCODED_PRESETS: PairPreset[] = [
+  {
+    id: 'bug-fix',
+    name: 'Bug Fix',
+    description:
+      'Quickly investigate and fix a specific bug. Auto-pauses at iteration 5 for review.',
+    icon: 'Bug',
+    mentorPromptTemplate:
+      'You are a meticulous bug investigator. Your role is to:\n1. Analyze the reported issue\n2. Identify root cause\n3. Propose a fix\n\nTASK:\n{task}\n\nBe systematic. Check edge cases. Verify your fix before presenting it.',
+    executorPromptTemplate:
+      'You are a precise bug fixer. Execute the fix as specified by the mentor.',
+    defaultMaxIterations: 8,
+    recommendedSkills: [],
+    pauseOnIteration: 5
+  },
+  {
+    id: 'refactor',
+    name: 'Refactor',
+    description: 'Safely improve code structure. Creates git baseline for rollback.',
+    icon: 'RefreshCw',
+    mentorPromptTemplate:
+      'You are a refactoring mentor. Guide safe, incremental improvements:\n1. Understand current structure\n2. Identify improvement opportunities\n3. Propose small, safe changes\n\nTASK:\n{task}\n\nPrioritize clarity and maintainability. Never break existing behavior.',
+    executorPromptTemplate: 'Execute refactoring changes as guided. Run tests after each change.',
+    defaultMaxIterations: 15,
+    recommendedSkills: [],
+    pauseOnIteration: 8,
+    autoAttachGitBaseline: true
+  },
+  {
+    id: 'feature',
+    name: 'Feature',
+    description: 'Build new functionality end-to-end with planning and review.',
+    icon: 'Sparkles',
+    mentorPromptTemplate:
+      'You are a feature planning mentor. Help break down and build:\n1. Understand requirements thoroughly\n2. Plan the implementation approach\n3. Review each step\n\nTASK:\n{task}\n\nThink big picture but execute incrementally.',
+    executorPromptTemplate:
+      'Implement features as planned. Ask for clarification if requirements are unclear.',
+    defaultMaxIterations: 25,
+    recommendedSkills: [],
+    pauseOnIteration: 15
+  },
+  {
+    id: 'hardening',
+    name: 'Hardening',
+    description: 'Improve error handling, security, and robustness.',
+    icon: 'Shield',
+    mentorPromptTemplate:
+      'You are a hardening specialist. Improve code quality:\n1. Identify potential failure points\n2. Suggest defensive improvements\n3. Verify error handling\n\nTASK:\n{task}\n\nBe thorough. No bug is too small to fix.',
+    executorPromptTemplate: 'Implement hardening improvements. Add tests for edge cases.',
+    defaultMaxIterations: 12,
+    recommendedSkills: [],
+    pauseOnIteration: 8
+  }
+]
 
 interface CreatePairModalProps {
   isOpen: boolean
@@ -30,6 +88,12 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   const [branch, setBranch] = useState<string | undefined>()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  const [presets, setPresets] = useState<PairPreset[]>([])
+  const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
+  const [configMode, setConfigMode] = useState<'preset' | 'custom'>('preset')
+  const [presetsLoading, setPresetsLoading] = useState(false)
+  const [presetsError, setPresetsError] = useState<string | null>(null)
+
   const handleFileSelect = useCallback((path: string, content: string): void => {
     setFileContexts((prev) => {
       const next = new Map(prev)
@@ -44,7 +108,24 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     }
   }, [isOpen, availableModels.length, loadAvailableModels])
 
-  /* eslint-disable react-hooks/set-state-in-effect */
+  const loadPresets = useCallback(async () => {
+    setPresetsLoading(true)
+    setPresetsError(null)
+    try {
+      setPresets(HARDCODED_PRESETS)
+    } catch {
+      setPresetsError('Failed to load presets')
+    } finally {
+      setPresetsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isOpen) {
+      loadPresets()
+    }
+  }, [isOpen, loadPresets])
+
   useEffect(() => {
     if (availableModels.length > 0 && mentorModel === '') {
       const mentorDefault = getPreferredQualifiedModel('mentor', availableModels)
@@ -54,6 +135,35 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     }
   }, [availableModels, mentorModel])
 
+  const handlePresetSelect = useCallback((preset: PairPreset | null) => {
+    setSelectedPreset(preset)
+    if (preset) {
+      if (preset.recommendedMentorModel) {
+        setMentorModel(preset.recommendedMentorModel)
+      }
+      if (preset.recommendedExecutorModel) {
+        setExecutorModel(preset.recommendedExecutorModel)
+      }
+      if (preset.mentorPromptTemplate) {
+        setSpec((current) => {
+          const raw = current.includes('ROLE: MENTOR') ? stripTemplate(current) : current
+          try {
+            return buildSpecFromPreset(preset, raw)
+          } catch {
+            return preset.mentorPromptTemplate.replace('{task}', raw || '(describe your task)')
+          }
+        })
+      }
+    } else {
+      setSpec((current) => {
+        if (current && current.includes('ROLE: MENTOR')) {
+          return stripTemplate(current)
+        }
+        return current
+      })
+    }
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     try {
@@ -61,6 +171,16 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         spec.includes(`@${path}`)
       )
       let finalSpec = spec
+      if (selectedPreset && !finalSpec.includes('ROLE: MENTOR')) {
+        try {
+          finalSpec = buildSpecFromPreset(selectedPreset, finalSpec)
+        } catch {
+          finalSpec = selectedPreset.mentorPromptTemplate.replace(
+            '{task}',
+            finalSpec || '(describe your task)'
+          )
+        }
+      }
       if (referencedFiles.length > 0) {
         const contextHeader =
           '--- REFERENCED FILES ---\n' +
@@ -85,6 +205,8 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
       setMentorReasoningEffort(undefined)
       setExecutorReasoningEffort(undefined)
       setBranch(undefined)
+      setSelectedPreset(null)
+      setConfigMode('preset')
       onClose()
     } catch {
       // Store already exposes the error copy
@@ -118,6 +240,70 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
   return (
     <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-3xl">
       <form onSubmit={handleSubmit} className="space-y-5">
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles size={14} className="text-primary" />
+            <span className="text-sm font-medium text-foreground">Choose a Preset</span>
+          </div>
+          <div className="mb-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setConfigMode('preset')}
+              className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
+                configMode === 'preset'
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/50 bg-background/30 text-muted-foreground hover:border-foreground/12 hover:text-foreground'
+              }`}
+            >
+              Start from Preset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setConfigMode('custom')
+                setSelectedPreset(null)
+              }}
+              className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
+                configMode === 'custom'
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border/50 bg-background/30 text-muted-foreground hover:border-foreground/12 hover:text-foreground'
+              }`}
+            >
+              Custom Configuration
+            </button>
+          </div>
+
+          {configMode === 'preset' && (
+            <PresetPicker
+              presets={presets}
+              selectedPresetId={selectedPreset?.id ?? null}
+              onSelect={handlePresetSelect}
+              loading={presetsLoading}
+              onRetry={loadPresets}
+              error={presetsError}
+            />
+          )}
+        </div>
+
+        {selectedPreset && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Sparkles size={12} className="text-primary" />
+              <span className="text-xs font-medium text-primary">
+                Using &quot;{selectedPreset.name}&quot; preset
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {selectedPreset.recommendedSkills.length > 0 && (
+                <>Skills: {selectedPreset.recommendedSkills.join(', ')}</>
+              )}
+              {selectedPreset.pauseOnIteration && (
+                <> • Auto-pause at iteration {selectedPreset.pauseOnIteration}</>
+              )}
+            </p>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-medium text-foreground mb-2">Name</label>
           <input
