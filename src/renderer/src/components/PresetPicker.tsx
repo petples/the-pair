@@ -1,4 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useLayoutEffect, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Bug, RefreshCw, Sparkles, Shield, Check, AlertCircle, HelpCircle } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { GlassButton } from './ui/GlassButton'
@@ -61,6 +62,9 @@ function PresetPopover({
 }): React.ReactNode {
   const [open, setOpen] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
 
   const show = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -71,61 +75,96 @@ function PresetPopover({
     timeoutRef.current = setTimeout(() => setOpen(false), 150)
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return
+    const triggerRect = triggerRef.current.getBoundingClientRect()
+    const popoverWidth = 256 // w-64
+    const gap = 8
+
+    let top: number
+    let left = triggerRect.left + triggerRect.width / 2 - popoverWidth / 2
+    left = Math.max(8, Math.min(left, window.innerWidth - popoverWidth - 8))
+
+    if (popoverRef.current) {
+      top = triggerRect.top - popoverRef.current.offsetHeight - gap
+    } else {
+      top = triggerRect.top - 180 - gap
+    }
+
+    if (top < 8) {
+      top = triggerRect.bottom + gap
+    }
+
+    setPosition({ top, left })
+  }, [open])
+
   return (
-    <div className="relative inline-block" data-preset-popover>
-      {typeof children === 'function'
-        ? // eslint-disable-next-line react-hooks/refs
-          (children as (show: () => void, hide: () => void) => React.ReactNode)(show, hide)
-        : children}
-      {open && (
-        <div
-          className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 w-64 rounded-xl border border-border/80 bg-popover shadow-xl p-3 text-xs"
-          onMouseEnter={show}
-          onFocus={show}
-          onMouseLeave={hide}
-          onBlur={hide}
-        >
-          <div className="mb-2 text-muted-foreground leading-relaxed">{preset.description}</div>
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap gap-1">
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border',
-                  colors.border,
-                  colors.background,
-                  colors.icon
-                )}
-              >
-                {preset.defaultMaxIterations} iterations
-              </span>
-              {preset.recommendedSkills.map((skill) => (
+    <>
+      <div ref={triggerRef} className="inline-block" data-preset-popover>
+        {typeof children === 'function'
+          ? // eslint-disable-next-line react-hooks/refs
+            (children as (show: () => void, hide: () => void) => React.ReactNode)(show, hide)
+          : children}
+      </div>
+      {open &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="fixed z-[9999] w-64 rounded-xl border border-border/80 bg-popover shadow-xl p-3 text-xs"
+            style={{ top: position.top, left: position.left }}
+            onMouseEnter={show}
+            onFocus={show}
+            onMouseLeave={hide}
+            onBlur={hide}
+          >
+            <div className="mb-2 text-muted-foreground leading-relaxed">{preset.description}</div>
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-1">
                 <span
-                  key={skill}
-                  className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-foreground"
+                  className={cn(
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border',
+                    colors.border,
+                    colors.background,
+                    colors.icon
+                  )}
                 >
-                  {skill}
+                  {preset.defaultMaxIterations} iterations
                 </span>
-              ))}
+                {preset.recommendedSkills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="inline-flex items-center rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-medium text-foreground"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+
+              {preset.pauseOnIteration && (
+                <div className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Auto-pause checkpoint</span> at
+                  iteration {preset.pauseOnIteration}
+                </div>
+              )}
+
+              {preset.autoAttachGitBaseline && (
+                <div className="text-muted-foreground">
+                  <span className="font-medium text-foreground">Git baseline</span> created on pair
+                  start
+                </div>
+              )}
             </div>
-
-            {preset.pauseOnIteration && (
-              <div className="text-muted-foreground">
-                <span className="font-medium text-foreground">Auto-pause checkpoint</span> at
-                iteration {preset.pauseOnIteration}
-              </div>
-            )}
-
-            {preset.autoAttachGitBaseline && (
-              <div className="text-muted-foreground">
-                <span className="font-medium text-foreground">Git baseline</span> created on pair
-                start
-              </div>
-            )}
-          </div>
-          <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 rotate-45 border-b border-r border-border/80 bg-popover" />
-        </div>
-      )}
-    </div>
+            <div className="absolute left-1/2 -translate-x-1/2 top-full w-2 h-2 rotate-45 border-b border-r border-border/80 bg-popover" />
+          </div>,
+          document.body
+        )}
+    </>
   )
 }
 
