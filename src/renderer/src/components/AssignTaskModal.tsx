@@ -51,12 +51,11 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
   const handlePresetSelect = useCallback((preset: PairPreset | null) => {
     setSelectedPreset(preset)
     if (preset) {
-      setSpec((current) => {
-        const raw = current.includes('ROLE: MENTOR') ? stripTemplate(current) : current
+      setSpec(() => {
         try {
-          return buildSpecFromPreset(preset, raw)
+          return buildSpecFromPreset(preset, '')
         } catch {
-          return preset.mentorPromptTemplate.replace('{task}', raw || '(describe your task)')
+          return preset.mentorPromptTemplate.replace('{task}', '(describe your task)')
         }
       })
     } else {
