@@ -225,13 +225,17 @@ interface PairStore {
       mentorReasoningEffort?: string
       executorReasoningEffort?: string
       branch?: string
+      maxIterations?: number
+      pauseOnIteration?: number
+      autoAttachGitBaseline?: boolean
     }
   ) => Promise<void>
   assignTask: (
     pairId: string,
     spec: string,
     role?: string,
-    modelOverrides?: { mentorModel?: string; executorModel?: string }
+    modelOverrides?: { mentorModel?: string; executorModel?: string },
+    options?: { maxIterations?: number }
   ) => Promise<void>
   updatePairModels: (pairId: string, selection: PairModelSelection) => Promise<void>
   pausePair: (id: string) => Promise<void>
@@ -527,7 +531,12 @@ function createRunSummary(pair: Pair): PairRunSummary | null {
   }
 }
 
-function resetPairForNewRun(pair: Pair, nextSpec: string, selection: PairModelSelection): Pair {
+function resetPairForNewRun(
+  pair: Pair,
+  nextSpec: string,
+  selection: PairModelSelection,
+  maxIterations?: number
+): Pair {
   const archivedRun = createRunSummary(pair)
   const now = Date.now()
 
@@ -545,6 +554,7 @@ function resetPairForNewRun(pair: Pair, nextSpec: string, selection: PairModelSe
     ...pair,
     status: 'Idle',
     iterations: 0,
+    maxIterations: maxIterations ?? pair.maxIterations,
     cpuUsage: 0,
     memUsage: 0,
     spec: nextSpec,
@@ -1210,7 +1220,7 @@ export const usePairStore = create<PairStore>((set) => ({
         createdAt: now,
         status: 'Idle',
         iterations: 0,
-        maxIterations: 9999,
+        maxIterations: input.maxIterations ?? 9999,
         cpuUsage: 0,
         memUsage: 0,
         spec: input.spec,
@@ -1259,7 +1269,8 @@ export const usePairStore = create<PairStore>((set) => ({
     pairId,
     spec,
     roleOrModelOverrides?,
-    modelOverrides?: { mentorModel?: string; executorModel?: string }
+    modelOverrides?: { mentorModel?: string; executorModel?: string },
+    options?: { maxIterations?: number }
   ) => {
     let role: string | undefined
     let overrides: { mentorModel?: string; executorModel?: string } | undefined
@@ -1324,10 +1335,15 @@ export const usePairStore = create<PairStore>((set) => ({
           }
 
           // New run: apply effective models and reset
-          return resetPairForNewRun(pair, spec, {
-            mentorModel: effectiveMentorModel,
-            executorModel: effectiveExecutorModel
-          })
+          return resetPairForNewRun(
+            pair,
+            spec,
+            {
+              mentorModel: effectiveMentorModel,
+              executorModel: effectiveExecutorModel
+            },
+            options?.maxIterations
+          )
         })
       }))
 

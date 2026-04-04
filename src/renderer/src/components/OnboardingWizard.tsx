@@ -8,22 +8,26 @@ import {
   Sun,
   Moon,
   AlertCircle,
-  RefreshCw
+  RefreshCw,
+  Sparkles
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { usePairStore } from '../store/usePairStore'
 import { useThemeStore } from '../store/useThemeStore'
-import type { AvailableModel } from '../types'
+import type { AvailableModel, PairPreset } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassCard } from './ui/GlassCard'
 import { ModelPicker } from './ModelPicker'
 import { FileMention } from './FileMention'
 import { SkillPicker } from './SkillPicker'
 import { BranchPicker } from './BranchPicker'
+import { PresetPicker } from './PresetPicker'
 import { getPreferredPairModelSelection } from '../lib/modelPreferences'
 import { derivePairNameFromDirectory } from '../lib/workspace'
 import { shouldUseCompactOnboardingLayout } from '../lib/onboardingLayout'
 import { buildProviderSetupSummary } from '../lib/providerSetup'
+import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
+import { usePresets } from '../lib/usePresets'
 import type { ProviderSetupSummary } from '../lib/providerSetup'
 import appIcon from '../assets/app-icon.png'
 
@@ -44,11 +48,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   const [error, setError] = useState<string | null>(null)
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
   const [branch, setBranch] = useState<string | undefined>()
+  const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [viewportHeight, setViewportHeight] = useState(() =>
     typeof window === 'undefined' ? 900 : window.innerHeight
   )
   const isCompactLayout = shouldUseCompactOnboardingLayout(viewportHeight)
+  const {
+    presets,
+    loading: presetsLoading,
+    error: presetsError,
+    reload: loadPresets
+  } = usePresets()
 
   useEffect(() => {
     window.api?.config?.getVersion?.().then((v: string) => {
@@ -83,6 +94,34 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       }
       return insertion + prev
     })
+  }, [])
+
+  const handlePresetSelect = useCallback((preset: PairPreset | null) => {
+    setSelectedPreset(preset)
+    if (preset) {
+      if (preset.recommendedMentorModel) {
+        setMentorModel(preset.recommendedMentorModel)
+      }
+      if (preset.recommendedExecutorModel) {
+        setExecutorModel(preset.recommendedExecutorModel)
+      }
+      setSpec((current) => {
+        const raw = current.includes('ROLE: MENTOR') ? stripTemplate(current) : current
+        try {
+          return buildSpecFromPreset(preset, raw)
+        } catch {
+          return preset.mentorPromptTemplate.replace('{task}', raw || '(describe your task)')
+        }
+      })
+      setName((prev) => (prev.trim() ? prev : preset.name))
+    } else {
+      setSpec((current) => {
+        if (current && current.includes('ROLE: MENTOR')) {
+          return stripTemplate(current)
+        }
+        return current
+      })
+    }
   }, [])
 
   const { availableModels, loadAvailableModels, createPair } = usePairStore()
@@ -158,6 +197,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
     setIsCreating(true)
     try {
       let finalSpec = spec.trim()
+      if (selectedPreset && !finalSpec.includes('ROLE: MENTOR')) {
+        try {
+          finalSpec = buildSpecFromPreset(selectedPreset, finalSpec)
+        } catch {
+          finalSpec = selectedPreset.mentorPromptTemplate.replace(
+            '{task}',
+            finalSpec || '(describe your task)'
+          )
+        }
+      }
       if (fileContexts.size > 0) {
         const contextHeader =
           '--- REFERENCED FILES ---\n' +
@@ -173,7 +222,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
         spec: finalSpec,
         mentorModel,
         executorModel,
-        branch
+        branch,
+        maxIterations: selectedPreset?.defaultMaxIterations
       })
       onComplete()
     } catch (e) {
@@ -232,6 +282,23 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
               isOpening={isOpeningFile}
               isCompactLayout={isCompactLayout}
             />
+
+            <div>
+              <div className="mb-2 flex items-center gap-1.5">
+                <Sparkles size={11} className="text-primary" />
+                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                  Workflow Preset
+                </span>
+              </div>
+              <PresetPicker
+                presets={presets}
+                selectedPresetId={selectedPreset?.id ?? null}
+                onSelect={handlePresetSelect}
+                loading={presetsLoading}
+                onRetry={loadPresets}
+                error={presetsError}
+              />
+            </div>
 
             <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-3">
               <ModelCard

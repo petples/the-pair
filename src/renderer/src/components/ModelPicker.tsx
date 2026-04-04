@@ -60,7 +60,7 @@ function getRoleTone(role: 'mentor' | 'executor') {
       border: 'border-blue-500/25',
       background: 'bg-blue-500/8 dark:bg-blue-500/14',
       ringSelected: 'ring-blue-500/30',
-      bgSelected: 'bg-blue-500/10 dark:bg-blue-500/18',
+      bgSelected: 'bg-blue-500/25 dark:bg-blue-500/18',
       headerBg: 'bg-blue-500/6 dark:bg-blue-500/10',
       label: 'Mentor',
       subtitle: 'Analyzes, plans, reviews'
@@ -73,7 +73,7 @@ function getRoleTone(role: 'mentor' | 'executor') {
     border: 'border-purple-500/25',
     background: 'bg-purple-500/8 dark:bg-purple-500/14',
     ringSelected: 'ring-purple-500/30',
-    bgSelected: 'bg-purple-500/10 dark:bg-purple-500/18',
+    bgSelected: 'bg-purple-500/25 dark:bg-purple-500/18',
     headerBg: 'bg-purple-500/6 dark:bg-purple-500/10',
     label: 'Executor',
     subtitle: 'Writes code, runs commands'

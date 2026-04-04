@@ -6,6 +6,10 @@ import { GlassModal } from './ui/GlassModal'
 import { FileMention } from './FileMention'
 import { ModelPicker } from './ModelPicker'
 import { SkillPicker } from './SkillPicker'
+import { PresetPicker } from './PresetPicker'
+import { usePresets } from '../lib/usePresets'
+import { buildSpecFromPreset, stripTemplate } from '../lib/presetUtils'
+import type { PairPreset } from '../types'
 
 interface AssignTaskModalProps {
   pair: Pair | null
@@ -18,7 +22,14 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
     usePairStore()
   const [spec, setSpec] = useState('')
   const [fileContexts, setFileContexts] = useState<Map<string, string>>(new Map())
+  const [selectedPreset, setSelectedPreset] = useState<PairPreset | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const {
+    presets,
+    loading: presetsLoading,
+    error: presetsError,
+    reload: loadPresets
+  } = usePresets()
 
   const [tempMentorModel, setTempMentorModel] = useState(
     () => restoringSpec?.mentorModel ?? pair?.pendingMentorModel ?? pair?.mentorModel ?? ''
@@ -35,6 +46,27 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
       next.set(path, content)
       return next
     })
+  }, [])
+
+  const handlePresetSelect = useCallback((preset: PairPreset | null) => {
+    setSelectedPreset(preset)
+    if (preset) {
+      setSpec((current) => {
+        const raw = current.includes('ROLE: MENTOR') ? stripTemplate(current) : current
+        try {
+          return buildSpecFromPreset(preset, raw)
+        } catch {
+          return preset.mentorPromptTemplate.replace('{task}', raw || '(describe your task)')
+        }
+      })
+    } else {
+      setSpec((current) => {
+        if (current && current.includes('ROLE: MENTOR')) {
+          return stripTemplate(current)
+        }
+        return current
+      })
+    }
   }, [])
 
   const effectiveMentorModel = useMemo(
@@ -86,10 +118,13 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               tempExecutorModel !== effectiveExecutorModel ? tempExecutorModel : undefined
           }
         : undefined
-      await assignTask(pair.id, finalSpec, undefined, modelOverrides)
+      await assignTask(pair.id, finalSpec, undefined, modelOverrides, {
+        maxIterations: selectedPreset?.defaultMaxIterations
+      })
       setSpec('')
       setFileContexts(new Map())
       setRestoringSpec(null)
+      setSelectedPreset(null)
       onClose()
     } catch {
       // Store already holds the user-facing error
@@ -153,6 +188,23 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             </div>
           )}
 
+          <div>
+            <div className="mb-2 flex items-center gap-1.5">
+              <Sparkles size={11} className="text-primary" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                Workflow Preset
+              </span>
+            </div>
+            <PresetPicker
+              presets={presets}
+              selectedPresetId={selectedPreset?.id ?? null}
+              onSelect={handlePresetSelect}
+              loading={presetsLoading}
+              onRetry={loadPresets}
+              error={presetsError}
+            />
+          </div>
+
           <div className="relative">
             <label className="mb-2 block text-sm font-medium text-foreground">
               Task Specification
@@ -196,6 +248,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
             variant="ghost"
             onClick={() => {
               setRestoringSpec(null)
+              setSelectedPreset(null)
               onClose()
             }}
             data-testid="assign-cancel-btn"
