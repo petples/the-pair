@@ -949,6 +949,7 @@ export const usePairStore = create<PairStore>((set) => ({
                 let currentTurnCard = p.currentTurnCard
 
                 if (currentTurnCard) {
+                  messages = commitTurnCard(messages, currentTurnCard)
                   currentTurnCard = undefined
                 }
 

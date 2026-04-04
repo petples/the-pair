@@ -25,26 +25,26 @@ const presetColors: Record<
   { border: string; background: string; icon: string; glow: string }
 > = {
   'bug-fix': {
-    border: 'border-red-500/25',
-    background: 'bg-red-500/8 dark:bg-red-500/14',
+    border: 'border-red-500/30',
+    background: 'bg-red-500/12 dark:bg-red-500/14',
     icon: 'text-red-600 dark:text-red-400',
     glow: 'hover:shadow-red-500/20'
   },
   refactor: {
-    border: 'border-blue-500/25',
-    background: 'bg-blue-500/8 dark:bg-blue-500/14',
+    border: 'border-blue-500/30',
+    background: 'bg-blue-500/12 dark:bg-blue-500/14',
     icon: 'text-blue-600 dark:text-blue-400',
     glow: 'hover:shadow-blue-500/20'
   },
   feature: {
-    border: 'border-purple-500/25',
-    background: 'bg-purple-500/8 dark:bg-purple-500/14',
+    border: 'border-purple-500/30',
+    background: 'bg-purple-500/12 dark:bg-purple-500/14',
     icon: 'text-purple-600 dark:text-purple-400',
     glow: 'hover:shadow-purple-500/20'
   },
   hardening: {
-    border: 'border-amber-500/25',
-    background: 'bg-amber-500/8 dark:bg-amber-500/14',
+    border: 'border-amber-500/30',
+    background: 'bg-amber-500/12 dark:bg-amber-500/14',
     icon: 'text-amber-600 dark:text-amber-400',
     glow: 'hover:shadow-amber-500/20'
   }
@@ -146,7 +146,7 @@ function PresetCard({
         'relative rounded-xl border px-3 py-2 transition-all cursor-pointer',
         selected
           ? cn(colors.border, colors.background, 'ring-2 ring-primary/40')
-          : 'border-border/50 bg-background/30 hover:border-foreground/12 hover:bg-muted/30',
+          : 'border-border/60 bg-muted hover:border-foreground/12 hover:bg-muted/80',
         colors.glow
       )}
       onClick={onSelect}
@@ -205,7 +205,7 @@ function PresetCard({
 function SkeletonCard(): React.ReactNode {
   return (
     <div
-      className="rounded-xl border border-border/50 bg-background/30 px-3 py-2 animate-pulse"
+      className="rounded-xl border border-border/60 bg-muted px-3 py-2 animate-pulse"
       data-testid="preset-picker-skeleton"
     >
       <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ export function PresetPicker({
 
   if (!loading && presets.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/50 bg-background/30 py-10 text-center">
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border/60 bg-muted py-10 text-center">
         <AlertCircle size={20} className="text-muted-foreground" />
         <div className="space-y-1">
           <p className="text-sm font-medium text-foreground">No presets available</p>

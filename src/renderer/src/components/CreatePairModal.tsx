@@ -67,7 +67,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
     if (availableModels.length > 0 && mentorModel === '') {
       const mentorDefault = getPreferredQualifiedModel('mentor', availableModels)
       const executorDefault = getPreferredQualifiedModel('executor', availableModels)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMentorModel(mentorDefault)
+
       setExecutorModel(executorDefault)
     }
   }, [availableModels, mentorModel])
@@ -192,7 +194,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
                 configMode === 'preset'
                   ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/50 bg-background/30 text-muted-foreground hover:border-foreground/12 hover:text-foreground'
+                  : 'border-border/60 bg-muted text-muted-foreground hover:border-foreground/12 hover:text-foreground hover:bg-muted/80'
               }`}
             >
               Start from Preset
@@ -206,7 +208,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
               className={`flex-1 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all ${
                 configMode === 'custom'
                   ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border/50 bg-background/30 text-muted-foreground hover:border-foreground/12 hover:text-foreground'
+                  : 'border-border/60 bg-muted text-muted-foreground hover:border-foreground/12 hover:text-foreground hover:bg-muted/80'
               }`}
             >
               Custom Configuration

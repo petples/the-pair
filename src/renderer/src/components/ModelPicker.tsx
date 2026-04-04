@@ -58,10 +58,10 @@ function getRoleTone(role: 'mentor' | 'executor') {
       iconSm: <Brain size={12} className="text-blue-600 dark:text-blue-400" />,
       text: 'text-blue-600 dark:text-blue-400',
       border: 'border-blue-500/25',
-      background: 'bg-blue-500/8 dark:bg-blue-500/14',
+      background: 'bg-blue-500/12 dark:bg-blue-500/14',
       ringSelected: 'ring-blue-500/30',
       bgSelected: 'bg-blue-500/25 dark:bg-blue-500/18',
-      headerBg: 'bg-blue-500/6 dark:bg-blue-500/10',
+      headerBg: 'bg-blue-500/10 dark:bg-blue-500/10',
       label: 'Mentor',
       subtitle: 'Analyzes, plans, reviews'
     }
@@ -71,10 +71,10 @@ function getRoleTone(role: 'mentor' | 'executor') {
     iconSm: <Zap size={12} className="text-purple-600 dark:text-purple-400" />,
     text: 'text-purple-600 dark:text-purple-400',
     border: 'border-purple-500/25',
-    background: 'bg-purple-500/8 dark:bg-purple-500/14',
+    background: 'bg-purple-500/12 dark:bg-purple-500/14',
     ringSelected: 'ring-purple-500/30',
     bgSelected: 'bg-purple-500/25 dark:bg-purple-500/18',
-    headerBg: 'bg-purple-500/6 dark:bg-purple-500/10',
+    headerBg: 'bg-purple-500/10 dark:bg-purple-500/10',
     label: 'Executor',
     subtitle: 'Writes code, runs commands'
   }
@@ -99,7 +99,7 @@ function QuickPickCell({
         'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer',
         selected
           ? cn('ring-1', tone.border, tone.bgSelected, tone.ringSelected)
-          : 'border-border/50 bg-background/30 hover:border-foreground/12 hover:bg-muted/30'
+          : 'border-border/60 bg-muted hover:border-foreground/12 hover:bg-muted/80'
       )}
     >
       <div className="min-w-0 flex-1">
@@ -235,8 +235,8 @@ export function ModelPicker({
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
           aria-expanded={isDropdownOpen}
           className={cn(
-            'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all hover:border-foreground/12 hover:bg-muted/30 cursor-pointer',
-            selectedModel && !isRecentSelection ? tone.border : 'border-border/50'
+            'flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all hover:border-foreground/12 hover:bg-muted/50 cursor-pointer',
+            selectedModel && !isRecentSelection ? tone.border : 'border-border/60'
           )}
         >
           {selectedModel && !isRecentSelection ? (
@@ -290,7 +290,7 @@ export function ModelPicker({
                     }
                   }}
                   placeholder="Search models..."
-                  className="w-full rounded-lg border border-border/60 bg-muted/50 py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
+                  className="w-full rounded-lg border border-border/60 bg-muted py-2 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-foreground/20 focus:outline-none"
                 />
               </div>
             </div>
@@ -319,7 +319,7 @@ export function ModelPicker({
                         className={cn(
                           'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border',
                           model.available ? tone.border : 'border-border',
-                          model.available ? tone.background : 'bg-muted/40'
+                          model.available ? tone.background : 'bg-muted'
                         )}
                       >
                         {model.supportsPairExecution ? (
@@ -378,9 +378,9 @@ export function ModelPicker({
     return (
       <div
         className={cn(
-          'flex flex-col rounded-2xl border p-4 sm:p-5 ring-1 ring-border/20',
+          'flex flex-col rounded-2xl border p-4 sm:p-5 ring-1 ring-border/30',
           tone.border,
-          'bg-background/40'
+          'bg-card shadow-sm'
         )}
       >
         {/* Card header */}
