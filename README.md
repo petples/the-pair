@@ -5,7 +5,7 @@
 
 # The Pair
 
-**Automated pair programming — grab a coffee while two AI agents cross-check each other's work**
+**Automated pair programming — grab a coffee while two AI agents cross-check each other's work, built by itself**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![GitHub release](https://img.shields.io/github/v/release/timwuhaotian/the-pair?include_prereleases&logo=github)](https://github.com/timwuhaotian/the-pair/releases)
