@@ -522,6 +522,14 @@ fn last_message_for_role(messages: &[Message], role: MessageSender) -> Option<Me
         .cloned()
 }
 
+fn last_token_usage_for_role(messages: &[Message], role: MessageSender) -> Option<TurnTokenUsage> {
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.from == role && m.token_usage.is_some())
+        .and_then(|m| m.token_usage.clone())
+}
+
 fn snapshot_turn_card(card: Option<&SnapshotTurnCard>) -> Option<SnapshotTurnCard> {
     card.cloned()
 }
@@ -638,14 +646,14 @@ fn build_pair_state(snapshot: &SessionSnapshotRecord) -> PairState {
             turn: AgentRole::Mentor,
             last_message: last_message_for_role(&snapshot.messages, MessageSender::Mentor),
             activity: current_turn_activity(&snapshot.mentor_activity),
-            token_usage: None,
+            token_usage: last_token_usage_for_role(&snapshot.messages, MessageSender::Mentor),
         },
         executor: crate::types::AgentState {
             status: snapshot.status.clone(),
             turn: AgentRole::Executor,
             last_message: last_message_for_role(&snapshot.messages, MessageSender::Executor),
             activity: current_turn_activity(&snapshot.executor_activity),
-            token_usage: None,
+            token_usage: last_token_usage_for_role(&snapshot.messages, MessageSender::Executor),
         },
         messages: snapshot.messages.clone(),
         mentor_activity: current_turn_activity(&snapshot.mentor_activity),

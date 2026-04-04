@@ -342,8 +342,12 @@ fn collect_model_ids_from_recent_files(
 ) {
     for path in collect_recent_files(root, extensions, max_depth, limit) {
         match path.extension().and_then(|value| value.to_str()) {
-            Some("json") => collect_model_ids_from_json_file(&path, interesting_keys, predicate, model_ids),
-            Some("jsonl") => collect_model_ids_from_jsonl_file(&path, interesting_keys, predicate, model_ids),
+            Some("json") => {
+                collect_model_ids_from_json_file(&path, interesting_keys, predicate, model_ids)
+            }
+            Some("jsonl") => {
+                collect_model_ids_from_jsonl_file(&path, interesting_keys, predicate, model_ids)
+            }
             _ => {}
         }
     }
@@ -465,7 +469,12 @@ fn discover_gemini_model_ids(home: &std::path::Path) -> Vec<String> {
     let mut model_ids = Vec::new();
     let settings_path = home.join(".gemini/settings.json");
 
-    collect_model_ids_from_json_file(&settings_path, &["model", "name"], &predicate, &mut model_ids);
+    collect_model_ids_from_json_file(
+        &settings_path,
+        &["model", "name"],
+        &predicate,
+        &mut model_ids,
+    );
     collect_model_ids_from_recent_files(
         &home.join(".gemini/tmp"),
         &["json", "jsonl"],
@@ -483,8 +492,12 @@ fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
     let mut model_ids = Vec::new();
 
     if let Some(help_text) = capture_claude_help_text(home) {
-        let help_predicate =
-            |value: &str| !value.contains(char::is_whitespace) && !value.starts_with("--");
+        let help_predicate = |value: &str| {
+            !value.contains(char::is_whitespace)
+                && !value.starts_with("--")
+                && value.len() > 1
+                && value.chars().any(|c| c.is_alphanumeric())
+        };
         collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
     }
 
@@ -644,8 +657,8 @@ impl ProviderRegistry {
         }
 
         // 2. Detect from ~/.local/share/opencode/auth.json (internal providers via /connect)
-        let auth_path =
-            opencode_auth_path().unwrap_or_else(|| homedir().join(".local/share/opencode/auth.json"));
+        let auth_path = opencode_auth_path()
+            .unwrap_or_else(|| homedir().join(".local/share/opencode/auth.json"));
         let mut internal_providers = Vec::new();
         if auth_path.exists() {
             authenticated = true;
@@ -1077,11 +1090,8 @@ exit 0
 "#,
         );
 
-        fs::write(
-            codex_config_dir.join("config.toml"),
-            r#"model = "gpt-5.4""#,
-        )
-        .expect("failed to write codex config");
+        fs::write(codex_config_dir.join("config.toml"), r#"model = "gpt-5.4""#)
+            .expect("failed to write codex config");
 
         fs::write(
             codex_config_dir.join("models_cache.json"),
@@ -1217,9 +1227,7 @@ exit 0
         std::env::set_var("APPDATA", &roaming);
         std::env::set_var("LOCALAPPDATA", &local);
 
-        let overrides: HashMap<_, _> = cli_environment_overrides(&temp_home)
-            .into_iter()
-            .collect();
+        let overrides: HashMap<_, _> = cli_environment_overrides(&temp_home).into_iter().collect();
 
         if let Some(value) = original_appdata {
             std::env::set_var("APPDATA", value);
