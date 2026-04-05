@@ -36,6 +36,32 @@ impl MessageBroker {
         }
     }
 
+    fn update_activity(
+        activity: &mut AgentActivity,
+        phase: ActivityPhase,
+        label: &str,
+        detail: Option<String>,
+    ) {
+        activity.phase = phase;
+        activity.label = label.to_string();
+        activity.detail = detail;
+        activity.updated_at = now_millis();
+    }
+
+    fn update_both_activities(
+        mentor_activity: &mut AgentActivity,
+        executor_activity: &mut AgentActivity,
+        mentor_phase: ActivityPhase,
+        mentor_label: &str,
+        mentor_detail: Option<String>,
+        executor_phase: ActivityPhase,
+        executor_label: &str,
+        executor_detail: Option<String>,
+    ) {
+        Self::update_activity(mentor_activity, mentor_phase, mentor_label, mentor_detail);
+        Self::update_activity(executor_activity, executor_phase, executor_label, executor_detail);
+    }
+
     pub fn initialize_pair(
         &self,
         pair_id: &str,
@@ -256,15 +282,16 @@ impl MessageBroker {
             state.mentor.status = PairStatus::Error;
             state.executor.status = PairStatus::Error;
 
-            state.mentor_activity.phase = ActivityPhase::Error;
-            state.mentor_activity.label = "Human rejected review".to_string();
-            state.mentor_activity.detail = Some("Manual intervention required".to_string());
-            state.mentor_activity.updated_at = now_millis();
-
-            state.executor_activity.phase = ActivityPhase::Error;
-            state.executor_activity.label = "Human rejected review".to_string();
-            state.executor_activity.detail = Some("Manual intervention required".to_string());
-            state.executor_activity.updated_at = now_millis();
+            Self::update_both_activities(
+                &mut state.mentor_activity,
+                &mut state.executor_activity,
+                ActivityPhase::Error,
+                "Human rejected review",
+                Some("Manual intervention required".to_string()),
+                ActivityPhase::Error,
+                "Human rejected review",
+                Some("Manual intervention required".to_string()),
+            );
 
             self.notify_state_update(pair_id, state);
             if let Some(handle) = &self.app_handle {
@@ -337,40 +364,47 @@ impl MessageBroker {
                     state.status = PairStatus::Mentoring;
                     state.latest_acceptance = None;
                     state.mentor.status = PairStatus::Executing;
-                    state.mentor_activity.phase = ActivityPhase::Thinking;
-                    state.mentor_activity.label = "Analyzing task".to_string();
-                    state.mentor_activity.detail = Some("Preparing first instruction".to_string());
-                    state.mentor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Thinking,
+                        "Analyzing task",
+                        Some("Preparing first instruction".to_string()),
+                        ActivityPhase::Waiting,
+                        "Executor standing by",
+                        None,
+                    );
 
                     state.executor.status = PairStatus::Idle;
-                    state.executor_activity.phase = ActivityPhase::Waiting;
-                    state.executor_activity.label = "Executor standing by".to_string();
-                    state.executor_activity.updated_at = now_millis();
                 } else {
                     state.iteration = state.iteration.saturating_add(1);
                     state.status = PairStatus::Reviewing;
                     state.mentor.status = PairStatus::Reviewing;
-                    state.mentor_activity.phase = ActivityPhase::Thinking;
-                    state.mentor_activity.label = "Reviewing changes".to_string();
-                    state.mentor_activity.detail = Some("Checking the work".to_string());
-                    state.mentor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Thinking,
+                        "Reviewing changes",
+                        Some("Checking the work".to_string()),
+                        ActivityPhase::Waiting,
+                        "Executor standing by",
+                        Some("Executor paused for review".to_string()),
+                    );
 
                     state.executor.status = PairStatus::Idle;
-                    state.executor_activity.phase = ActivityPhase::Waiting;
-                    state.executor_activity.label = "Executor standing by".to_string();
-                    state.executor_activity.detail = Some("Executor paused for review".to_string());
-                    state.executor_activity.updated_at = now_millis();
                 }
             } else {
                 state.executor.status = PairStatus::Executing;
-                state.executor_activity.phase = ActivityPhase::Thinking;
-                state.executor_activity.label = "Executing plan".to_string();
-                state.executor_activity.detail = Some("Processing instructions".to_string());
-                state.executor_activity.updated_at = now_millis();
-
-                state.mentor_activity.phase = ActivityPhase::Waiting;
-                state.mentor_activity.label = "Mentor observing".to_string();
-                state.mentor_activity.updated_at = now_millis();
+                Self::update_both_activities(
+                    &mut state.mentor_activity,
+                    &mut state.executor_activity,
+                    ActivityPhase::Waiting,
+                    "Mentor observing",
+                    None,
+                    ActivityPhase::Thinking,
+                    "Executing plan",
+                    Some("Processing instructions".to_string()),
+                );
             }
 
             self.notify_state_update(pair_id, state);
@@ -464,40 +498,47 @@ impl MessageBroker {
                 if role == "mentor" {
                     if is_planning_turn {
                         state.mentor.status = PairStatus::Executing;
-                        state.mentor_activity.phase = ActivityPhase::Thinking;
-                        state.mentor_activity.label = "Analyzing task".to_string();
-                        state.mentor_activity.detail = Some("Resuming from pause".to_string());
-                        state.mentor_activity.updated_at = now_millis();
+                        Self::update_both_activities(
+                            &mut state.mentor_activity,
+                            &mut state.executor_activity,
+                            ActivityPhase::Thinking,
+                            "Analyzing task",
+                            Some("Resuming from pause".to_string()),
+                            ActivityPhase::Waiting,
+                            "Executor standing by",
+                            None,
+                        );
 
                         state.executor.status = PairStatus::Idle;
-                        state.executor_activity.phase = ActivityPhase::Waiting;
-                        state.executor_activity.label = "Executor standing by".to_string();
-                        state.executor_activity.updated_at = now_millis();
                     } else {
                         state.mentor.status = PairStatus::Reviewing;
-                        state.mentor_activity.phase = ActivityPhase::Thinking;
-                        state.mentor_activity.label = "Reviewing changes".to_string();
-                        state.mentor_activity.detail = Some("Resuming from pause".to_string());
-                        state.mentor_activity.updated_at = now_millis();
+                        Self::update_both_activities(
+                            &mut state.mentor_activity,
+                            &mut state.executor_activity,
+                            ActivityPhase::Thinking,
+                            "Reviewing changes",
+                            Some("Resuming from pause".to_string()),
+                            ActivityPhase::Waiting,
+                            "Executor standing by",
+                            Some("Executor paused for review".to_string()),
+                        );
 
                         state.executor.status = PairStatus::Idle;
-                        state.executor_activity.phase = ActivityPhase::Waiting;
-                        state.executor_activity.label = "Executor standing by".to_string();
-                        state.executor_activity.detail =
-                            Some("Executor paused for review".to_string());
-                        state.executor_activity.updated_at = now_millis();
                     }
                 } else {
                     state.executor.status = PairStatus::Executing;
-                    state.executor_activity.phase = ActivityPhase::Thinking;
-                    state.executor_activity.label = "Executing plan".to_string();
-                    state.executor_activity.detail = Some("Resuming from pause".to_string());
-                    state.executor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Waiting,
+                        "Mentor observing",
+                        None,
+                        ActivityPhase::Thinking,
+                        "Executing plan",
+                        Some("Resuming from pause".to_string()),
+                    );
 
                     state.mentor.status = PairStatus::Idle;
-                    state.mentor_activity.phase = ActivityPhase::Waiting;
-                    state.mentor_activity.label = "Mentor observing".to_string();
-                    state.mentor_activity.updated_at = now_millis();
                 }
 
                 self.notify_state_update(pair_id, state);
@@ -616,59 +657,64 @@ impl MessageBroker {
             match status {
                 PairStatus::Finished => {
                     state.finished_at = Some(now_millis());
-                    state.mentor_activity.phase = ActivityPhase::Idle;
-                    state.mentor_activity.label = "Mission finished".to_string();
-                    state.mentor_activity.detail = detail.clone();
-                    state.mentor_activity.updated_at = now_millis();
-
-                    state.executor_activity.phase = ActivityPhase::Idle;
-                    state.executor_activity.label = "Executor idle".to_string();
-                    state.executor_activity.detail = None;
-                    state.executor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Idle,
+                        "Mission finished",
+                        detail.clone(),
+                        ActivityPhase::Idle,
+                        "Executor idle",
+                        None,
+                    );
                 }
                 PairStatus::AwaitingHumanReview => {
-                    state.mentor_activity.phase = ActivityPhase::Waiting;
-                    state.mentor_activity.label = "Awaiting human review".to_string();
-                    state.mentor_activity.detail = detail.clone();
-                    state.mentor_activity.updated_at = now_millis();
-
-                    state.executor_activity.phase = ActivityPhase::Waiting;
-                    state.executor_activity.label = "Awaiting human review".to_string();
-                    state.executor_activity.detail = None;
-                    state.executor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Waiting,
+                        "Awaiting human review",
+                        detail.clone(),
+                        ActivityPhase::Waiting,
+                        "Awaiting human review",
+                        None,
+                    );
                 }
                 PairStatus::Reviewing => {
-                    state.mentor_activity.phase = ActivityPhase::Thinking;
-                    state.mentor_activity.label = "Reviewing changes".to_string();
-                    state.mentor_activity.detail = detail.clone();
-                    state.mentor_activity.updated_at = now_millis();
-
-                    state.executor_activity.phase = ActivityPhase::Waiting;
-                    state.executor_activity.label = "Executor standing by".to_string();
-                    state.executor_activity.detail = None;
-                    state.executor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Thinking,
+                        "Reviewing changes",
+                        detail.clone(),
+                        ActivityPhase::Waiting,
+                        "Executor standing by",
+                        None,
+                    );
                 }
                 PairStatus::Paused => {
-                    state.mentor_activity.phase = ActivityPhase::Idle;
-                    state.mentor_activity.label = "Paused".to_string();
-                    state.mentor_activity.detail = detail.clone();
-                    state.mentor_activity.updated_at = now_millis();
-
-                    state.executor_activity.phase = ActivityPhase::Idle;
-                    state.executor_activity.label = "Paused".to_string();
-                    state.executor_activity.detail = detail;
-                    state.executor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Idle,
+                        "Paused",
+                        detail.clone(),
+                        ActivityPhase::Idle,
+                        "Paused",
+                        detail,
+                    );
                 }
                 PairStatus::Error => {
-                    state.mentor_activity.phase = ActivityPhase::Error;
-                    state.mentor_activity.label = "Error".to_string();
-                    state.mentor_activity.detail = detail.clone();
-                    state.mentor_activity.updated_at = now_millis();
-
-                    state.executor_activity.phase = ActivityPhase::Error;
-                    state.executor_activity.label = "Error".to_string();
-                    state.executor_activity.detail = None;
-                    state.executor_activity.updated_at = now_millis();
+                    Self::update_both_activities(
+                        &mut state.mentor_activity,
+                        &mut state.executor_activity,
+                        ActivityPhase::Error,
+                        "Error",
+                        detail.clone(),
+                        ActivityPhase::Error,
+                        "Error",
+                        None,
+                    );
                 }
                 _ => {}
             }
