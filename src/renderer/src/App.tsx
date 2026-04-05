@@ -46,76 +46,8 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { isAcceptanceVerdictContent, parseAcceptanceVerdict } from './lib/acceptance'
 import { buildTimeline, isTechnicalHandoff, formatTimestamp } from './lib/timeline'
 import { isPairActive } from './lib/pairStatus'
-
-function isAgentExecuting(phase: string): boolean {
-  return phase === 'thinking' || phase === 'using_tools' || phase === 'responding'
-}
-
-function useMinimumVisibleText(text: string, resetKey: string, minimumMs = 1200): string {
-  const [visibleText, setVisibleText] = useState(text)
-  const visibleTextRef = useRef(text)
-  const latestTextRef = useRef(text)
-  const lastChangeAtRef = useRef(0)
-  const timeoutRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    latestTextRef.current = text
-  }, [text])
-
-  useEffect(() => {
-    visibleTextRef.current = latestTextRef.current
-    lastChangeAtRef.current = Date.now()
-    setVisibleText(latestTextRef.current)
-
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
-    }
-  }, [resetKey])
-
-  useEffect(
-    () => () => {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current)
-      }
-    },
-    []
-  )
-
-  useEffect(() => {
-    if (text === visibleTextRef.current) {
-      return
-    }
-
-    const commit = () => {
-      visibleTextRef.current = text
-      lastChangeAtRef.current = Date.now()
-      setVisibleText(text)
-      timeoutRef.current = null
-    }
-
-    const elapsed = Date.now() - lastChangeAtRef.current
-    if (elapsed >= minimumMs) {
-      commit()
-      return
-    }
-
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current)
-    }
-
-    timeoutRef.current = window.setTimeout(commit, minimumMs - elapsed)
-
-    return () => {
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-      }
-    }
-  }, [minimumMs, text])
-
-  return visibleText
-}
+import { isAgentExecuting, getRoleColors } from './lib/helpers'
+import { useMinimumVisibleText } from './hooks/useMinimumVisibleText'
 
 function MarkdownContent({ content }: { content: string }): React.ReactNode {
   return (
@@ -379,20 +311,13 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
 
   if (isTechnicalHandoff(displayContent) && !isHuman) return null
 
-  const getRoleColors = (): string => {
-    if (isHuman) return 'bg-green-500/10 border-green-500/20 shadow-sm'
-    if (msg.from === 'mentor')
-      return 'bg-blue-500/10 border-blue-500/20 shadow-[0_4px_12px_rgba(59,130,246,0.06)]'
-    return 'bg-purple-500/10 border-purple-500/20 shadow-[0_4px_12px_rgba(168,85,247,0.06)]'
-  }
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       className={cn(
         'group flex flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 hover:shadow-xl',
-        getRoleColors(),
+        getRoleColors(msg.from, isHuman),
         isSystem && 'opacity-60 grayscale border-transparent bg-transparent py-2 px-0 shadow-none'
       )}
     >

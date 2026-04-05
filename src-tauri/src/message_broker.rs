@@ -111,7 +111,6 @@ impl MessageBroker {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn get_last_messages(&self, pair_id: &str) -> (Option<Message>, Option<Message>) {
         let pair_states = self.pair_states.lock().unwrap();
         if let Some(state) = pair_states.get(pair_id) {
@@ -200,7 +199,7 @@ impl MessageBroker {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn record_human_feedback(
         &self,
         pair_id: &str,
@@ -683,39 +682,6 @@ impl MessageBroker {
             let _ = handle.emit("pair:state", state);
         }
     }
-}
-
-#[allow(dead_code)]
-#[tauri::command]
-pub fn pair_human_feedback(
-    broker: tauri::State<'_, std::sync::Mutex<MessageBroker>>,
-    pair_id: String,
-    approved: bool,
-) -> Result<(), String> {
-    let next_role = {
-        let broker = broker.lock().map_err(|e| e.to_string())?;
-        broker.record_human_feedback(&pair_id, approved)?
-    };
-
-    if approved {
-        if let Some(next_role) = next_role {
-            let broker = broker.lock().map_err(|e| e.to_string())?;
-            if let Some(handle) = &broker.app_handle {
-                let _ = handle.emit(
-                    "pair:handoff",
-                    serde_json::json!({
-                        "pairId": pair_id,
-                        "nextRole": match next_role {
-                            AgentRole::Mentor => "mentor",
-                            AgentRole::Executor => "executor",
-                        }
-                    }),
-                );
-            }
-        }
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
