@@ -41,9 +41,7 @@ jobs:
             tagExists = false
           }
 
-          const shouldPublish = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-            ? 'true'
-            : String(!tagExists)
+          const shouldPublish = String(!tagExists)
 
           // Validate changelog entry exists
           if (shouldPublish === 'true') {
