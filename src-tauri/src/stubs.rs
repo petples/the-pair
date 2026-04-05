@@ -1,6 +1,7 @@
 use crate::config_paths::opencode_config_path;
 use crate::model_catalog::{AvailableModel, ModelCatalog};
 use crate::provider_registry::{DetectedProviderProfile, ProviderRegistry};
+use crate::util::is_mock_mode;
 use std::fs;
 
 #[tauri::command]
@@ -23,10 +24,7 @@ pub fn config_read() -> Result<Option<serde_json::Value>, String> {
 
 #[tauri::command]
 pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
-    let profiles = if std::env::var("THE_PAIR_E2E_MOCK")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    let profiles = if is_mock_mode() {
         ProviderRegistry::detect_all_mock()
     } else {
         ProviderRegistry::detect_all()
@@ -38,10 +36,7 @@ pub fn config_get_models() -> Result<Vec<AvailableModel>, String> {
 
 #[tauri::command]
 pub fn config_get_providers() -> Result<Vec<DetectedProviderProfile>, String> {
-    if std::env::var("THE_PAIR_E2E_MOCK")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if is_mock_mode() {
         return Ok(ProviderRegistry::detect_all_mock());
     }
     Ok(ProviderRegistry::detect_all())

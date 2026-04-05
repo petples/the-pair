@@ -34,6 +34,7 @@ import { shouldSaveSnapshot as shouldSaveSnapshotImpl } from '../lib/snapshotDif
 import { shouldIgnoreHandoffEvent } from '../lib/handoffGuard'
 import { playFinishChime } from '../lib/sound'
 import { extractErrorMessage } from '../lib/utils'
+import { isPairActive } from '../lib/pairStatus'
 
 export type PairStatus =
   | 'Idle'
@@ -375,10 +376,6 @@ async function saveSnapshotForPair(pair: Pair): Promise<void> {
   }
 }
 
-function isRunningStatus(status: PairStatus): boolean {
-  return status === 'Mentoring' || status === 'Executing' || status === 'Reviewing'
-}
-
 function buildTurnCardContent(activity: AgentActivity, fallbackLabel: string): string {
   const detail = activity.detail?.trim()
   if (detail) return detail
@@ -583,7 +580,7 @@ function syncPairFromState(pair: Pair, state: PairStateSnapshot): Pair {
   const nextMentorActivity = state.mentorActivity ?? pair.mentorActivity
   const nextExecutorActivity = state.executorActivity ?? pair.executorActivity
   const nextActiveActivity = nextTurn === 'mentor' ? nextMentorActivity : nextExecutorActivity
-  const shouldHaveCurrentCard = isRunningStatus(nextStatus)
+  const shouldHaveCurrentCard = isPairActive(nextStatus)
   const closedNow =
     pair.currentRunFinishedAt === undefined &&
     (nextStatus === 'Finished' || nextStatus === 'Error' || nextStatus === 'Paused') &&
@@ -847,7 +844,6 @@ export const usePairStore = create<PairStore>((set) => ({
 
     window.api.pair.onMessage((payload) => {
       const data = payload as PairMessageEvent
-      console.log('[usePairStore] onMessage received:', data)
       const incoming = data.message
 
       if (incoming.type === 'progress') {
@@ -1026,7 +1022,6 @@ export const usePairStore = create<PairStore>((set) => ({
     // Listen for handoff events to trigger next agent
     window.api.pair.onHandoff(async (payload) => {
       const data = payload as PairHandoffEvent
-      console.log('[usePairStore] Handoff event:', data)
 
       let backendState: BackendPairState | null = null
       try {
@@ -1036,12 +1031,10 @@ export const usePairStore = create<PairStore>((set) => ({
       }
 
       if (backendState?.status === 'Finished') {
-        console.log('[usePairStore] Ignoring handoff - backend already finished')
         return
       }
 
       if (backendState?.status === 'Paused') {
-        console.log('[usePairStore] Ignoring handoff - backend is paused')
         return
       }
 
@@ -1059,7 +1052,6 @@ export const usePairStore = create<PairStore>((set) => ({
           backendStatus: backendState?.status
         })
       ) {
-        console.log('[usePairStore] Ignoring handoff - pair already finished')
         return
       }
 
@@ -1183,11 +1175,9 @@ export const usePairStore = create<PairStore>((set) => ({
   },
 
   createPair: async (input) => {
-    console.log('[usePairStore] createPair called', input)
     set({ isLoading: true, error: null })
 
     try {
-      console.log('[usePairStore] Calling window.api.pair.create...')
       const availableModels = usePairStore.getState().availableModels
       const mentorConfig = buildAgentConfig('mentor', input.mentorModel, availableModels)
       const executorConfig = buildAgentConfig('executor', input.executorModel, availableModels)
@@ -1201,7 +1191,6 @@ export const usePairStore = create<PairStore>((set) => ({
         executorReasoningEffort: input.executorReasoningEffort,
         branch: input.branch
       })) as PairCreatedResponse
-      console.log('[usePairStore] Pair created:', pairProcess)
 
       const now = Date.now()
       const initialMessage: Message = {
@@ -1290,7 +1279,6 @@ export const usePairStore = create<PairStore>((set) => ({
       overrides = modelOverrides ?? roleOrModelOverrides
     }
 
-    console.log('[usePairStore] assignTask called', { pairId, spec, role, overrides })
     set({ isLoading: true, error: null })
 
     try {
@@ -1320,9 +1308,7 @@ export const usePairStore = create<PairStore>((set) => ({
         }
       }
 
-      console.log('[usePairStore] Calling window.api.pair.assignTask...')
       await window.api.pair.assignTask(pairId, { spec, role })
-      console.log('[usePairStore] assignTask call finished')
 
       // Only update state AFTER backend succeeds
       set((state) => ({

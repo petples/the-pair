@@ -80,7 +80,7 @@ interface TimelinePair {
 
 // ── Helpers ────────────────────────────────────────────
 
-function isTechnicalHandoff(content: string): boolean {
+export function isTechnicalHandoff(content: string): boolean {
   return (
     content.includes('### ROLE:') ||
     content.includes('--- COMMAND TO EXECUTE ---') ||

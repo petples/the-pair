@@ -44,19 +44,11 @@ import { UpdateNotification } from './components/UpdateNotification'
 import { isSelectableForPairExecution } from './lib/modelPreferences'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { isAcceptanceVerdictContent, parseAcceptanceVerdict } from './lib/acceptance'
-import { buildTimeline } from './lib/timeline'
-
-function isPairRunning(status: Pair['status']): boolean {
-  const normalized = String(status).toLowerCase()
-  return normalized === 'mentoring' || normalized === 'executing' || normalized === 'reviewing'
-}
+import { buildTimeline, isTechnicalHandoff, formatTimestamp } from './lib/timeline'
+import { isPairActive } from './lib/pairStatus'
 
 function isAgentExecuting(phase: string): boolean {
   return phase === 'thinking' || phase === 'using_tools' || phase === 'responding'
-}
-
-function buildConsoleMessages(messages: Message[]): Message[] {
-  return messages
 }
 
 function useMinimumVisibleText(text: string, resetKey: string, minimumMs = 1200): string {
@@ -307,7 +299,7 @@ function Dashboard({
                             Paused
                           </span>
                         ) : (
-                          !isPairRunning(pair.status) && (
+                          !isPairActive(pair.status) && (
                             <span className="rounded-full border border-green-500/20 bg-green-500/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.16em] text-green-700 dark:text-green-300">
                               Ready for new task
                             </span>
@@ -385,17 +377,7 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
   // Filter out technical handoff messages
   if (!displayContent || displayContent === '{}' || displayContent === '[]') return null
 
-  const isTechnicalHandoff =
-    displayContent.includes('### ROLE:') ||
-    displayContent.includes('--- COMMAND TO EXECUTE ---') ||
-    displayContent.includes('--- REVIEW REQUEST ---')
-
-  if (isTechnicalHandoff && !isHuman) return null
-
-  const formatTime = (ts: number): string => {
-    const d = new Date(ts)
-    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`
-  }
+  if (isTechnicalHandoff(displayContent) && !isHuman) return null
 
   const getRoleColors = (): string => {
     if (isHuman) return 'bg-green-500/10 border-green-500/20 shadow-sm'
@@ -460,7 +442,7 @@ function MessageCard({ msg }: { msg: Message }): React.ReactNode {
         <div className="flex items-center gap-2">
           <TokenChip usage={msg.tokenUsage} compact />
           <span className="text-[10px] font-mono text-muted-foreground/30 tabular-nums">
-            {formatTime(msg.timestamp)}
+            {formatTimestamp(msg.timestamp)}
           </span>
         </div>
       </div>
@@ -646,8 +628,6 @@ function PairDetail({
   onResume: () => Promise<void>
   onRestoreTask: (spec: string, mentorModel: string, executorModel: string) => void
 }): React.ReactNode {
-  console.log('[PairDetail] Rendering with pair:', pair.id, pair.name)
-
   const retryTurn = usePairStore((s) => s.retryTurn)
   const isStoreBusy = usePairStore((s) => s.isLoading)
   const viewingRunId = usePairStore((s) => s.viewingRunId)
@@ -705,18 +685,14 @@ function PairDetail({
   }, [pair, viewingRun])
 
   const consoleMessages = useMemo(() => {
-    const messages = viewingRun
-      ? buildConsoleMessages(viewingRun.messages)
-      : buildConsoleMessages(pair.messages)
+    const messages = viewingRun ? viewingRun.messages : pair.messages
 
     if (messageFilter === 'all') return messages
     return messages.filter((msg) => msg.from === 'human' || msg.from === messageFilter)
   }, [pair.messages, viewingRun, messageFilter])
 
   const messageCounts = useMemo(() => {
-    const allMessages = viewingRun
-      ? buildConsoleMessages(viewingRun.messages)
-      : buildConsoleMessages(pair.messages)
+    const allMessages = viewingRun ? viewingRun.messages : pair.messages
     return {
       mentor: allMessages.filter((msg) => msg.from === 'mentor').length,
       executor: allMessages.filter((msg) => msg.from === 'executor').length,
@@ -749,7 +725,7 @@ function PairDetail({
   }, [pair.messages.length])
 
   useEffect(() => {
-    if (!isPairRunning(pair.status)) return
+    if (!isPairActive(pair.status)) return
     const el = scrollRef.current
     if (!el) return
 
@@ -771,7 +747,7 @@ function PairDetail({
     )
   }
 
-  const canPause = isPairRunning(pair.status)
+  const canPause = isPairActive(pair.status)
 
   const handleRetryTurn = (): void => {
     retryTurn(pair.id)
@@ -816,7 +792,7 @@ function PairDetail({
 
   const mentorIsExecuting = isAgentExecuting(pair.mentorActivity.phase)
   const executorIsExecuting = isAgentExecuting(pair.executorActivity.phase)
-  const isRunning = isPairRunning(pair.status) || mentorIsExecuting || executorIsExecuting
+  const isRunning = isPairActive(pair.status) || mentorIsExecuting || executorIsExecuting
 
   return (
     <div className="flex h-full flex-col">
@@ -1389,26 +1365,16 @@ function App(): React.ReactNode {
   ).length
   const showOnboarding = !isInitializing && pairs.length === 0
 
-  console.log('[App] Render state:', {
-    selectedPairId,
-    selectedPair: selectedPair?.name,
-    pairsCount: pairs.length,
-    isInitializing,
-    showOnboarding
-  })
-
   // 如果选中了一个不存在的 pair，重置选择
   useEffect(() => {
     if (selectedPairId && !selectedPair) {
-      console.warn('[App] Selected pair not found, resetting selection')
       setSelectedPairId(null)
     }
   }, [selectedPairId, selectedPair])
 
   const handlePauseSelectedPair = async (): Promise<void> => {
-    if (!selectedPair || !isPairRunning(selectedPair.status)) return
+    if (!selectedPair || !isPairActive(selectedPair.status)) return
 
-    console.log('[App] Pausing pair:', selectedPair.id)
     try {
       await pausePair(selectedPair.id)
     } catch (error) {

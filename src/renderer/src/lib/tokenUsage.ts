@@ -1,4 +1,5 @@
 import type { TurnTokenUsage } from '../types'
+import { isAcceptanceVerdictContent } from './acceptance'
 
 export interface TokenUsageTurnCard {
   id: string
@@ -27,85 +28,6 @@ export interface TokenUsageMessage {
   content: string
   iteration: number
   tokenUsage?: TurnTokenUsage
-}
-
-function extractJsonCandidates(raw: string): string[] {
-  const trimmed = raw.trim()
-  const candidates = new Set<string>()
-
-  if (trimmed) {
-    candidates.add(trimmed)
-  }
-
-  for (let i = 0; i < trimmed.length; i += 1) {
-    if (trimmed[i] !== '{') continue
-    let depth = 0
-    let inString = false
-    let escaped = false
-
-    for (let j = i; j < trimmed.length; j += 1) {
-      const char = trimmed[j]
-
-      if (inString) {
-        if (escaped) {
-          escaped = false
-          continue
-        }
-        if (char === '\\') {
-          escaped = true
-          continue
-        }
-        if (char === '"') {
-          inString = false
-        }
-        continue
-      }
-
-      if (char === '"') {
-        inString = true
-        continue
-      }
-      if (char === '{') {
-        depth += 1
-      } else if (char === '}') {
-        depth -= 1
-        if (depth === 0) {
-          candidates.add(trimmed.slice(i, j + 1).trim())
-          break
-        }
-      }
-    }
-  }
-
-  return [...candidates]
-}
-
-function isAcceptanceVerdictContent(raw: string): boolean {
-  for (const candidate of extractJsonCandidates(raw)) {
-    try {
-      const parsed = JSON.parse(candidate) as Record<string, unknown>
-      const nextStep =
-        parsed.nextStep && typeof parsed.nextStep === 'object'
-          ? (parsed.nextStep as Record<string, unknown>)
-          : null
-
-      if (
-        (parsed.verdict === 'pass' || parsed.verdict === 'fail') &&
-        (parsed.risk === 'low' || parsed.risk === 'medium' || parsed.risk === 'high') &&
-        Array.isArray(parsed.evidence) &&
-        typeof parsed.summary === 'string' &&
-        nextStep &&
-        (nextStep.action === 'continue' || nextStep.action === 'finish') &&
-        Array.isArray(nextStep.instructions)
-      ) {
-        return true
-      }
-    } catch {
-      // ignore invalid candidates
-    }
-  }
-
-  return false
 }
 
 export function turnCardToMessage(card: TokenUsageTurnCard): TokenUsageMessage {

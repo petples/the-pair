@@ -4,6 +4,7 @@ import { Pair } from '../store/usePairStore'
 import { StatusBadge } from './StatusBadge'
 import { GlassButton } from './ui/GlassButton'
 import { UpdateControls } from './UpdateControls'
+import { isPairBusy } from '../lib/pairStatus'
 
 interface AppChromeProps {
   selectedPair?: Pair | null
@@ -17,15 +18,6 @@ interface AppChromeProps {
   onOpenSettings?: () => void
 }
 
-function isBusy(status: Pair['status']): boolean {
-  return (
-    status === 'Mentoring' ||
-    status === 'Executing' ||
-    status === 'Reviewing' ||
-    status === 'Awaiting Human Review'
-  )
-}
-
 export function AppChrome({
   selectedPair,
   readyModelCount,
@@ -37,7 +29,7 @@ export function AppChrome({
   onAssignTask,
   onOpenSettings
 }: AppChromeProps): React.ReactNode {
-  const pairBusy = selectedPair ? isBusy(selectedPair.status) : false
+  const pairBusy = selectedPair ? isPairBusy(selectedPair.status) : false
 
   const [appVersion, setAppVersion] = useState<string | null>(null)
 

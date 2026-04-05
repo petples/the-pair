@@ -163,13 +163,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
   }
 
   const handleSelectDirectory = async (): Promise<void> => {
-    console.log('[OnboardingWizard] Choosing directory...')
     try {
       const selected = await open({
         directory: true,
         multiple: false
       })
-      console.log('[OnboardingWizard] Result:', selected)
       if (selected) {
         setDirectory(selected)
         setName((currentName) =>

@@ -7,6 +7,7 @@ use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
     AcceptanceRecord, PairStatus, TokenUsageSource, TurnTokenUsage,
 };
+use crate::util::is_mock_mode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -40,12 +41,6 @@ pub struct ProcessContext {
 
 const MENTOR_FINISH_SIGNAL: &str = "TASK_COMPLETE";
 const EMPTY_OUTPUT_PLACEHOLDER: &str = "(No textual output produced)";
-
-fn is_mock_mode() -> bool {
-    std::env::var("THE_PAIR_E2E_MOCK")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-}
 
 fn mock_responses(role: &str, iteration: u32) -> Vec<String> {
     match (role, iteration) {
@@ -457,10 +452,6 @@ fn should_skip_plain_output_line(line: &str) -> bool {
     trimmed.is_empty() || is_noise_text_candidate(trimmed)
 }
 
-fn should_finish_after_mentor_turn(mentor_finish_signaled: bool) -> bool {
-    mentor_finish_signaled
-}
-
 struct AcceptanceVerdictOutcome {
     parsed_acceptance: Option<AcceptanceRecord>,
     acceptance_error: Option<String>,
@@ -848,7 +839,7 @@ impl ProcessSpawner {
                             }
                             }
                         } else if role_mock == "mentor"
-                        && should_finish_after_mentor_turn(mentor_finish_signaled)
+                        && mentor_finish_signaled
                     {
                         println!(
                             "[ProcessSpawner] [MOCK] [{}] Mentor finished, marking as Finished",
@@ -1322,7 +1313,7 @@ impl ProcessSpawner {
                         }
                     }
                 } else if role_clone == "mentor"
-                    && should_finish_after_mentor_turn(mentor_finish_signaled)
+                    && mentor_finish_signaled
                 {
                     println!(
                         "[ProcessSpawner] [{}] Mentor emitted finish signal {}, marking session as finished",
@@ -1524,12 +1515,6 @@ mod tests {
         assert!(is_noise_text_candidate("}"));
         assert!(should_skip_plain_output_line(" ] "));
         assert!(!is_noise_text_candidate("Work finished successfully"));
-    }
-
-    #[test]
-    fn mentor_finish_signal_always_finishes() {
-        assert!(should_finish_after_mentor_turn(true));
-        assert!(!should_finish_after_mentor_turn(false));
     }
 
     #[test]

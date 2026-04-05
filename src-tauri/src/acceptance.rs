@@ -2,11 +2,12 @@ use crate::types::{
     AcceptanceCheckRun, AcceptanceCheckStatus, AcceptanceNextAction, AcceptanceRecord,
     AcceptanceRisk, AcceptanceVerdict, ModifiedFile,
 };
+use crate::util::now_millis;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
 use std::process::Stdio;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 use tokio::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,13 +33,6 @@ impl AcceptanceCheckPlan {
             args,
         }
     }
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
 }
 
 fn trim_output(text: &str, max_chars: usize) -> String {
@@ -306,7 +300,7 @@ pub async fn run_acceptance_checks(
     iteration: u32,
     max_iterations: u32,
 ) -> AcceptanceRecord {
-    let started_at = now();
+    let started_at = now_millis();
     let checks = build_acceptance_check_plan(
         &workspace_root.to_string_lossy(),
         None,
@@ -340,7 +334,7 @@ pub async fn run_acceptance_checks(
         checks: runs,
         summary: format!("{} passed, {} failed, {} skipped", passed, failed, skipped),
         started_at,
-        finished_at: now(),
+        finished_at: now_millis(),
         verdict: None,
         raw_verdict: None,
         error: None,

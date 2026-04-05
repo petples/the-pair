@@ -14,6 +14,7 @@ mod session_snapshot;
 mod skill_discovery;
 mod stubs;
 mod types;
+mod util;
 mod worktree_manager;
 
 use message_broker::MessageBroker;

@@ -5,15 +5,12 @@ import type { PairModelSelection } from '../types'
 import { GlassButton } from './ui/GlassButton'
 import { GlassModal } from './ui/GlassModal'
 import { ModelPicker } from './ModelPicker'
+import { isPairActive } from '../lib/pairStatus'
 
 interface PairSettingsModalProps {
   pair: Pair | null
   isOpen: boolean
   onClose: () => void
-}
-
-function isBusy(status: Pair['status']): boolean {
-  return status === 'Mentoring' || status === 'Executing' || status === 'Reviewing'
 }
 
 export function PairSettingsModal({
@@ -97,7 +94,7 @@ export function PairSettingsModal({
           />
         </div>
 
-        {(isBusy(pair.status) || queuedForNextTask) && (
+        {(isPairActive(pair.status) || queuedForNextTask) && (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
             {queuedForNextTask
               ? 'A model update is already queued for the next task.'

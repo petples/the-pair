@@ -3,6 +3,7 @@ use crate::pair_manager::PairManager;
 use crate::process_spawner::{ProcessContext, ProcessSpawner};
 use crate::provider_adapter::ProviderAdapter;
 use crate::provider_registry::ProviderKind;
+use crate::util::{build_mentor_planning_prompt, now_millis};
 use crate::{
     acceptance::{
         build_executor_acceptance_followup_prompt, build_mentor_acceptance_prompt,
@@ -16,7 +17,6 @@ use crate::types::{
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 
 const SNAPSHOT_VERSION: u32 = 2;
@@ -192,13 +192,6 @@ pub struct RestoreSessionInput {
     pub continue_run: bool,
 }
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-}
-
 fn to_role_string(role: &AgentRole) -> &'static str {
     match role {
         AgentRole::Mentor => "mentor",
@@ -208,16 +201,6 @@ fn to_role_string(role: &AgentRole) -> &'static str {
 
 fn resolve_provider_kind(provider: Option<ProviderKind>, model: &str) -> ProviderKind {
     provider.unwrap_or_else(|| ProviderAdapter::infer_provider_kind(model))
-}
-
-fn build_mentor_planning_prompt(task_spec: &str) -> String {
-    format!(
-        "ROLE: MENTOR. Analyze the following task and provide a detailed PLAN for the EXECUTOR. \
-DO NOT execute it yourself. \
-DO NOT run commands or edit files. \
-Return ONLY a concrete PLAN with numbered executable steps (no intent-only preface).\n\nTASK: {}",
-        task_spec
-    )
 }
 
 fn build_executor_resume_prompt(snapshot: &SessionSnapshotRecord) -> String {
@@ -498,10 +481,7 @@ fn current_turn_activity(activity: &AgentActivity) -> AgentActivity {
 }
 
 fn idle_activity() -> AgentActivity {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+    let now = now_millis();
     AgentActivity {
         phase: crate::types::ActivityPhase::Idle,
         label: "Idle".to_string(),
@@ -713,7 +693,7 @@ fn build_snapshot_from_state(
 
     SessionSnapshotRecord {
         snapshot_version: SNAPSHOT_VERSION,
-        saved_at: now(),
+        saved_at: now_millis(),
         pair_id: pair.pair_id.clone(),
         name: pair.name.clone(),
         directory: pair.directory.clone(),
@@ -751,12 +731,12 @@ fn build_snapshot_from_state(
         current_turn_card,
         run_count: 1,
         run_history: Vec::new(),
-        current_run_started_at: now(),
+        current_run_started_at: now_millis(),
         current_run_finished_at: matches!(
             state.status,
             PairStatus::Paused | PairStatus::Error | PairStatus::Finished
         )
-        .then(now),
+        .then(now_millis),
         created_at: pair.created_at,
         provider_sessions: SnapshotProcessContext {
             mentor_session_id: context.mentor_session_id.clone(),
@@ -788,7 +768,7 @@ fn build_snapshot_from_draft(
 
     SessionSnapshotRecord {
         snapshot_version: SNAPSHOT_VERSION,
-        saved_at: now(),
+        saved_at: now_millis(),
         pair_id: draft.pair_id,
         name: draft.name,
         directory: draft.directory,
@@ -862,7 +842,7 @@ pub fn persist_pair_snapshot_from_state(
         Err(_) => build_snapshot_from_state(&pair, state, context.as_ref()),
     };
 
-    snapshot.saved_at = now();
+    snapshot.saved_at = now_millis();
     snapshot.status = state.status.clone();
     snapshot.iterations = state.iteration;
     snapshot.max_iterations = state.max_iterations;
@@ -892,7 +872,7 @@ pub fn persist_pair_snapshot_from_state(
             PairStatus::Paused | PairStatus::Error | PairStatus::Finished
         )
     {
-        snapshot.current_run_finished_at = Some(now());
+        snapshot.current_run_finished_at = Some(now_millis());
     }
     snapshot.provider_sessions = SnapshotProcessContext {
         mentor_session_id: context

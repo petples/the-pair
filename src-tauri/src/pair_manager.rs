@@ -10,26 +10,12 @@ use crate::session_snapshot::persist_current_pair_snapshot;
 use crate::types::{
     AssignTaskInput, CreatePairInput, Message, MessageSender, MessageType, Pair, PairStatus,
 };
+use crate::util::{build_mentor_planning_prompt, now_millis};
 use crate::worktree_manager::{
     check_repo_state, create_worktree, delete_worktree, ensure_gitignore_worktrees,
     ensure_local_tracking_branch, BranchInfo, RepoState,
 };
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn build_mentor_planning_prompt(task_spec: &str) -> String {
-    format!(
-        "ROLE: MENTOR. Analyze the following task and provide a detailed PLAN for the EXECUTOR. \
-DO NOT execute it yourself. \
-DO NOT run commands or edit files. \
-Return ONLY a concrete PLAN with numbered executable steps (no intent-only preface).\n\nTASK: {}",
-        task_spec
-    )
-}
-
-fn resolve_reasoning_effort(preferred: Option<String>) -> Option<String> {
-    preferred
-}
 
 pub struct PairManager {
     pairs: HashMap<String, Pair>,
@@ -50,10 +36,7 @@ impl PairManager {
         println!("[PairManager::create_pair] Starting pair creation...");
 
         let pair_id = uuid::Uuid::new_v4().to_string();
-        let created_at = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+        let created_at = now_millis();
 
         println!("[PairManager::create_pair] Generated pair_id: {}", pair_id);
 
@@ -418,12 +401,8 @@ pub async fn pair_assign_task(
                 } else {
                     existing_executor_sid
                 },
-                mentor_reasoning_effort: resolve_reasoning_effort(
-                    pair.mentor_reasoning_effort.clone(),
-                ),
-                executor_reasoning_effort: resolve_reasoning_effort(
-                    pair.executor_reasoning_effort.clone(),
-                ),
+                mentor_reasoning_effort: pair.mentor_reasoning_effort.clone(),
+                executor_reasoning_effort: pair.executor_reasoning_effort.clone(),
                 run_generation: if is_new_run {
                     existing_run_generation.wrapping_add(1)
                 } else {
@@ -968,19 +947,6 @@ mod tests {
         assert!(prompt.contains("Add a dark mode toggle"));
         assert!(prompt.contains("numbered executable steps"));
         assert!(prompt.contains("DO NOT execute it yourself"));
-    }
-
-    #[test]
-    fn resolve_reasoning_effort_prefers_pair_setting_over_cached_context() {
-        assert_eq!(
-            resolve_reasoning_effort(Some("high".to_string())),
-            Some("high".to_string())
-        );
-        assert_eq!(
-            resolve_reasoning_effort(Some("medium".to_string())),
-            Some("medium".to_string())
-        );
-        assert_eq!(resolve_reasoning_effort(None), None);
     }
 
     fn sample_input() -> CreatePairInput {
