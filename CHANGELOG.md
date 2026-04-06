@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.7] - 2026-04-07
+
+### Added
+
+- **Geist font integration**: Added Geist font family support and updated design system tokens and animations for a more polished visual identity.
+- **Auto-generate default config**: Default configuration file is now auto-generated on first run, reducing manual setup.
+- **Dashboard pair container UI**: New dashboard and message UI components for pair container management.
+- **Project cleanup script**: Added a cleanup script to remove build artifacts and temporary files.
+
+### Changed
+
+- **CSS layer organization**: Wrapped base styles in a CSS layer and removed redundant box-sizing and font-family declarations.
+- **UI spacing consistency**: Refined padding and component styling across the dashboard and app chrome for a more cohesive layout.
+- **Default config simplification**: Simplified default configuration structure and implemented Claude model ID validation with proper display name formatting.
+- **Onboarding wizard**: Updated button visibility logic to reflect auto-generated config availability.
+
+### Fixed
+
+- **Release tag detection**: Fixed version tag detection by using full git fetch instead of shallow fetch.
+- **Duplicate release prevention**: Removed workflow_dispatch bypass in the release workflow to prevent duplicate GitHub releases.
+
 ## [1.3.6] - 2026-04-05
 
 ### Added
@@ -386,6 +407,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace-scoped file system access
 - Secure handling of API keys via opencode configuration
 
+[1.3.7]: https://github.com/timwuhaotian/the-pair/compare/v1.3.6...v1.3.7
 [1.3.0]: https://github.com/timwuhaotian/the-pair/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/timwuhaotian/the-pair/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/timwuhaotian/the-pair/compare/v1.2.1...v1.2.2
