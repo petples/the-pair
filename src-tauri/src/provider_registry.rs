@@ -402,6 +402,69 @@ fn collect_model_ids_from_help_line(
     }
 }
 
+fn is_plausible_model_id(value: &str) -> bool {
+    if value.len() < 4 {
+        return false;
+    }
+    let mut chars = value.chars();
+    chars.next().is_some_and(|c| c.is_alphanumeric())
+        && chars.all(|c| c.is_alphanumeric() || c == '-' || c == '.' || c == '_' || c == '/')
+}
+
+fn beautify_claude_display_name(model_id: &str) -> String {
+    let lower = model_id.to_lowercase();
+    if !lower.starts_with("claude-") {
+        return model_id.to_string();
+    }
+
+    let mut parts: Vec<String> = lower.split('-').map(|s| s.to_string()).collect();
+
+    // Remove date suffix (8-digit segment at end)
+    if let Some(last) = parts.last() {
+        if last.len() == 8 && last.chars().all(|c| c.is_ascii_digit()) {
+            parts.pop();
+        }
+    }
+
+    // Handle old format: claude-{major}-{minor}-{name} (e.g., claude-3-5-sonnet)
+    if parts.len() >= 4 && parts[1].len() == 1 && parts[2].len() == 1
+        && parts[1].chars().all(|c| c.is_ascii_digit())
+        && parts[2].chars().all(|c| c.is_ascii_digit())
+    {
+        let minor = parts.remove(2);
+        let major = parts.remove(1);
+        parts.insert(1, format!("{}.{}", major, minor));
+    }
+
+    // Merge trailing version segments (e.g., "4" + "5" → "4.5")
+    if parts.len() >= 2 {
+        let last = parts[parts.len() - 1].clone();
+        let prev = parts[parts.len() - 2].clone();
+        if last.len() <= 2
+            && prev.len() <= 2
+            && last.chars().all(|c| c.is_ascii_digit())
+            && prev.chars().all(|c| c.is_ascii_digit())
+        {
+            parts.pop();
+            parts.pop();
+            parts.push(format!("{}.{}", prev, last));
+        }
+    }
+
+    // Capitalize each word
+    parts
+        .iter()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn build_detected_models(
     model_ids: Vec<String>,
     source_provider: &str,
@@ -409,6 +472,7 @@ fn build_detected_models(
 ) -> Vec<DetectedModelOption> {
     model_ids
         .into_iter()
+        .filter(|id| is_plausible_model_id(id))
         .map(|model_id| DetectedModelOption {
             display_name: model_id.clone(),
             model_id,
@@ -492,12 +556,7 @@ fn discover_claude_model_ids(home: &std::path::Path) -> Vec<String> {
     let mut model_ids = Vec::new();
 
     if let Some(help_text) = capture_claude_help_text(home) {
-        let help_predicate = |value: &str| {
-            !value.contains(char::is_whitespace)
-                && !value.starts_with("--")
-                && value.len() > 1
-                && value.chars().any(|c| c.is_alphanumeric())
-        };
+        let help_predicate = |value: &str| is_plausible_model_id(value) && !value.starts_with("--");
         collect_model_ids_from_help_line(&help_text, &help_predicate, &mut model_ids);
     }
 
@@ -815,7 +874,10 @@ impl ProviderRegistry {
             model_ids = discover_claude_model_ids(&homedir);
         }
 
-        let models = build_detected_models(model_ids, "anthropic", &subscription_label);
+        let mut claude_models = build_detected_models(model_ids, "anthropic", &subscription_label);
+        for model in &mut claude_models {
+            model.display_name = beautify_claude_display_name(&model.model_id);
+        }
 
         DetectedProviderProfile {
             kind: ProviderKind::Claude,
@@ -823,7 +885,7 @@ impl ProviderRegistry {
             authenticated,
             runnable: installed && authenticated,
             subscription_label,
-            current_models: models,
+            current_models: claude_models,
             detected_at: detected_at_now(),
         }
     }

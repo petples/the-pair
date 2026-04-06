@@ -73,18 +73,10 @@ pub fn config_open_file() -> Result<(), String> {
         let parent = path.parent().ok_or("Could not determine config directory")?;
         std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config directory: {}", e))?;
 
+        // Minimal default config - OpenCode CLI detects free models automatically
+        // This file is only needed for custom BYOK providers
         let default_config = serde_json::json!({
-            "provider": {
-                "openai": {
-                    "options": {
-                        "apiKey": ""
-                    },
-                    "models": {
-                        "gpt-4o-mini": { "name": "GPT-4o Mini" },
-                        "gpt-4o": { "name": "GPT-4o" }
-                    }
-                }
-            }
+            "$schema": "https://opencode.dev/schema/config.json"
         });
 
         let content = serde_json::to_string_pretty(&default_config)
