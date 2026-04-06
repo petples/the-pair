@@ -31,7 +31,7 @@ export function TokenChip({ usage, isLive, compact, className }: TokenChipProps)
       <span
         className={cn(
           'inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium',
-          'bg-neutral-100 dark:bg-neutral-800 rounded',
+          'bg-neutral-100 dark:bg-neutral-800 rounded-md',
           'text-neutral-600 dark:text-neutral-400',
           className
         )}

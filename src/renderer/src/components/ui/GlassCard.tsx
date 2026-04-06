@@ -39,7 +39,7 @@ export function GlassCard({
     <Component
       onClick={onClick}
       className={cn(
-        'glass-card',
+        'glass-card p-4',
         hoverable && 'glass-card-hover cursor-pointer',
         glow !== 'none' && `shadow-lg ${glowMap[glow]}`,
         onClick && 'cursor-pointer',

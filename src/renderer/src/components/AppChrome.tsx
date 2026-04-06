@@ -70,7 +70,7 @@ export function AppChrome({
               <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
                 {selectedPair ? selectedPair.name : 'The Pair'}
               </h1>
-              <span className="rounded bg-blue-500 px-2 py-0.5 text-xs font-bold text-white">
+              <span className="rounded-full border border-primary/25 bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
                 v{appVersion ?? '...'}
               </span>
               <a

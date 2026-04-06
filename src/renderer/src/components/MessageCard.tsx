@@ -51,7 +51,7 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
               {msg.from[0].toUpperCase()}
             </div>
           )}
-          <div className="flex flex-col -space-y-0.5">
+          <div className="flex flex-col gap-0">
             <span
               className={cn(
                 'text-[11px] font-black uppercase tracking-[0.1em]',

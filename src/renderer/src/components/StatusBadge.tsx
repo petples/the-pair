@@ -59,7 +59,7 @@ export function StatusBadge({ status }: { status: string }): React.ReactNode {
   return (
     <span
       className={cn(
-        'text-[10px] font-medium px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5',
+        'text-[10px] font-medium px-2.5 py-1.5 rounded-full border inline-flex items-center gap-1.5',
         s.bg,
         s.text,
         s.border,

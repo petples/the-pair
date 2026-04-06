@@ -212,7 +212,7 @@ function PairDetail({
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-1 min-h-0 overflow-hidden bg-background">
-        <div className="glass-panel flex w-[28%] flex-col gap-5 overflow-y-auto border-r border-border/50 p-5 scrollbar-thin">
+        <div className="glass-panel flex w-[28%] flex-col gap-4 overflow-y-auto border-r border-border/50 p-5 scrollbar-thin">
           <div className="flex flex-wrap items-center gap-2">
             {(pair.status === 'Paused' || pair.status === 'Awaiting Human Review') && (
               <GlassButton
@@ -439,7 +439,7 @@ function PairDetail({
           </div>
 
           {/* Active Status Bar */}
-          <div className="flex h-14 shrink-0 items-center gap-6 border-b border-border/30 bg-muted/5 px-6">
+          <div className="flex h-14 shrink-0 items-center gap-4 border-b border-border/30 bg-muted/5 px-4">
             <div
               className={cn(
                 'flex flex-col gap-0.5 transition-all duration-300',
@@ -524,7 +524,7 @@ function PairDetail({
 
           <div className="relative flex min-h-0 flex-1 flex-col bg-background/20">
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin relative">
-              <div className="flex flex-col gap-4 p-6 pb-36">
+              <div className="flex flex-col gap-4 p-6 pb-20">
                 {consoleMessages.length === 0 && !pair.currentTurnCard ? (
                   <div className="flex h-[400px] flex-col items-center justify-center space-y-4 opacity-40">
                     <div className="h-12 w-12 rounded-full border-2 border-dashed border-muted-foreground/30 animate-[spin_10s_linear_infinite]" />
@@ -564,9 +564,9 @@ function PairDetail({
           </div>
         </div>
 
-        <div className="glass-panel flex w-[26%] flex-col gap-3 overflow-y-auto p-5 scrollbar-thin">
+        <div className="glass-panel flex w-[26%] flex-col gap-4 overflow-y-auto p-5 scrollbar-thin">
           <div>
-            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               System Resources
             </h3>
             <div className="glass-card rounded-2xl p-3">
@@ -574,7 +574,7 @@ function PairDetail({
             </div>
           </div>
           <div>
-            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Recent Activity
             </h3>
             <div className="glass-card rounded-2xl p-3 space-y-2">
@@ -618,7 +618,7 @@ function PairDetail({
             </div>
           </div>
           <div>
-            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Modified Files
             </h3>
             <div className="glass-card rounded-2xl p-3">

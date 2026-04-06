@@ -88,7 +88,7 @@ export function Dashboard({
                       hoverable
                       onClick={() => onSelectPair(pair)}
                       glow={getPairGlow(pair.status)}
-                      className="flex min-h-[140px] flex-col gap-2 p-3"
+                      className="flex min-h-[140px] flex-col gap-3 p-4"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
@@ -149,7 +149,7 @@ export function Dashboard({
                         {pair.spec}
                       </div>
 
-                      <div className="mt-auto space-y-2 border-t border-border/40 pt-2.5">
+                      <div className="mt-auto space-y-2 border-t border-border/40 pt-3">
                         {/* 资源监控 */}
                         <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} compact hideLabels />
 
