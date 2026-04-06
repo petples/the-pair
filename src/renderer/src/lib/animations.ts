@@ -51,8 +51,8 @@ export const staggerContainerFast: Variants = {
 export const cardHover: Variants = {
   idle: { scale: 1, borderColor: 'rgba(255, 255, 255, 0.06)' },
   hover: {
-    scale: 1.018,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    scale: 1.01,
+    borderColor: 'rgba(140, 180, 255, 0.18)',
     transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] }
   }
 }
@@ -89,7 +89,7 @@ export const turnCardFinalize: Variants = {
     opacity: 1,
     scale: 1,
     y: 0,
-    transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] }
+    transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1], delay: 0.05 }
   }
 }
 

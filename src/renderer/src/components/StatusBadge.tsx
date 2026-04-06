@@ -54,17 +54,35 @@ export function StatusBadge({ status }: { status: string }): React.ReactNode {
   }
 
   const s = config[status] || config['Idle']
+  const isActive = status === 'Mentoring' || status === 'Executing'
 
   return (
     <span
       className={cn(
-        'text-[10px] font-medium px-2.5 py-1 rounded-full border',
+        'text-[10px] font-medium px-2.5 py-1 rounded-full border inline-flex items-center gap-1.5',
         s.bg,
         s.text,
         s.border,
         s.glow
       )}
     >
+      {isActive && (
+        <span className="relative flex h-1.5 w-1.5">
+          <span
+            className={cn(
+              'animate-ping absolute inline-flex h-full w-full rounded-full opacity-75',
+              status === 'Mentoring' ? 'bg-blue-400' : 'bg-purple-400'
+            )}
+            style={{ animationDuration: '2s' }}
+          />
+          <span
+            className={cn(
+              'relative inline-flex rounded-full h-1.5 w-1.5',
+              status === 'Mentoring' ? 'bg-blue-500' : 'bg-purple-500'
+            )}
+          />
+        </span>
+      )}
       {status}
     </span>
   )

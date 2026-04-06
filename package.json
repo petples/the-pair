@@ -76,6 +76,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "fuse.js": "^7.1.0",
+    "geist": "^1.7.0",
     "lucide-react": "^0.577.0",
     "marked": "^17.0.5",
     "react-markdown": "^10.1.0",

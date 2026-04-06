@@ -30,7 +30,7 @@ export function MessageCard({ msg }: { msg: Message }): React.ReactNode {
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       className={cn(
-        'group flex flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 hover:shadow-xl',
+        'group flex flex-col gap-3 rounded-2xl border p-5 transition-all duration-300 hover:shadow-xl hover:brightness-[1.02]',
         getRoleColors(msg.from, isHuman),
         isSystem && 'opacity-60 grayscale border-transparent bg-transparent py-2 px-0 shadow-none'
       )}

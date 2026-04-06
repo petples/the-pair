@@ -48,8 +48,8 @@ export function GlassButton({
       type={type}
       onClick={onClick}
       disabled={disabled}
-      whileTap={{ scale: 0.95 }}
-      whileHover={{ scale: 1.015 }}
+      whileTap={{ scale: 0.97 }}
+      whileHover={{ scale: 1.02, filter: 'brightness(1.08)' }}
       aria-label={ariaLabel}
       title={title}
       data-testid={dataTestId}

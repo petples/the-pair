@@ -37,7 +37,7 @@ export function Dashboard({
   return (
     <div className="relative h-full overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/15 to-background" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_32%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.08),transparent_30%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_32%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.14),transparent_30%)]" />
       {pairs.length === 0 ? (
         <div className="relative z-10 flex h-full items-center justify-center p-8">
           <DashboardEmptyState onCreatePair={onCreatePair} />
