@@ -378,16 +378,16 @@ export function ModelPicker({
     return (
       <div
         className={cn(
-          'flex flex-col rounded-2xl border p-4 sm:p-5 ring-1 ring-border/30',
+          'flex flex-col rounded-xl border p-3.5 ring-1 ring-border/30',
           tone.border,
           'bg-card shadow-sm'
         )}
       >
         {/* Card header */}
-        <div className="mb-3.5 flex items-center gap-3">
+        <div className="mb-2.5 flex items-center gap-2.5">
           <div
             className={cn(
-              'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border',
+              'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
               tone.border,
               tone.background
             )}

@@ -51,11 +51,11 @@ export function PairSettingsModal({
       title={`Pair Defaults · ${pair.name}`}
       className="max-w-3xl"
     >
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div className="glass-card rounded-2xl p-4">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <div className="glass-card rounded-xl p-3">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-border bg-muted/60">
-              <SlidersHorizontal size={16} className="text-foreground/70" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-border bg-muted/60">
+              <SlidersHorizontal size={14} className="text-foreground/70" />
             </div>
             <div className="space-y-1">
               <div className="text-sm font-semibold text-foreground">
@@ -95,7 +95,7 @@ export function PairSettingsModal({
         </div>
 
         {(isPairActive(pair.status) || queuedForNextTask) && (
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3.5 py-2.5 text-sm text-amber-700 dark:text-amber-300">
             {queuedForNextTask
               ? 'A model update is already queued for the next task.'
               : 'This pair is running right now, so saved changes will queue for the next task.'}
@@ -103,7 +103,7 @@ export function PairSettingsModal({
         )}
 
         {error && (
-          <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
             {error}
           </div>
         )}

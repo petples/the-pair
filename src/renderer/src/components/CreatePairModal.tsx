@@ -178,9 +178,9 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
 
   return (
     <GlassModal isOpen={isOpen} onClose={onClose} title="Create New Pair" className="max-w-3xl">
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <div className="mb-3 flex items-center gap-2">
+          <div className="mb-2 flex items-center gap-2">
             <Sparkles size={14} className="text-primary" />
             <span className="text-sm font-medium text-foreground">Choose a Preset</span>
           </div>
@@ -195,7 +195,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
         </div>
 
         {selectedPreset && (
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5">
             <div className="flex items-center gap-2">
               <Sparkles size={12} className="text-primary" />
               <span className="text-xs font-medium text-primary">
@@ -311,7 +311,7 @@ export function CreatePairModal({ isOpen, onClose }: CreatePairModalProps): Reac
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-1">
+        <div className="flex justify-end gap-3 pt-2 border-t border-border/40 mt-1">
           <GlassButton
             type="button"
             variant="ghost"

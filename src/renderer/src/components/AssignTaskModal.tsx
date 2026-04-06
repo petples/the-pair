@@ -138,12 +138,12 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
       className="max-w-3xl"
     >
       <form onSubmit={handleSubmit} className="flex flex-col h-[70vh] max-h-[600px]">
-        <div className="flex-1 overflow-y-auto min-h-0 space-y-5">
-          <div className="glass-card rounded-2xl p-3">
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4">
+          <div className="glass-card rounded-xl p-3">
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               Workspace
             </div>
-            <div className="mt-2 truncate font-mono text-xs text-foreground" title={pair.directory}>
+            <div className="mt-1 truncate font-mono text-xs text-foreground" title={pair.directory}>
               {pair.directory}
             </div>
           </div>
@@ -165,7 +165,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
           </div>
 
           {modelsChanged && (
-            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
+            <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3.5 py-2.5 text-sm text-blue-700 dark:text-blue-300">
               Updated models will become the new defaults for this pair.
             </div>
           )}
@@ -197,7 +197,7 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
               onChange={(e) => setSpec(e.target.value)}
               placeholder="Describe the next task for this pair. Mention expected outcome, constraints, and how you want them to verify the work. Use @filename to reference files."
               rows={6}
-              className="glass-card w-full resize-none rounded-2xl px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="glass-card w-full resize-none rounded-xl px-3.5 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
               required
               data-testid="assign-task-spec"
             />
@@ -211,20 +211,20 @@ export function AssignTaskModal({ pair, isOpen, onClose }: AssignTaskModalProps)
                 onFileSelect={handleFileSelect}
               />
             </div>
-            <p className="mt-1.5 text-xs text-muted-foreground/70">
+            <p className="mt-1 text-xs text-muted-foreground/70">
               {spec.length > 0 ? `${spec.length} characters · ` : ''}Type @ to reference files. The
               next run starts with a fresh planning loop.
             </p>
           </div>
 
           {error && (
-            <div className="rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-3.5 py-2.5 text-sm text-destructive">
               {error}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 shrink-0 pt-4">
+        <div className="flex justify-end gap-3 shrink-0 pt-3 border-t border-border/40 mt-4">
           <GlassButton
             type="button"
             variant="ghost"

@@ -269,8 +269,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
-        <div className="mx-auto max-w-7xl px-6 py-4 lg:px-8 lg:py-5">
-          <div className="flex flex-col gap-3">
+        <div className="mx-auto max-w-7xl px-6 py-5 lg:px-8 lg:py-6">
+          <div className="flex flex-col gap-4">
             <WelcomeCard
               summary={providerSummary}
               loading={isCheckingProviders}
@@ -297,7 +297,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps): React.R
               />
             </div>
 
-            <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-3">
+            <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
               <ModelCard
                 availableModels={availableModels}
                 mentorModel={mentorModel}
@@ -399,10 +399,10 @@ function WelcomeCard({
   const config = healthConfig[healthState]
 
   return (
-    <GlassCard className="flex items-center gap-4 px-4 py-3">
+    <GlassCard className="flex items-center gap-3 px-4 py-3">
       <div
         className={cn(
-          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border',
+          'w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border',
           config.bgClass,
           config.borderClass
         )}
@@ -417,7 +417,7 @@ function WelcomeCard({
       </div>
       <div className="flex-1 min-w-0">
         <span className={cn('font-semibold text-xs', config.textClass)}>{config.label}</span>
-        <span className="text-xs text-muted-foreground"> — {config.description}</span>
+        <span className="text-[11px] text-muted-foreground"> — {config.description}</span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <GlassButton
@@ -458,7 +458,7 @@ function DirectoryCard({
   isCompactLayout?: boolean
 }): React.ReactNode {
   return (
-    <GlassCard className="flex h-full flex-col p-4 space-y-3">
+    <GlassCard className="flex h-full flex-col p-5 space-y-3">
       <CardHeader
         eyebrow="WORKSPACE"
         title="Choose Workspace"
@@ -524,7 +524,7 @@ function TaskSpecCard({
   error: string | null
 }): React.ReactNode {
   return (
-    <GlassCard className="flex h-full flex-col p-4 space-y-3">
+    <GlassCard className="flex h-full flex-col p-5 space-y-3">
       <CardHeader
         eyebrow="TASK"
         title="Task Specification"
@@ -568,7 +568,7 @@ function TaskSpecCard({
             {spec.length} chars · Type @ to reference files
           </p>
 
-          <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
+          <div className="mt-3 pt-3 border-t border-border/40 flex flex-col gap-2">
             {error && (
               <div className="flex items-center gap-1.5 text-xs text-destructive">
                 <AlertCircle size={13} />
@@ -616,7 +616,7 @@ function ModelCard({
   isCompactLayout?: boolean
 }): React.ReactNode {
   return (
-    <GlassCard className="flex h-full flex-col space-y-3 p-4">
+    <GlassCard className="flex h-full flex-col space-y-3 p-5">
       <CardHeader
         eyebrow="MODELS"
         title="Model Selection"

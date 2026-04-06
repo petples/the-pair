@@ -47,7 +47,7 @@ export function AppChrome({
   return (
     <div className="app-chrome glass-toolbar relative shrink-0 border-b border-border/60">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-foreground/12 to-transparent" />
-      <div className="app-drag relative flex items-center justify-between gap-4 px-4 py-3">
+      <div className="app-drag relative flex items-center justify-between gap-4 px-5 py-2.5">
         <div className="flex min-w-0 items-center gap-3">
           {selectedPair ? (
             <button
@@ -65,7 +65,7 @@ export function AppChrome({
             </div>
           )}
 
-          <div className="min-w-0 flex flex-col gap-1.5">
+          <div className="min-w-0 flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate text-sm font-semibold tracking-tight text-foreground">
                 {selectedPair ? selectedPair.name : 'The Pair'}

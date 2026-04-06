@@ -43,8 +43,8 @@ export function Dashboard({
           <DashboardEmptyState onCreatePair={onCreatePair} />
         </div>
       ) : (
-        <div className="relative z-10 flex h-full flex-col p-8">
-          <div className="mb-8 flex items-end justify-between gap-6">
+        <div className="relative z-10 flex h-full flex-col p-6">
+          <div className="mb-6 flex items-end justify-between gap-6">
             <div>
               <h1 className="flex items-center gap-3 text-3xl font-semibold tracking-tight text-foreground">
                 Pair Containers
@@ -67,7 +67,7 @@ export function Dashboard({
           </div>
 
           <motion.div
-            className="grid flex-1 grid-cols-1 gap-5 overflow-y-auto scrollbar-thin md:grid-cols-2 xl:grid-cols-3"
+            className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto scrollbar-thin md:grid-cols-2 xl:grid-cols-3"
             variants={staggerContainer}
             initial="hidden"
             animate="visible"
@@ -88,7 +88,7 @@ export function Dashboard({
                       hoverable
                       onClick={() => onSelectPair(pair)}
                       glow={getPairGlow(pair.status)}
-                      className="flex min-h-[140px] flex-col gap-3 p-4"
+                      className="flex min-h-[140px] flex-col gap-2.5 p-4"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
@@ -149,7 +149,7 @@ export function Dashboard({
                         {pair.spec}
                       </div>
 
-                      <div className="mt-auto space-y-2 border-t border-border/40 pt-3">
+                      <div className="mt-auto space-y-1.5 border-t border-border/40 pt-2.5">
                         {/* 资源监控 */}
                         <ResourceMeter cpu={pair.cpuUsage} mem={pair.memUsage} compact hideLabels />
 

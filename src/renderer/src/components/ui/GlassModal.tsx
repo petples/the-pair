@@ -56,17 +56,17 @@ export function GlassModal({
             exit="exit"
           >
             {title && (
-              <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
-                <h2 className="text-lg font-semibold text-foreground tracking-tight">{title}</h2>
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+                <h2 className="text-base font-semibold text-foreground tracking-tight">{title}</h2>
                 <button
                   onClick={onClose}
                   className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all cursor-pointer"
                 >
-                  <X size={16} />
+                  <X size={15} />
                 </button>
               </div>
             )}
-            <div className="p-6">{children}</div>
+            <div className="p-5">{children}</div>
           </motion.div>
         </motion.div>
       )}
