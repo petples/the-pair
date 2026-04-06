@@ -67,10 +67,35 @@ pub fn pair_get_state(
 #[tauri::command]
 pub fn config_open_file() -> Result<(), String> {
     let path = opencode_config_path().ok_or("Could not determine home directory")?;
+
+    // Create default config if file doesn't exist
+    if !path.exists() {
+        let parent = path.parent().ok_or("Could not determine config directory")?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create config directory: {}", e))?;
+
+        let default_config = serde_json::json!({
+            "provider": {
+                "openai": {
+                    "options": {
+                        "apiKey": ""
+                    },
+                    "models": {
+                        "gpt-4o-mini": { "name": "GPT-4o Mini" },
+                        "gpt-4o": { "name": "GPT-4o" }
+                    }
+                }
+            }
+        });
+
+        let content = serde_json::to_string_pretty(&default_config)
+            .map_err(|e| format!("Failed to serialize default config: {}", e))?;
+        std::fs::write(&path, content).map_err(|e| format!("Failed to write config file: {}", e))?;
+    }
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(path)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -80,14 +105,14 @@ pub fn config_open_file() -> Result<(), String> {
             .arg("/C")
             .arg("start")
             .arg("")
-            .arg(path)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(path)
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }

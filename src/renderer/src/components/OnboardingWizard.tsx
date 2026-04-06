@@ -429,7 +429,7 @@ function WelcomeCard({
         >
           Refresh
         </GlassButton>
-        {!summary.isReady && !loading && (
+        {!loading && (
           <GlassButton
             variant="secondary"
             size="sm"
